@@ -10,9 +10,9 @@ const cardData = [
   {
     id: 1,
     date: "March 3, 2025",
-    title: "How Hyper is Shaping a Trustless Economy",
+    title: "How Tempwallets is Shaping a Trustless Economy",
     description: "Blockchain is no longer just a buzzword. It's the backbone of a new era of digital innovation. . .",
-    label: "HyperChain",
+    label: "Tempwallets",
     image: "3D Black Chrome Shape (16).png",
     tags: ["Smart", "Contract", "Creation"]
   },

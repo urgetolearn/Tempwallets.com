@@ -164,7 +164,7 @@ const Navbar = () => {
           <img 
             src="/tempwallets-logo.png" 
             alt="TempWallets" 
-            className="h-[40px] w-[160px] lg:h-[50px] lg:w-[200px] object-contain"
+            className="h-[60px] w-[180px] md:h-[60px] md:w-[220px] lg:h-[65px] lg:w-[260px] xl:h-[80px] xl:w-[300px] object-contain"
           />
         </div>
 
@@ -173,7 +173,7 @@ const Navbar = () => {
           <a href="#" className="text-gray-400 hover:text-white transition-colors font-['Poppins']">
             Blogs
           </a>
-          <a href="#" className="text-gray-400 hover:text-white transition-colors font-['Poppins']">
+          <a href="https://t.me/tempwallets" className="text-gray-400 hover:text-white transition-colors font-['Poppins']">
             Contact
           </a>
           <div className="relative">
@@ -203,7 +203,7 @@ const Navbar = () => {
               <img 
                 src="/tempwallets-logo.png" 
                 alt="TempWallets" 
-                className="h-[40px] w-[160px] object-contain"
+                className="h-[60px] w-[200px] object-contain"
               />
               <button
                 onClick={() => setIsMobileMenuOpen(false)}

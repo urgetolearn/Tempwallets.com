@@ -106,7 +106,7 @@ const about = () => {
                     <div className="w-2 h-2 rounded-full bg-foreground"></div>
                     <span className="text-xs md:text-sm text-muted-foreground font-light">Wallet Recovery</span>
                   </div>
-                  <p className="text-3xl md:text-4xl lg:text-5xl font-light lg:pl-20">•  99%</p>
+                  <p className="text-3xl md:text-4xl lg:text-5xl font-light lg:pl-20">•  &lt;10%</p>
                 </div>
 
                 <div className="flex-1">
