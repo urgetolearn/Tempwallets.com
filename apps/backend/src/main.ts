@@ -7,9 +7,9 @@ async function bootstrap() {
 
   // Enable CORS with dynamic origins
   const allowedOrigins = [
-    'http://localhost:3000',  // Next.js web app
-    'http://localhost:5555',  // Prisma Studio
-    'http://localhost:5173',  // Vite (if you use it)
+    'http://localhost:3000', // Next.js web app
+    'http://localhost:5555', // Prisma Studio
+    'http://localhost:5173', // Vite (if you use it)
   ];
 
   // Add production frontend URL if set
@@ -25,20 +25,22 @@ async function bootstrap() {
   });
 
   // Enable validation
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
   // Enable graceful shutdown
   app.enableShutdownHooks();
 
   // Get port from environment or use default
   const port = parseInt(process.env.PORT || '5005', 10);
-  
+
   await app.listen(port);
-  
+
   console.log(`🚀 Application is running on: http://localhost:${port}`);
   console.log(`📊 Health check available at: http://localhost:${port}/health`);
 }

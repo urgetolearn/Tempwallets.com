@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { walletApi, WalletAddresses, WalletBalance, ApiError, subscribeToSSE } from '@/lib/api';
+import { useState, useCallback, useRef } from 'react';
+import { walletApi, UiWalletPayload, ApiError, subscribeToSSE } from '@/lib/api';
 import { walletStorage } from '@/lib/walletStorage';
 
 export interface WalletData {
@@ -16,16 +16,14 @@ export interface UseWalletReturn {
   changeWallets: (userId: string) => Promise<void>;
 }
 
-const CHAIN_NAMES: Record<string, string> = {
-  ethereum: 'Ethereum',
-  tron: 'Tron',
-  bitcoin: 'Bitcoin',
-  solana: 'Solana',
-  erc4337: 'ERC-4337',
-};
+const SMART_ACCOUNT_FALLBACK_NAME = 'EVM Smart Account';
+const SMART_ACCOUNT_CHAIN_KEY = 'evmSmartAccount';
 
-// ERC-4337 chains that share the same address
-const ERC4337_CHAINS = ['ethereumErc4337', 'baseErc4337', 'arbitrumErc4337', 'polygonErc4337'];
+const hasWalletEntries = (payload?: UiWalletPayload | null): boolean => {
+  if (!payload) return false;
+  if (payload.smartAccount?.address) return true;
+  return payload.auxiliary?.some((entry) => !!entry.address) ?? false;
+};
 
 export function useWallet(): UseWalletReturn {
   const [wallets, setWallets] = useState<WalletData[]>([]);
@@ -33,39 +31,31 @@ export function useWallet(): UseWalletReturn {
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnceRef = useRef<Record<string, boolean>>({});
 
-  const processWallets = useCallback((addresses: WalletAddresses) => {
-    const walletData: WalletData[] = [];
-    const erc4337Addresses: string[] = [];
-    
-    // Process ERC-4337 addresses first to check for duplicates
-    ERC4337_CHAINS.forEach(chain => {
-      const address = addresses[chain as keyof WalletAddresses];
-      if (address && !erc4337Addresses.includes(address)) {
-        erc4337Addresses.push(address);
-      }
-    });
-    
-    // Add ERC-4337 wallet if we have any addresses
-    if (erc4337Addresses.length > 0) {
-      const firstAddress = erc4337Addresses[0];
-      if (firstAddress) {
-        walletData.push({
-          name: CHAIN_NAMES.erc4337 || 'ERC-4337',
-          address: firstAddress,
-          chain: 'erc4337',
-        });
-      }
+  const processWallets = useCallback((payload?: UiWalletPayload | null) => {
+    if (!payload) {
+      setWallets([]);
+      return;
     }
-    
-    // Process other chains
-    Object.entries(addresses).forEach(([chain, address]) => {
-      if (address && !ERC4337_CHAINS.includes(chain)) {
-        walletData.push({
-          name: CHAIN_NAMES[chain] || chain,
-          address: address,
-          chain,
-        });
-      }
+
+    const walletData: WalletData[] = [];
+
+    if (payload.smartAccount?.address) {
+      walletData.push({
+        name: payload.smartAccount.label || SMART_ACCOUNT_FALLBACK_NAME,
+        address: payload.smartAccount.address,
+        chain: SMART_ACCOUNT_CHAIN_KEY,
+      });
+    } else {
+      console.warn('⚠️ No ERC-4337 smart account available to display');
+    }
+
+    payload.auxiliary?.forEach((entry) => {
+      if (!entry.address) return;
+      walletData.push({
+        name: entry.label || entry.chain,
+        address: entry.address,
+        chain: entry.chain,
+      });
     });
 
     setWallets(walletData);
@@ -81,21 +71,21 @@ export function useWallet(): UseWalletReturn {
     console.log('🔍 Loading wallet for user:', userId);
     
     // STEP 1: Always load from localStorage first (instant display)
-    const cachedAddresses = walletStorage.getAddresses(userId);
+  const cachedWallets = walletStorage.getAddresses(userId);
     const hasLoadedBefore = hasLoadedOnceRef.current[userId] || false;
-    const hasWalletsInCache = !!cachedAddresses && Object.values(cachedAddresses).some(address => address && address.length > 0);
+  const hasWalletsInCache = hasWalletEntries(cachedWallets);
     
     // If we have cached data and not forcing refresh, use cache and skip API
     if (hasWalletsInCache && !forceRefresh && hasLoadedBefore) {
       console.log('⚡ Using cached wallets (no API call)');
-      processWallets(cachedAddresses);
+      processWallets(cachedWallets);
       return; // Skip API call - addresses don't change unless user changes wallet
     }
 
     // STEP 2: Load from cache immediately for display
-    if (hasWalletsInCache) {
+    if (hasWalletsInCache && cachedWallets) {
       console.log('⚡ Loading wallets from cache (instant)');
-      processWallets(cachedAddresses!);
+      processWallets(cachedWallets);
     }
 
     // STEP 3: Only call API if first time or forceRefresh
@@ -113,44 +103,38 @@ export function useWallet(): UseWalletReturn {
     
     if (useSSE) {
       const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5005'}/wallet/addresses-stream?userId=${encodeURIComponent(userId)}`;
-      const collectedAddresses: Partial<WalletAddresses> = {};
       let completed = false;
       let unsubscribeFn: (() => void) | null = null;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       
       try {
-        unsubscribeFn = subscribeToSSE<{ chain: string; address: string | null }>(
+        unsubscribeFn = subscribeToSSE<UiWalletPayload>(
           url,
           (data) => {
-            // Update addresses progressively as they arrive
-            if (data.chain && data.chain !== 'type') {
-              collectedAddresses[data.chain as keyof WalletAddresses] = data.address;
-              // Immediately update UI with new address
-              const partialAddresses = { ...cachedAddresses, ...collectedAddresses } as WalletAddresses;
-              processWallets(partialAddresses);
-              walletStorage.setAddresses(userId, partialAddresses);
-            }
+            if (!data) return;
+            processWallets(data);
+            walletStorage.setAddresses(userId, data);
           },
           (error) => {
             console.warn('⚠️ SSE error, falling back to batch API:', error);
             // Fallback to batch API
             if (unsubscribeFn) unsubscribeFn();
-            loadWalletsBatch(userId, cachedAddresses);
+            if (timeoutId) clearTimeout(timeoutId);
+            loadWalletsBatch(userId, cachedWallets ?? null);
           },
           () => {
             completed = true;
-            // Final update with all addresses
-            const finalAddresses = { ...cachedAddresses, ...collectedAddresses } as WalletAddresses;
-            walletStorage.setAddresses(userId, finalAddresses);
+            if (timeoutId) clearTimeout(timeoutId);
             hasLoadedOnceRef.current[userId] = true;
             setLoading(false);
           }
         );
 
         // Cleanup function (timeout after 30 seconds)
-        const timeout = setTimeout(() => {
+        timeoutId = setTimeout(() => {
           if (!completed && unsubscribeFn) {
             unsubscribeFn();
-            loadWalletsBatch(userId, cachedAddresses);
+            loadWalletsBatch(userId, cachedWallets ?? null);
           }
         }, 30000);
 
@@ -160,19 +144,20 @@ export function useWallet(): UseWalletReturn {
       } catch (err) {
         console.warn('⚠️ SSE not available, using batch API:', err);
         if (unsubscribeFn) unsubscribeFn();
-        await loadWalletsBatch(userId, cachedAddresses);
+        if (timeoutId) clearTimeout(timeoutId);
+        await loadWalletsBatch(userId, cachedWallets ?? null);
         return;
       }
     }
     
     // Fallback to batch API if SSE not supported
-    await loadWalletsBatch(userId, cachedAddresses);
+    await loadWalletsBatch(userId, cachedWallets ?? null);
 
     // Helper function for batch loading (fallback)
-    async function loadWalletsBatch(userId: string, cachedAddresses: WalletAddresses | null) {
+    async function loadWalletsBatch(userId: string, cachedPayload: UiWalletPayload | null) {
       try {
         // Try to get addresses from API
-        let addresses;
+        let addresses: UiWalletPayload;
         try {
           addresses = await walletApi.getAddresses(userId);
         } catch (err) {
@@ -194,7 +179,7 @@ export function useWallet(): UseWalletReturn {
             console.log('✅ New wallet created successfully');
           } else {
             // If it's a different error, check if we have cache to fall back to
-            if (!cachedAddresses) {
+            if (!cachedPayload) {
               throw err;
             }
             // If we have cache, log error but don't throw - use cached data
@@ -206,7 +191,7 @@ export function useWallet(): UseWalletReturn {
         }
         
         // Check if user has any wallets (in case addresses are all null)
-        const hasWallets = Object.values(addresses).some(address => address && address.length > 0);
+        const hasWallets = hasWalletEntries(addresses);
         
         if (!hasWallets) {
           console.log('🆕 Wallet exists but no addresses. Creating new wallet...');
@@ -247,7 +232,7 @@ export function useWallet(): UseWalletReturn {
         
         // If we have cached data and API fails, keep showing cached data silently
         // Only show error if we don't have cached data to fall back to
-        if (!cachedAddresses) {
+        if (!cachedPayload) {
           setError(errorMessage);
         } else {
           console.log('✅ Using cached data due to API error');

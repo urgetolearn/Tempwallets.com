@@ -1,17 +1,26 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5005';
 
-export interface WalletAddresses {
-  ethereum: string | null;
-  base: string | null;
-  arbitrum: string | null;
-  polygon: string | null;
-  tron: string | null;
-  bitcoin: string | null;
-  solana: string | null;
-  ethereumErc4337: string | null;
-  baseErc4337: string | null;
-  arbitrumErc4337: string | null;
-  polygonErc4337: string | null;
+export interface SmartAccountSummary {
+  key: 'evmSmartAccount';
+  label: string;
+  canonicalChain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche' | null;
+  address: string | null;
+  chains: Record<
+    'ethereumErc4337' | 'baseErc4337' | 'arbitrumErc4337' | 'polygonErc4337' | 'avalancheErc4337',
+    string | null
+  >;
+}
+
+export interface UiWalletEntry {
+  key: string;
+  label: string;
+  chain: string;
+  address: string | null;
+}
+
+export interface UiWalletPayload {
+  smartAccount: SmartAccountSummary | null;
+  auxiliary: UiWalletEntry[];
 }
 
 export interface WalletBalance {
@@ -31,8 +40,9 @@ export interface AnyChainAsset {
   chain: string; // zerion chain id, e.g., ethereum | base | arbitrum | polygon | solana
   address: string | null; // null for native
   symbol: string;
-  balance: string; // 18-decimal normalized string
-  decimals: number;
+  balance: string; // smallest units (wei, satoshi, lamports, etc.)
+  decimals: number; // actual token decimals (e.g., 6 for USDC, 18 for ETH/WETH, 8 for WBTC)
+  balanceHuman?: string; // human-readable balance already converted by backend
 }
 
 export interface Transaction {
@@ -48,10 +58,18 @@ export interface Transaction {
   tokenAddress?: string;
 }
 
+export interface WalletConnectNamespacePayload {
+  namespace: 'eip155';
+  chains: string[];
+  accounts: string[];
+  addressesByChain: Record<string, string>;
+}
+
 export interface SendCryptoRequest {
   userId: string;
   chain: string;
   tokenAddress?: string;
+  tokenDecimals?: number;
   amount: string;
   recipientAddress: string;
 }
@@ -136,8 +154,8 @@ export const walletApi = {
   /**
    * Get all wallet addresses for a user
    */
-  async getAddresses(userId: string): Promise<WalletAddresses> {
-    return fetchApi<WalletAddresses>(`/wallet/addresses?userId=${encodeURIComponent(userId)}`);
+  async getAddresses(userId: string): Promise<UiWalletPayload> {
+    return fetchApi<UiWalletPayload>(`/wallet/addresses?userId=${encodeURIComponent(userId)}`);
   },
 
   /**
@@ -194,6 +212,15 @@ export const walletApi = {
    */
   async getTransactionsAny(userId: string, limit: number = 100): Promise<Transaction[]> {
     return fetchApi<Transaction[]>(`/wallet/transactions-any?userId=${encodeURIComponent(userId)}&limit=${limit}`);
+  },
+
+  /**
+   * Get WalletConnect-compatible accounts/namespaces for a user
+   */
+  async getWalletConnectAccounts(userId: string): Promise<WalletConnectNamespacePayload> {
+    return fetchApi<WalletConnectNamespacePayload>(
+      `/wallet/walletconnect/accounts?userId=${encodeURIComponent(userId)}`
+    );
   },
 
   /**

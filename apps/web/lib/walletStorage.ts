@@ -1,4 +1,4 @@
-import { WalletAddresses } from './api';
+import { UiWalletPayload } from './api';
 
 const STORAGE_KEYS = {
   WALLET_ADDRESSES: 'tempwallets_addresses',
@@ -8,9 +8,9 @@ const STORAGE_KEYS = {
 
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
-export interface CachedWalletAddresses {
+export interface CachedWalletPayload {
   userId: string;
-  addresses: WalletAddresses;
+  addresses: UiWalletPayload;
   timestamp: number;
 }
 
@@ -18,10 +18,10 @@ export const walletStorage = {
   /**
    * Store wallet addresses in local storage
    */
-  setAddresses(userId: string, addresses: WalletAddresses): void {
+  setAddresses(userId: string, addresses: UiWalletPayload): void {
     if (typeof window === 'undefined') return;
     
-    const cacheData: CachedWalletAddresses = {
+    const cacheData: CachedWalletPayload = {
       userId,
       addresses,
       timestamp: Date.now(),
@@ -38,20 +38,25 @@ export const walletStorage = {
   /**
    * Get cached wallet addresses from local storage
    */
-  getAddresses(userId: string): WalletAddresses | null {
+  getAddresses(userId: string): UiWalletPayload | null {
     if (typeof window === 'undefined') return null;
     
     try {
-      const cached = localStorage.getItem(STORAGE_KEYS.WALLET_ADDRESSES);
-      if (!cached) return null;
+  const cached = localStorage.getItem(STORAGE_KEYS.WALLET_ADDRESSES);
+  if (!cached) return null;
       
-      const cacheData: CachedWalletAddresses = JSON.parse(cached);
+  const cacheData: CachedWalletPayload = JSON.parse(cached);
       
       // Check if cache is for the same user and not expired
       if (cacheData.userId !== userId) return null;
       if (Date.now() - cacheData.timestamp > CACHE_DURATION) return null;
       
-      return cacheData.addresses;
+      const addresses = cacheData.addresses;
+      if (!addresses || typeof addresses !== 'object' || !('smartAccount' in addresses)) {
+        return null;
+      }
+
+      return addresses;
     } catch (error) {
       console.warn('Failed to retrieve wallet addresses from localStorage:', error);
       return null;
@@ -89,9 +94,10 @@ export const walletStorage = {
       const cached = localStorage.getItem(STORAGE_KEYS.WALLET_ADDRESSES);
       if (!cached) return 0;
       
-      const cacheData: CachedWalletAddresses = JSON.parse(cached);
+      const cacheData: CachedWalletPayload = JSON.parse(cached);
       return (Date.now() - cacheData.timestamp) / (1000 * 60 * 60); // hours
     } catch (error) {
+      console.warn('Failed to calculate wallet cache age:', error);
       return 0;
     }
   },

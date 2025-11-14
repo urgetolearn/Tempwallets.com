@@ -1,42 +1,116 @@
-import { Injectable, BadRequestException, Logger, UnprocessableEntityException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  Logger,
+  UnprocessableEntityException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import WDK from '@tetherto/wdk';
-import WalletManagerEvm from '@tetherto/wdk-wallet-evm';
-import WalletManagerTron from '@tetherto/wdk-wallet-tron';
-import WalletManagerBtc from '@tetherto/wdk-wallet-btc';
-import WalletManagerSolana from '@tetherto/wdk-wallet-solana';
-import WalletManagerEvmErc4337 from '@tetherto/wdk-wallet-evm-erc-4337';
 import { SeedRepository } from './seed.repository.js';
-import { ZerionService } from './zerion.service.js';
-
-export interface WalletAddresses {
-  ethereum: string;
-  base: string;
-  arbitrum: string;
-  polygon: string;
-  tron: string;
-  bitcoin: string;
-  solana: string;
-  ethereumErc4337: string;
-  baseErc4337: string;
-  arbitrumErc4337: string;
-  polygonErc4337: string;
-}
+import { ZerionService, TokenBalance } from './zerion.service.js';
+import { SeedManager } from './managers/seed.manager.js';
+import { AddressManager } from './managers/address.manager.js';
+import { AccountFactory } from './factories/account.factory.js';
+import { PimlicoAccountFactory } from './factories/pimlico-account.factory.js';
+import { IAccount } from './types/account.types.js';
+import { AllChainTypes, Erc4337Chain } from './types/chain.types.js';
+import {
+  WalletAddresses,
+  UiWalletPayload,
+  WalletAddressContext,
+  WalletAddressMetadataMap,
+  SmartAccountSummary,
+  UiWalletEntry,
+  WalletAddressKey,
+  WalletAddressKind,
+  WalletConnectNamespacePayload,
+} from './interfaces/wallet.interfaces.js';
+import {
+  convertToSmallestUnits,
+  convertSmallestToHuman,
+} from './utils/conversion.utils.js';
+import { validateAmount } from './utils/validation.utils.js';
 
 @Injectable()
 export class WalletService {
   private readonly logger = new Logger(WalletService.name);
   // Cache for discovered tokens: userId:chain -> { tokens, timestamp }
-  private tokenCache: Map<string, { tokens: Array<{ address: string | null; symbol: string; balance: string; decimals: number }>; timestamp: number }> = new Map();
+  private tokenCache: Map<
+    string,
+    {
+      tokens: Array<{
+        address: string | null;
+        symbol: string;
+        balance: string;
+        decimals: number;
+      }>;
+      timestamp: number;
+    }
+  > = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
-  // Cache for addresses per user to avoid repeated fetching
-  private addressCache: Map<string, { addresses: WalletAddresses; timestamp: number }> = new Map();
-  private readonly ADDRESS_CACHE_TTL = 60 * 1000; // 1 minute cache (addresses don't change often)
+  private readonly SMART_ACCOUNT_CHAIN_KEYS: Array<
+    | 'ethereumErc4337'
+    | 'baseErc4337'
+    | 'arbitrumErc4337'
+    | 'polygonErc4337'
+    | 'avalancheErc4337'
+  > = [
+    'ethereumErc4337',
+    'baseErc4337',
+    'arbitrumErc4337',
+    'polygonErc4337',
+    'avalancheErc4337',
+  ];
+  private readonly EOA_CHAIN_KEYS: Array<
+    'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche'
+  > = ['ethereum', 'base', 'arbitrum', 'polygon', 'avalanche'];
+  private readonly NON_EVM_CHAIN_KEYS: Array<'tron' | 'bitcoin' | 'solana'> = [
+    'tron',
+    'bitcoin',
+    'solana',
+  ];
+  private readonly UI_SMART_ACCOUNT_LABEL = 'EVM Smart Account';
+  private readonly WALLETCONNECT_CHAIN_CONFIG = [
+    {
+      chainId: 1,
+      erc4337Key: 'ethereumErc4337' as WalletAddressKey,
+      fallbackKey: 'ethereum' as WalletAddressKey,
+      label: 'Ethereum',
+    },
+    {
+      chainId: 8453,
+      erc4337Key: 'baseErc4337' as WalletAddressKey,
+      fallbackKey: 'base' as WalletAddressKey,
+      label: 'Base',
+    },
+    {
+      chainId: 42161,
+      erc4337Key: 'arbitrumErc4337' as WalletAddressKey,
+      fallbackKey: 'arbitrum' as WalletAddressKey,
+      label: 'Arbitrum',
+    },
+    {
+      chainId: 137,
+      erc4337Key: 'polygonErc4337' as WalletAddressKey,
+      fallbackKey: 'polygon' as WalletAddressKey,
+      label: 'Polygon',
+    },
+    {
+      chainId: 43114,
+      erc4337Key: 'avalancheErc4337' as WalletAddressKey,
+      fallbackKey: 'avalanche' as WalletAddressKey,
+      label: 'Avalanche',
+    },
+  ];
 
   constructor(
     private seedRepository: SeedRepository,
     private configService: ConfigService,
     private zerionService: ZerionService,
+    private seedManager: SeedManager,
+    private addressManager: AddressManager,
+    private accountFactory: AccountFactory,
+    private pimlicoAccountFactory: PimlicoAccountFactory,
   ) {}
 
   /**
@@ -50,27 +124,8 @@ export class WalletService {
     mode: 'random' | 'mnemonic',
     mnemonic?: string,
   ): Promise<void> {
-    let seedPhrase: string;
-
-    if (mode === 'random') {
-      seedPhrase = WDK.getRandomSeedPhrase();
-      this.logger.log(`Generated random seed phrase for user ${userId}`);
-    } else if (mode === 'mnemonic') {
-      if (!mnemonic) {
-        throw new BadRequestException('Mnemonic is required when mode is "mnemonic"');
-      }
-      // Basic validation - should be 12 or 24 words
-      const words = mnemonic.trim().split(/\s+/);
-      if (words.length !== 12 && words.length !== 24) {
-        throw new BadRequestException('Mnemonic must be 12 or 24 words');
-      }
-      seedPhrase = mnemonic;
-      this.logger.log(`Imported mnemonic for user ${userId}`);
-    } else {
-      throw new BadRequestException('Mode must be either "random" or "mnemonic"');
-    }
-
-    await this.seedRepository.createOrUpdateSeed(userId, seedPhrase);
+    // Use the SeedManager for all seed operations
+    return this.seedManager.createOrImportSeed(userId, mode, mnemonic);
   }
 
   /**
@@ -80,58 +135,205 @@ export class WalletService {
    * @returns Object containing addresses for all chains
    */
   async getAddresses(userId: string): Promise<WalletAddresses> {
-    // Check cache first to avoid repeated fetching
-    const cached = this.addressCache.get(userId);
-    if (cached && Date.now() - cached.timestamp < this.ADDRESS_CACHE_TTL) {
-      this.logger.debug(`Using cached addresses for user ${userId}`);
-      return cached.addresses;
-    }
+    // Use the AddressManager for address operations
+    return this.addressManager.getAddresses(userId);
+  }
 
-    // Check if wallet exists, create if not
-    const hasSeed = await this.seedRepository.hasSeed(userId);
-    
-    if (!hasSeed) {
-      this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
-      await this.createOrImportSeed(userId, 'random');
-      this.logger.log(`Successfully auto-created wallet for user ${userId}`);
-    }
+  async getWalletAddressContext(userId: string): Promise<WalletAddressContext> {
+    const { addresses, metadata } =
+      await this.addressManager.getManagedAddresses(userId);
+    const ui = this.buildUiWalletPayload(metadata);
+    return {
+      internal: addresses,
+      metadata,
+      ui,
+    };
+  }
 
-    const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
+  async getUiWalletAddresses(userId: string): Promise<UiWalletPayload> {
+    const context = await this.getWalletAddressContext(userId);
+    return context.ui;
+  }
 
-    const wdk = this.createWdkInstance(seedPhrase);
+  async getWalletConnectAccounts(
+    userId: string,
+  ): Promise<WalletConnectNamespacePayload> {
+    const { metadata } = await this.addressManager.getManagedAddresses(userId);
 
-    const accounts = {
-      ethereum: await wdk.getAccount('ethereum', 0),
-      base: await wdk.getAccount('base', 0),
-      arbitrum: await wdk.getAccount('arbitrum', 0),
-      polygon: await wdk.getAccount('polygon', 0),
-      tron: await wdk.getAccount('tron', 0),
-      bitcoin: await wdk.getAccount('bitcoin', 0),
-      solana: await wdk.getAccount('solana', 0),
-      ethereumErc4337: await wdk.getAccount('ethereum-erc4337', 0),
-      baseErc4337: await wdk.getAccount('base-erc4337', 0),
-      arbitrumErc4337: await wdk.getAccount('arbitrum-erc4337', 0),
-      polygonErc4337: await wdk.getAccount('polygon-erc4337', 0),
+    const namespace: WalletConnectNamespacePayload = {
+      namespace: 'eip155',
+      chains: [],
+      accounts: [],
+      addressesByChain: {},
     };
 
-    const addresses: Partial<WalletAddresses> = {};
+    for (const config of this.WALLETCONNECT_CHAIN_CONFIG) {
+      const primary = metadata[config.erc4337Key]?.address;
+      const fallback = metadata[config.fallbackKey]?.address;
+      const address = primary || fallback;
 
-    for (const [chain, account] of Object.entries(accounts)) {
-      try {
-        const address = await account.getAddress();
-        addresses[chain as keyof WalletAddresses] = address;
-        this.logger.debug(`Successfully got address for ${chain}: ${address}`);
-      } catch (error) {
-        this.logger.error(`Error getting address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        addresses[chain as keyof WalletAddresses] = null as any;
+      if (!address) {
+        continue;
       }
+
+      const chainTag = `eip155:${config.chainId}`;
+      namespace.chains.push(chainTag);
+      namespace.accounts.push(`${chainTag}:${address}`);
+      namespace.addressesByChain[chainTag] = address;
     }
 
-    const result = addresses as WalletAddresses;
-    // Cache the addresses
-    this.addressCache.set(userId, { addresses: result, timestamp: Date.now() });
-    
-    return result;
+    if (namespace.accounts.length === 0) {
+      throw new BadRequestException(
+        'No WalletConnect-compatible addresses found. Please initialize your wallet first.',
+      );
+    }
+
+    return namespace;
+  }
+
+  private buildUiWalletPayload(
+    metadata: WalletAddressMetadataMap,
+  ): UiWalletPayload {
+    const chainsRecord = {
+      ethereumErc4337: metadata.ethereumErc4337?.address ?? null,
+      baseErc4337: metadata.baseErc4337?.address ?? null,
+      arbitrumErc4337: metadata.arbitrumErc4337?.address ?? null,
+      polygonErc4337: metadata.polygonErc4337?.address ?? null,
+      avalancheErc4337: metadata.avalancheErc4337?.address ?? null,
+    };
+
+    const canonicalChainKey = this.SMART_ACCOUNT_CHAIN_KEYS.find(
+      (key) => metadata[key]?.address,
+    );
+
+    const canonicalAddress = canonicalChainKey
+      ? (metadata[canonicalChainKey]?.address ?? null)
+      : null;
+    const canonicalChain = canonicalChainKey
+      ? this.normalizeSmartAccountChain(canonicalChainKey)
+      : null;
+
+    const smartAccount: SmartAccountSummary | null = canonicalAddress
+      ? {
+          key: 'evmSmartAccount',
+          label: this.UI_SMART_ACCOUNT_LABEL,
+          canonicalChain,
+          address: canonicalAddress,
+          chains: chainsRecord,
+        }
+      : null;
+
+    const auxiliary = this.buildAuxiliaryWalletEntries(metadata);
+
+    return {
+      smartAccount,
+      auxiliary,
+    };
+  }
+
+  private normalizeSmartAccountChain(
+    key:
+      | 'ethereumErc4337'
+      | 'baseErc4337'
+      | 'arbitrumErc4337'
+      | 'polygonErc4337'
+      | 'avalancheErc4337',
+  ): 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche' {
+    return key.replace('Erc4337', '') as
+      | 'ethereum'
+      | 'base'
+      | 'arbitrum'
+      | 'polygon'
+      | 'avalanche';
+  }
+
+  private buildAuxiliaryWalletEntries(
+    metadata: WalletAddressMetadataMap,
+  ): UiWalletEntry[] {
+    const entries: UiWalletEntry[] = [];
+
+    this.NON_EVM_CHAIN_KEYS.forEach((chain) => {
+      const entry = metadata[chain];
+      if (entry?.visible && entry.address) {
+        entries.push({
+          key: chain,
+          label: entry.label,
+          chain,
+          address: entry.address,
+        });
+      }
+    });
+
+    return entries;
+  }
+
+  private buildMetadataSnapshot(
+    partial: Partial<Record<WalletAddressKey, string | null>> | WalletAddresses,
+  ): WalletAddressMetadataMap {
+    const metadata = {} as WalletAddressMetadataMap;
+
+    const assign = (
+      chain: WalletAddressKey,
+      kind: WalletAddressKind,
+      visible: boolean,
+    ) => {
+      metadata[chain] = {
+        chain,
+        address: partial[chain] ?? null,
+        kind,
+        visible,
+        label: this.getLabelForChain(chain, kind),
+      };
+    };
+
+    this.EOA_CHAIN_KEYS.forEach((chain) => assign(chain, 'eoa', false));
+    this.SMART_ACCOUNT_CHAIN_KEYS.forEach((chain) =>
+      assign(chain, 'erc4337', true),
+    );
+    this.NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
+
+    return metadata;
+  }
+
+  private getLabelForChain(
+    chain: WalletAddressKey,
+    kind: WalletAddressKind,
+  ): string {
+    const baseLabels: Partial<Record<WalletAddressKey, string>> = {
+      ethereum: 'Ethereum',
+      base: 'Base',
+      arbitrum: 'Arbitrum',
+      polygon: 'Polygon',
+      avalanche: 'Avalanche',
+      tron: 'Tron',
+      bitcoin: 'Bitcoin',
+      solana: 'Solana',
+      ethereumErc4337: 'Ethereum Smart Account',
+      baseErc4337: 'Base Smart Account',
+      arbitrumErc4337: 'Arbitrum Smart Account',
+      polygonErc4337: 'Polygon Smart Account',
+      avalancheErc4337: 'Avalanche Smart Account',
+    };
+
+    const label = baseLabels[chain];
+    if (label) {
+      if (kind === 'eoa') {
+        return `${label} (EOA)`;
+      }
+      return label;
+    }
+    return chain;
+  }
+
+  private isVisibleChain(chain: WalletAddressKey): boolean {
+    return (
+      this.SMART_ACCOUNT_CHAIN_KEYS.includes(
+        chain as (typeof this.SMART_ACCOUNT_CHAIN_KEYS)[number],
+      ) ||
+      this.NON_EVM_CHAIN_KEYS.includes(
+        chain as (typeof this.NON_EVM_CHAIN_KEYS)[number],
+      )
+    );
   }
 
   /**
@@ -139,7 +341,16 @@ export class WalletService {
    * Uses Zerion any-chain endpoints per address (no chain filter) and merges results.
    * Primary addresses considered: EVM EOA (ethereum), first ERC-4337 smart account, and Solana.
    */
-  async getTokenBalancesAny(userId: string): Promise<Array<{ chain: string; address: string | null; symbol: string; balance: string; decimals: number }>> {
+  async getTokenBalancesAny(userId: string): Promise<
+    Array<{
+      chain: string;
+      address: string | null;
+      symbol: string;
+      balance: string;
+      decimals: number;
+      balanceHuman?: string;
+    }>
+  > {
     // Ensure wallet exists
     const hasSeed = await this.seedRepository.hasSeed(userId);
     if (!hasSeed) {
@@ -149,69 +360,69 @@ export class WalletService {
     }
 
     const addresses = await this.getAddresses(userId);
-    const erc4337Address = [
-      addresses.ethereumErc4337,
-      addresses.baseErc4337,
-      addresses.arbitrumErc4337,
-      addresses.polygonErc4337,
-    ].find((a) => !!a) || null;
+    const erc4337Address =
+      [
+        addresses.ethereumErc4337,
+        addresses.baseErc4337,
+        addresses.arbitrumErc4337,
+        addresses.polygonErc4337,
+        addresses.avalancheErc4337,
+      ].find((a) => !!a) || null;
 
-    const targetAddresses = [addresses.ethereum, erc4337Address, addresses.solana].filter(Boolean) as string[];
+    const targetAddresses = [
+      addresses.ethereum,
+      erc4337Address,
+      addresses.solana,
+    ].filter(Boolean) as string[];
     if (targetAddresses.length === 0) return [];
 
     // Fetch positions for each address in parallel
     const results = await Promise.all(
-      targetAddresses.map((addr) => this.zerionService.getPositionsAnyChain(addr))
+      targetAddresses.map((addr) =>
+        this.zerionService.getPositionsAnyChain(addr),
+      ),
     );
 
     // Merge and dedupe across addresses using chain_id + token address/native
-    const byKey = new Map<string, { chain: string; address: string | null; symbol: string; balance: string; decimals: number }>();
+    // Preserve Zerion's native balance format (smallest units) and decimals
+    const byKey = new Map<
+      string,
+      {
+        chain: string;
+        address: string | null;
+        symbol: string;
+        balance: string;
+        decimals: number;
+        balanceHuman?: string;
+      }
+    >();
 
-    for (const res of results) {
-      if (!res || !Array.isArray(res.data)) continue;
-      for (const tokenData of res.data) {
+    for (const parsedTokens of results) {
+      if (!parsedTokens || !Array.isArray(parsedTokens)) continue;
+      for (const token of parsedTokens) {
         try {
-          const chainId = tokenData.relationships?.chain?.data?.id || 'unknown';
-          const quantity = tokenData.attributes?.quantity;
-          if (!quantity) continue;
+          const chainId = token.chain;
+          const balanceSmallest = token.balanceSmallest;
 
-          const intPart = quantity.int || '0';
-          const decimals = quantity.decimals || 0;
-          const balance = `${intPart}${'0'.repeat(Math.max(0, 18 - decimals))}`;
-          if (parseFloat(balance) === 0) continue;
+          // Skip zero balances
+          if (balanceSmallest === '0' || BigInt(balanceSmallest) === 0n)
+            continue;
 
-          const fungible = tokenData.attributes?.fungible_info;
-          const implAddr = fungible?.implementations?.[0]?.address || null;
-          const isNative = tokenData.type === 'native' || !fungible;
-          const nativeSymbolByChain: Record<string, string> = {
-            ethereum: 'ETH',
-            base: 'ETH',
-            arbitrum: 'ETH',
-            polygon: 'MATIC',
-            solana: 'SOL',
-          };
-          const nativeDecimalsByChain: Record<string, number> = {
-            ethereum: 18,
-            base: 18,
-            arbitrum: 18,
-            polygon: 18,
-            solana: 9,
-          };
-          const symbol = isNative ? (nativeSymbolByChain[chainId] || 'NATIVE') : (fungible?.symbol || 'UNKNOWN');
-          const tokenDecimals = isNative ? (nativeDecimalsByChain[chainId] ?? 18) : (fungible?.decimals || 18);
-
-          const key = `${chainId}:${implAddr ? implAddr.toLowerCase() : 'native'}`;
+          const key = `${chainId}:${token.address ? token.address.toLowerCase() : 'native'}`;
           if (!byKey.has(key)) {
             byKey.set(key, {
               chain: chainId,
-              address: implAddr ? implAddr : null,
-              symbol,
-              balance,
-              decimals: tokenDecimals,
+              address: token.address,
+              symbol: token.symbol,
+              balance: balanceSmallest, // Keep smallest units as primary balance
+              decimals: token.decimals || 18, // Use Zerion's decimals with fallback
+              balanceHuman: token.balanceHuman.toString(), // Add human-readable for UI
             });
           }
         } catch (e) {
-          this.logger.debug(`Error processing any-chain token: ${e instanceof Error ? e.message : 'Unknown error'}`);
+          this.logger.debug(
+            `Error processing parsed token: ${e instanceof Error ? e.message : 'Unknown error'}`,
+          );
         }
       }
     }
@@ -223,41 +434,11 @@ export class WalletService {
    * Get transactions across any supported chains for the user's primary addresses
    * Merges and dedupes by chain_id + tx hash.
    */
-  async getTransactionsAny(userId: string, limit: number = 100): Promise<Array<{
-    txHash: string;
-    from: string;
-    to: string | null;
-    value: string;
-    timestamp: number | null;
-    blockNumber: number | null;
-    status: 'success' | 'failed' | 'pending';
-    chain: string;
-    tokenSymbol?: string;
-    tokenAddress?: string;
-  }>> {
-    const hasSeed = await this.seedRepository.hasSeed(userId);
-    if (!hasSeed) {
-      this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
-      await this.createOrImportSeed(userId, 'random');
-      this.logger.log(`Successfully auto-created wallet for user ${userId}`);
-    }
-
-    const addresses = await this.getAddresses(userId);
-    const erc4337Address = [
-      addresses.ethereumErc4337,
-      addresses.baseErc4337,
-      addresses.arbitrumErc4337,
-      addresses.polygonErc4337,
-    ].find((a) => !!a) || null;
-
-    const targetAddresses = [addresses.ethereum, erc4337Address, addresses.solana].filter(Boolean) as string[];
-    if (targetAddresses.length === 0) return [];
-
-    const perAddr = await Promise.all(
-      targetAddresses.map((addr) => this.zerionService.getTransactionsAnyChain(addr, limit))
-    );
-
-    const byKey = new Map<string, {
+  async getTransactionsAny(
+    userId: string,
+    limit: number = 100,
+  ): Promise<
+    Array<{
       txHash: string;
       from: string;
       to: string | null;
@@ -268,13 +449,59 @@ export class WalletService {
       chain: string;
       tokenSymbol?: string;
       tokenAddress?: string;
-    }>();
+    }>
+  > {
+    const hasSeed = await this.seedRepository.hasSeed(userId);
+    if (!hasSeed) {
+      this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
+      await this.createOrImportSeed(userId, 'random');
+      this.logger.log(`Successfully auto-created wallet for user ${userId}`);
+    }
+
+    const addresses = await this.getAddresses(userId);
+    const erc4337Address =
+      [
+        addresses.ethereumErc4337,
+        addresses.baseErc4337,
+        addresses.arbitrumErc4337,
+        addresses.polygonErc4337,
+      ].find((a) => !!a) || null;
+
+    const targetAddresses = [
+      addresses.ethereum,
+      erc4337Address,
+      addresses.solana,
+    ].filter(Boolean) as string[];
+    if (targetAddresses.length === 0) return [];
+
+    const perAddr = await Promise.all(
+      targetAddresses.map((addr) =>
+        this.zerionService.getTransactionsAnyChain(addr, limit),
+      ),
+    );
+
+    const byKey = new Map<
+      string,
+      {
+        txHash: string;
+        from: string;
+        to: string | null;
+        value: string;
+        timestamp: number | null;
+        blockNumber: number | null;
+        status: 'success' | 'failed' | 'pending';
+        chain: string;
+        tokenSymbol?: string;
+        tokenAddress?: string;
+      }
+    >();
 
     for (const list of perAddr) {
       for (const tx of list) {
         try {
           const attrs = tx.attributes || {};
-          const chainId = tx.relationships?.chain?.data?.id?.toLowerCase() || 'unknown';
+          const chainId =
+            tx.relationships?.chain?.data?.id?.toLowerCase() || 'unknown';
           const hash = (attrs.hash || tx.id || '').toLowerCase();
           if (!hash) continue;
 
@@ -284,7 +511,10 @@ export class WalletService {
             const s = attrs.status.toLowerCase();
             if (s === 'confirmed' || s === 'success') status = 'success';
             else if (s === 'failed' || s === 'error') status = 'failed';
-          } else if (attrs.block_confirmations !== undefined && attrs.block_confirmations > 0) {
+          } else if (
+            attrs.block_confirmations !== undefined &&
+            attrs.block_confirmations > 0
+          ) {
             status = 'success';
           }
 
@@ -324,7 +554,9 @@ export class WalletService {
             });
           }
         } catch (e) {
-          this.logger.debug(`Error processing any-chain tx: ${e instanceof Error ? e.message : 'Unknown error'}`);
+          this.logger.debug(
+            `Error processing any-chain tx: ${e instanceof Error ? e.message : 'Unknown error'}`,
+          );
         }
       }
     }
@@ -336,58 +568,24 @@ export class WalletService {
    * Stream addresses progressively (for SSE)
    * Yields addresses as they become available
    */
-  async *streamAddresses(userId: string): AsyncGenerator<{ chain: string; address: string | null }, void, unknown> {
-    // Check if wallet exists, create if not
-    const hasSeed = await this.seedRepository.hasSeed(userId);
-    
-    if (!hasSeed) {
-      this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
-      await this.createOrImportSeed(userId, 'random');
-      this.logger.log(`Successfully auto-created wallet for user ${userId}`);
-    }
+  async *streamAddresses(
+    userId: string,
+  ): AsyncGenerator<UiWalletPayload, void, unknown> {
+    const collected: Partial<Record<WalletAddressKey, string | null>> = {};
 
-    const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-    const wdk = this.createWdkInstance(seedPhrase);
+    for await (const { chain, address } of this.addressManager.streamAddresses(
+      userId,
+    )) {
+      const key = chain as WalletAddressKey;
+      collected[key] = address;
 
-    const chains = [
-      'ethereum',
-      'tron',
-      'bitcoin',
-      'solana',
-      'ethereumErc4337',
-      'baseErc4337',
-      'arbitrumErc4337',
-      'polygonErc4337',
-    ];
-
-    const wdkChainMap: Record<string, string> = {
-      ethereum: 'ethereum',
-      tron: 'tron',
-      bitcoin: 'bitcoin',
-      solana: 'solana',
-      ethereumErc4337: 'ethereum-erc4337',
-      baseErc4337: 'base-erc4337',
-      arbitrumErc4337: 'arbitrum-erc4337',
-      polygonErc4337: 'polygon-erc4337',
-    };
-
-    // Process each chain independently and yield immediately
-    for (const chain of chains) {
-      try {
-        const wdkChain = wdkChainMap[chain];
-        if (!wdkChain) {
-          yield { chain, address: null };
-          continue;
-        }
-
-        const account = await wdk.getAccount(wdkChain, 0);
-        const address = await account.getAddress();
-        yield { chain, address };
-        this.logger.log(`Streamed address for ${chain}: ${address}`);
-      } catch (error) {
-        this.logger.error(`Error getting address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        yield { chain, address: null };
+      if (!this.isVisibleChain(key)) {
+        continue;
       }
+
+      const metadata = this.buildMetadataSnapshot(collected);
+      const uiPayload = this.buildUiWalletPayload(metadata);
+      yield uiPayload;
     }
   }
 
@@ -395,11 +593,20 @@ export class WalletService {
    * Stream balances progressively (for SSE)
    * Yields balances as they're fetched from Zerion
    */
-  async *streamBalances(userId: string): AsyncGenerator<{
-    chain: string;
-    nativeBalance: string;
-    tokens: Array<{ address: string | null; symbol: string; balance: string; decimals: number }>;
-  }, void, unknown> {
+  async *streamBalances(userId: string): AsyncGenerator<
+    {
+      chain: string;
+      nativeBalance: string;
+      tokens: Array<{
+        address: string | null;
+        symbol: string;
+        balance: string;
+        decimals: number;
+      }>;
+    },
+    void,
+    unknown
+  > {
     // Get addresses first
     const addresses = await this.getAddresses(userId);
 
@@ -413,8 +620,8 @@ export class WalletService {
       try {
         // Get token balances from Zerion (includes native + tokens)
         const tokens = await this.getTokenBalances(userId, chain);
-        const nativeToken = tokens.find(t => t.address === null);
-        const otherTokens = tokens.filter(t => t.address !== null);
+        const nativeToken = tokens.find((t) => t.address === null);
+        const otherTokens = tokens.filter((t) => t.address !== null);
 
         yield {
           chain,
@@ -422,7 +629,9 @@ export class WalletService {
           tokens: otherTokens,
         };
       } catch (error) {
-        this.logger.error(`Error streaming balance for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.error(
+          `Error streaming balance for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
         yield { chain, nativeBalance: '0', tokens: [] };
       }
     }
@@ -434,10 +643,12 @@ export class WalletService {
    * @param userId - The user ID
    * @returns Array of balance objects
    */
-  async getBalances(userId: string): Promise<Array<{ chain: string; balance: string }>> {
+  async getBalances(
+    userId: string,
+  ): Promise<Array<{ chain: string; balance: string }>> {
     // Check if wallet exists, create if not
     const hasSeed = await this.seedRepository.hasSeed(userId);
-    
+
     if (!hasSeed) {
       this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
@@ -459,7 +670,7 @@ export class WalletService {
       try {
         // Get portfolio from Zerion
         const portfolio = await this.zerionService.getPortfolio(address, chain);
-        
+
         if (!portfolio?.data || !Array.isArray(portfolio.data)) {
           // Zerion doesn't support this chain or returned no data
           balances.push({ chain, balance: '0' });
@@ -468,7 +679,8 @@ export class WalletService {
 
         // Find native token in portfolio
         const nativeToken = portfolio.data.find(
-          (token) => token.type === 'native' || !token.attributes?.fungible_info
+          (token) =>
+            token.type === 'native' || !token.attributes?.fungible_info,
         );
 
         let balance = '0';
@@ -484,43 +696,16 @@ export class WalletService {
           chain,
           balance,
         });
-        
-        this.logger.log(`Successfully got balance for ${chain} from Zerion: ${balance}`);
+
+        this.logger.log(
+          `Successfully got balance for ${chain} from Zerion: ${balance}`,
+        );
       } catch (error) {
-        this.logger.error(`Error fetching balance for ${chain} from Zerion: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        // Fallback: try WDK if Zerion fails
-        try {
-          const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-          const wdk = this.createWdkInstance(seedPhrase);
-          const wdkChainMap: Record<string, string> = {
-            ethereum: 'ethereum',
-            base: 'base',
-            arbitrum: 'arbitrum',
-            polygon: 'polygon',
-            tron: 'tron',
-            bitcoin: 'bitcoin',
-            solana: 'solana',
-            ethereumErc4337: 'ethereum-erc4337',
-            baseErc4337: 'base-erc4337',
-            arbitrumErc4337: 'arbitrum-erc4337',
-            polygonErc4337: 'polygon-erc4337',
-          };
-          const wdkChain = wdkChainMap[chain];
-          if (wdkChain) {
-            const account = await wdk.getAccount(wdkChain, 0);
-            const wdkBalance = await account.getBalance();
-            balances.push({
-              chain,
-              balance: wdkBalance.toString(),
-            });
-            this.logger.log(`Fallback to WDK for ${chain}: ${wdkBalance.toString()}`);
-          } else {
-            balances.push({ chain, balance: '0' });
-          }
-        } catch (fallbackError) {
-          this.logger.error(`Fallback to WDK also failed for ${chain}`);
-          balances.push({ chain, balance: '0' });
-        }
+        this.logger.error(
+          `Error fetching balance for ${chain} from Zerion: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        // Return 0 balance if Zerion fails (Zerion is primary source)
+        balances.push({ chain, balance: '0' });
       }
     }
 
@@ -536,30 +721,36 @@ export class WalletService {
     userId: string,
   ): Promise<Array<{ chain: string; balance: string }>> {
     const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-    const wdk = this.createWdkInstance(seedPhrase);
 
-    const erc4337Accounts = {
-      Ethereum: await wdk.getAccount('ethereum-erc4337', 0),
-      Base: await wdk.getAccount('base-erc4337', 0),
-      Arbitrum: await wdk.getAccount('arbitrum-erc4337', 0),
-      Polygon: await wdk.getAccount('polygon-erc4337', 0),
-    };
+    const erc4337Chains: Array<{ name: string; chain: Erc4337Chain }> = [
+      { name: 'Ethereum', chain: 'ethereum' },
+      { name: 'Base', chain: 'base' },
+      { name: 'Arbitrum', chain: 'arbitrum' },
+      { name: 'Polygon', chain: 'polygon' },
+    ];
 
     const balances: Array<{ chain: string; balance: string }> = [];
 
-    for (const [chainName, account] of Object.entries(erc4337Accounts)) {
+    for (const { name: chainName, chain } of erc4337Chains) {
       try {
-        // Try to get paymaster token balance if the method exists
-        const balance = 'getPaymasterTokenBalance' in account
-          ? await (account as any).getPaymasterTokenBalance()
-          : null;
-        
+        // Create ERC-4337 account using Pimlico factory
+        const account = await this.pimlicoAccountFactory.createAccount(
+          seedPhrase,
+          chain,
+          0,
+        );
+
+        // Get paymaster token balance
+        // Note: This would need implementation in PimlicoSmartAccountWrapper if needed
+        // For now, returning 0 as paymaster balance checking is typically not exposed
         balances.push({
           chain: chainName,
-          balance: balance ? balance.toString() : '0',
+          balance: '0',
         });
       } catch (error) {
-        this.logger.error(`Error fetching paymaster balance for ${chainName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        this.logger.error(
+          `Error fetching paymaster balance for ${chainName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
         balances.push({
           chain: chainName,
           balance: '0',
@@ -571,12 +762,644 @@ export class WalletService {
   }
 
   /**
+   * Convert human-readable amount to smallest units (BigInt)
+   * @param humanAmount - Human-readable amount string (e.g., "1.5")
+   * @param decimals - Number of decimal places
+   * @returns BigInt representing the amount in smallest units
+   */
+  private convertToSmallestUnits(
+    humanAmount: string,
+    decimals: number,
+  ): bigint {
+    const [wholeRaw = '0', fracRaw = ''] = humanAmount.trim().split('.');
+    const whole = wholeRaw.replace(/^0+/, '') || '0';
+    const fracPadded = (fracRaw + '0'.repeat(decimals)).slice(0, decimals);
+    const combined = (whole + fracPadded).replace(/^0+/, '') || '0';
+    return BigInt(combined);
+  }
+
+  /**
+   * Convert smallest units to human-readable amount
+   * @param smallestUnits - Amount in smallest units (string)
+   * @param decimals - Number of decimal places
+   * @returns Human-readable amount string
+   */
+  private convertSmallestToHuman(
+    smallestUnits: string,
+    decimals: number,
+  ): string {
+    const smallestBigInt = BigInt(smallestUnits);
+    const divisor = BigInt(10 ** decimals);
+    const whole = smallestBigInt / divisor;
+    const remainder = smallestBigInt % divisor;
+
+    if (remainder === 0n) {
+      return whole.toString();
+    }
+
+    const remainderStr = remainder.toString().padStart(decimals, '0');
+    const trimmedRemainder = remainderStr.replace(/0+$/, '');
+    return `${whole}.${trimmedRemainder}`;
+  }
+
+  /**
+   * Chain ID aliases for Zerion API - Zerion may return chain IDs in different formats
+   */
+  private readonly CHAIN_ID_ALIASES: Record<string, string[]> = {
+    ethereum: ['ethereum', 'eth', 'eip155:1', 'ethereum-mainnet', '1'],
+    base: ['base', 'eip155:8453', 'base-mainnet', '8453'],
+    arbitrum: ['arbitrum', 'arbitrum-one', 'eip155:42161', '42161'],
+    polygon: ['polygon', 'matic', 'eip155:137', 'polygon-mainnet', '137'],
+    avalanche: [
+      'avalanche',
+      'avax',
+      'eip155:43114',
+      '43114',
+      'avalanche-c',
+    ],
+  };
+
+  /**
+   * Check if chain is ERC-4337 smart account chain
+   * @param chain - Internal chain name
+   * @returns true if chain is ERC-4337
+   */
+  private isErc4337Chain(chain: string): boolean {
+    return chain.includes('Erc4337') || chain.includes('erc4337');
+  }
+
+  /**
+   * Get all possible Zerion chain ID formats for a given internal chain
+   * @param internalChain - Internal chain name (e.g., 'baseErc4337' or 'base')
+   * @returns Array of possible Zerion chain ID formats
+   */
+  private getZerionChainAliases(internalChain: string): string[] {
+    // Remove ERC-4337 suffix to get base chain
+    const baseChain = internalChain.replace(/Erc4337/gi, '').toLowerCase();
+    return this.CHAIN_ID_ALIASES[baseChain] || [baseChain];
+  }
+
+  /**
+   * Check if a smart account is deployed on-chain
+   * @param account - WDK account instance
+   * @returns true if account is deployed, false otherwise
+   */
+  private async checkIfDeployed(account: any): Promise<boolean> {
+    try {
+      const address = await account.getAddress();
+
+      // Get provider from account
+      let provider: any = null;
+      if ('provider' in account) {
+        provider = account.provider;
+      } else if (
+        'getProvider' in account &&
+        typeof account.getProvider === 'function'
+      ) {
+        provider = await account.getProvider();
+      }
+
+      if (!provider || typeof provider.request !== 'function') {
+        this.logger.warn(
+          `Cannot check deployment status: provider not available for address ${address}`,
+        );
+        return false;
+      }
+
+      // Check if contract code exists at address
+      const code = await provider.request({
+        method: 'eth_getCode',
+        params: [address, 'latest'],
+      });
+
+      const isDeployed = code && code !== '0x' && code !== '0x0';
+
+      this.logger.log(
+        `[Deployment Check] Address: ${address}, deployed: ${isDeployed}, code length: ${code?.length || 0}`,
+      );
+
+      return isDeployed;
+    } catch (e) {
+      this.logger.error(
+        `Failed to check deployment status: ${e instanceof Error ? e.message : 'Unknown error'}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Deploy an ERC-4337 smart account using UserOperation
+   * @param account - WDK ERC-4337 account instance
+   * @param address - Account address
+   * @param chain - Internal chain name
+   * @returns Promise that resolves when deployment is complete
+   */
+  private async deployErc4337Account(
+    account: any,
+    address: string,
+    chain: string,
+  ): Promise<void> {
+    this.logger.log(
+      `[Deploy] Starting deployment for ERC-4337 account ${address} on ${chain}`,
+    );
+
+    try {
+      // Method 1: Try deployAccount() if available
+      if (
+        'deployAccount' in account &&
+        typeof account.deployAccount === 'function'
+      ) {
+        this.logger.debug(`[Deploy] Using account.deployAccount() method`);
+        const result = await account.deployAccount();
+        this.logger.log(
+          `[Deploy] Deployment result: ${JSON.stringify(result)}`,
+        );
+        return;
+      }
+
+      // Method 2: Try deploy() if available
+      if ('deploy' in account && typeof account.deploy === 'function') {
+        this.logger.debug(`[Deploy] Using account.deploy() method`);
+        const result = await account.deploy();
+        this.logger.log(
+          `[Deploy] Deployment result: ${JSON.stringify(result)}`,
+        );
+        return;
+      }
+
+      // Method 3: Send a zero-value transaction to self to trigger deployment
+      // ERC-4337 accounts typically auto-deploy on first UserOperation
+      if ('send' in account && typeof account.send === 'function') {
+        this.logger.debug(
+          `[Deploy] Using account.send() with zero-value self-transfer to trigger deployment`,
+        );
+        const result = await account.send(address, '0');
+        this.logger.log(
+          `[Deploy] Deployment triggered via self-transfer: ${JSON.stringify(result)}`,
+        );
+
+        // Wait a bit for deployment to be confirmed
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Verify deployment
+        const isNowDeployed = await this.checkIfDeployed(account);
+        if (!isNowDeployed) {
+          throw new Error(
+            'Deployment transaction sent but account not deployed yet. Please try again in a moment.',
+          );
+        }
+        return;
+      }
+
+      // Method 4: Try transfer with structured params
+      if ('transfer' in account && typeof account.transfer === 'function') {
+        this.logger.debug(
+          `[Deploy] Using account.transfer() to trigger deployment`,
+        );
+        const result = await account.transfer({
+          to: address,
+          amount: 0,
+        });
+        this.logger.log(
+          `[Deploy] Deployment triggered via transfer: ${JSON.stringify(result)}`,
+        );
+
+        // Wait for deployment confirmation
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Verify deployment
+        const isNowDeployed = await this.checkIfDeployed(account);
+        if (!isNowDeployed) {
+          throw new Error(
+            'Deployment transaction sent but account not deployed yet. Please try again in a moment.',
+          );
+        }
+        return;
+      }
+
+      // If no deployment method found, throw error
+      throw new Error(
+        `No deployment method available for ERC-4337 account. ` +
+          `Account type may not support auto-deployment. ` +
+          `Available methods: ${Object.keys(account)
+            .filter((k) => typeof account[k] === 'function')
+            .join(', ')}`,
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`[Deploy] Deployment failed: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch token decimals from RPC using ERC-20 decimals() call
+   * @param tokenAddress - Token contract address
+   * @param account - WDK account instance
+   * @returns Token decimals or null if failed
+   */
+  private async fetchDecimalsFromRPC(
+    tokenAddress: string,
+    account: any,
+  ): Promise<number | null> {
+    try {
+      let provider: any = null;
+      if ('provider' in account) {
+        provider = account.provider;
+      } else if (
+        'getProvider' in account &&
+        typeof account.getProvider === 'function'
+      ) {
+        provider = await account.getProvider();
+      }
+
+      if (!provider || typeof provider.request !== 'function') {
+        return null;
+      }
+
+      // ERC-20 decimals() function signature: 0x313ce567
+      const result = await provider.request({
+        method: 'eth_call',
+        params: [{ to: tokenAddress, data: '0x313ce567' }, 'latest'],
+      });
+
+      if (typeof result === 'string' && result !== '0x' && result !== '0x0') {
+        const parsed = parseInt(result, 16);
+        if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 36) {
+          this.logger.log(
+            `[RPC Decimals] Fetched decimals for ${tokenAddress}: ${parsed}`,
+          );
+          return parsed;
+        }
+      }
+
+      return null;
+    } catch (e) {
+      this.logger.debug(
+        `RPC decimals() call failed for ${tokenAddress}: ${e instanceof Error ? e.message : 'Unknown error'}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Validate balance on-chain (source of truth)
+   * @param tokenAddress - Token contract address (null for native)
+   * @param amountSmallest - Amount in smallest units (BigInt)
+   * @param account - WDK account instance
+   * @returns Validation result with balance
+   */
+  private async validateBalanceOnChain(
+    tokenAddress: string | null,
+    amountSmallest: bigint,
+    account: any,
+  ): Promise<{ sufficient: boolean; balance: string }> {
+    try {
+      let balanceBigInt: bigint;
+
+      if (tokenAddress) {
+        // ERC-20 token balance
+        if (
+          'getTokenBalance' in account &&
+          typeof account.getTokenBalance === 'function'
+        ) {
+          const bal = await account.getTokenBalance(tokenAddress);
+          balanceBigInt = BigInt(bal?.toString?.() ?? String(bal));
+        } else if (
+          'balanceOf' in account &&
+          typeof account.balanceOf === 'function'
+        ) {
+          const bal = await account.balanceOf(tokenAddress);
+          balanceBigInt = BigInt(bal?.toString?.() ?? String(bal));
+        } else {
+          // Fallback to direct RPC call
+          let provider: any = null;
+          if ('provider' in account) {
+            provider = account.provider;
+          } else if (
+            'getProvider' in account &&
+            typeof account.getProvider === 'function'
+          ) {
+            provider = await account.getProvider();
+          }
+
+          if (provider && typeof provider.request === 'function') {
+            const owner = await account.getAddress();
+            const data =
+              '0x70a08231' + owner.replace(/^0x/, '').padStart(64, '0');
+            const result = await provider.request({
+              method: 'eth_call',
+              params: [{ to: tokenAddress, data }, 'latest'],
+            });
+
+            if (typeof result === 'string' && result.startsWith('0x')) {
+              balanceBigInt = BigInt(result);
+            } else {
+              throw new Error('Invalid RPC response for token balance');
+            }
+          } else {
+            throw new Error('No provider available for balance check');
+          }
+        }
+      } else {
+        // Native token balance
+        const bal = await account.getBalance();
+        balanceBigInt = BigInt(bal?.toString?.() ?? String(bal));
+      }
+
+      const sufficient = balanceBigInt >= amountSmallest;
+
+      this.logger.log(
+        `[On-Chain Balance] Token: ${tokenAddress || 'native'}, ` +
+          `balance: ${balanceBigInt.toString()}, requested: ${amountSmallest.toString()}, ` +
+          `sufficient: ${sufficient}`,
+      );
+
+      return {
+        sufficient,
+        balance: balanceBigInt.toString(),
+      };
+    } catch (e) {
+      this.logger.error(
+        `On-chain balance validation failed: ${e instanceof Error ? e.message : 'Unknown error'}`,
+      );
+      throw e;
+    }
+  }
+
+  /**
+   * Get token info from Zerion for a specific token address
+   * @param tokenAddress - Token contract address
+   * @param chain - Internal chain name
+   * @param walletAddress - Wallet address to check
+   * @returns Token info with decimals and balance, or null if not found
+   */
+  private async getZerionTokenInfo(
+    tokenAddress: string,
+    chain: string,
+    walletAddress: string,
+  ): Promise<{
+    decimals: number;
+    balanceSmallest: string;
+    symbol?: string;
+  } | null> {
+    try {
+      // Get all possible Zerion chain ID formats for this chain
+      const chainAliases = this.getZerionChainAliases(chain);
+      const tokenAddressLower = tokenAddress.toLowerCase();
+      const aliasSet = new Set(
+        chainAliases.map((alias) => alias.toLowerCase()),
+      );
+
+      this.logger.log(
+        `[Zerion Lookup] Fetching positions for address: ${walletAddress}, ` +
+          `internal chain: ${chain}, Zerion chain aliases: [${chainAliases.join(', ')}], ` +
+          `token: ${tokenAddress}`,
+      );
+
+      const positionsAny =
+        await this.zerionService.getPositionsAnyChain(walletAddress);
+
+      if (!positionsAny || positionsAny.length === 0) {
+        this.logger.warn(
+          `[Zerion Lookup] No data returned for ${walletAddress}`,
+        );
+        return null;
+      }
+
+      this.logger.log(
+        `[Zerion Lookup] Got ${positionsAny.length} positions for ${walletAddress}`,
+      );
+
+      // Log all positions for debugging
+      positionsAny.forEach((p: TokenBalance, index: number) => {
+        this.logger.debug(
+          `[Zerion Position ${index}] symbol=${p.symbol}, ` +
+            `address=${p.address}, chain=${p.chain}, balance=${p.balanceSmallest}`,
+        );
+      });
+
+      // Check all implementations, not just the first one
+      const match = positionsAny.find((p: TokenBalance) => {
+        // Match by token address (case-insensitive) + Zerion chain aliases
+        const positionAddress = p.address?.toLowerCase();
+        const positionChain = p.chain?.toLowerCase() || '';
+        return (
+          !!positionAddress &&
+          positionAddress === tokenAddressLower &&
+          aliasSet.has(positionChain)
+        );
+      });
+
+      if (!match) {
+        this.logger.warn(
+          `[Zerion Lookup] No matching position found for token=${tokenAddress} on chain=${chain} ` +
+            `(checked aliases: [${chainAliases.join(', ')}])`,
+        );
+        return null;
+      }
+
+      const decimals = match.decimals;
+      const balanceSmallest = match.balanceSmallest;
+
+      if (typeof decimals !== 'number' || decimals < 0 || decimals > 36) {
+        this.logger.warn(
+          `[Zerion Lookup] Invalid decimals for token ${tokenAddress}: ${decimals}`,
+        );
+        return null;
+      }
+
+      this.logger.log(
+        `[Zerion Lookup] Found token: symbol=${match.symbol}, ` +
+          `decimals=${decimals}, balance=${balanceSmallest}`,
+      );
+
+      return {
+        decimals,
+        balanceSmallest,
+        symbol: match.symbol,
+      };
+    } catch (e) {
+      this.logger.error(
+        `[Zerion Lookup] Failed to get Zerion token info: ${e instanceof Error ? e.message : 'Unknown error'}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Validate balance from Zerion
+   * @param tokenAddress - Token contract address (null for native)
+   * @param amountSmallest - Amount in smallest units (BigInt)
+   * @param chain - Internal chain name
+   * @param walletAddress - Wallet address to check
+   * @returns Validation result with balance info
+   */
+  private async validateBalanceFromZerion(
+    tokenAddress: string | null,
+    amountSmallest: bigint,
+    chain: string,
+    walletAddress: string,
+  ): Promise<{
+    sufficient: boolean;
+    zerionBalance: string;
+    onChainBalance?: string;
+    error?: string;
+  }> {
+    try {
+      if (tokenAddress) {
+        // ERC-20 token
+        const tokenInfo = await this.getZerionTokenInfo(
+          tokenAddress,
+          chain,
+          walletAddress,
+        );
+        if (!tokenInfo) {
+          return {
+            sufficient: false,
+            zerionBalance: '0',
+            error: `Token ${tokenAddress} not found in Zerion for this wallet`,
+          };
+        }
+
+        const zerionBalanceBigInt = BigInt(tokenInfo.balanceSmallest);
+        const sufficient =
+          zerionBalanceBigInt >= BigInt(amountSmallest.toString());
+
+        return {
+          sufficient,
+          zerionBalance: tokenInfo.balanceSmallest,
+        };
+      } else {
+        // Native token - fetch from Zerion
+        const chainAliases = this.getZerionChainAliases(chain);
+
+        this.logger.log(
+          `[Zerion Balance] Fetching native balance for address: ${walletAddress}, ` +
+            `chain: ${chain}, aliases: [${chainAliases.join(', ')}]`,
+        );
+
+        const positionsAny =
+          await this.zerionService.getPositionsAnyChain(walletAddress);
+        if (!positionsAny || positionsAny.length === 0) {
+          return {
+            sufficient: false,
+            zerionBalance: '0',
+            error: 'Could not fetch native balance from Zerion',
+          };
+        }
+
+        const nativeMatch = positionsAny.find((p: TokenBalance) => {
+          const isNative = !p.address; // Native tokens have null address
+          const chainMatch = chainAliases.some(
+            (alias) => p.chain?.toLowerCase() === alias.toLowerCase(),
+          );
+
+          return isNative && chainMatch;
+        });
+
+        if (!nativeMatch) {
+          this.logger.warn(
+            `[Zerion Balance] Native token not found for chain=${chain} ` +
+              `(checked aliases: [${chainAliases.join(', ')}])`,
+          );
+          return {
+            sufficient: false,
+            zerionBalance: '0',
+            error: `Native token not found in Zerion for chain ${chain}`,
+          };
+        }
+
+        const balanceSmallest = nativeMatch.balanceSmallest;
+        const zerionBalanceBigInt = BigInt(balanceSmallest);
+        const sufficient =
+          zerionBalanceBigInt >= BigInt(amountSmallest.toString());
+
+        this.logger.log(
+          `[Zerion Balance] Native balance: ${balanceSmallest}, ` +
+            `requested: ${amountSmallest.toString()}, sufficient: ${sufficient}`,
+        );
+
+        return {
+          sufficient,
+          zerionBalance: balanceSmallest,
+        };
+      }
+    } catch (e) {
+      this.logger.error(
+        `Balance validation from Zerion failed: ${e instanceof Error ? e.message : 'Unknown error'}`,
+      );
+      return {
+        sufficient: false,
+        zerionBalance: '0',
+        error: `Balance validation error: ${e instanceof Error ? e.message : 'Unknown error'}`,
+      };
+    }
+  }
+
+  /**
+   * Create an account instance using appropriate factory based on chain type
+   * @param seedPhrase - The mnemonic seed phrase
+   * @param chain - The blockchain network
+   * @returns Account instance implementing IAccount interface
+   */
+  private async createAccountForChain(
+    seedPhrase: string,
+    chain: string,
+  ): Promise<IAccount> {
+    const isErc4337 = this.isErc4337Chain(chain);
+
+    if (isErc4337) {
+      // ERC-4337 chains: use PimlicoAccountFactory
+      const chainMap: Record<string, Erc4337Chain> = {
+        ethereumErc4337: 'ethereum',
+        baseErc4337: 'base',
+        arbitrumErc4337: 'arbitrum',
+        polygonErc4337: 'polygon',
+        avalancheErc4337: 'avalanche',
+      };
+
+      const erc4337Chain = chainMap[chain];
+      if (!erc4337Chain) {
+        throw new BadRequestException(`Unknown ERC-4337 chain: ${chain}`);
+      }
+
+      return await this.pimlicoAccountFactory.createAccount(
+        seedPhrase,
+        erc4337Chain,
+        0,
+      );
+    } else {
+      // EOA chains: use AccountFactory
+      const chainMap: Record<string, AllChainTypes> = {
+        ethereum: 'ethereum',
+        base: 'base',
+        arbitrum: 'arbitrum',
+        polygon: 'polygon',
+        avalanche: 'avalanche',
+        tron: 'tron',
+        bitcoin: 'bitcoin',
+        solana: 'solana',
+      };
+
+      const eoaChain = chainMap[chain];
+      if (!eoaChain) {
+        throw new BadRequestException(`Unknown EOA chain: ${chain}`);
+      }
+
+      return await this.accountFactory.createAccount(seedPhrase, eoaChain, 0);
+    }
+  }
+
+  /**
    * Send crypto to a recipient address
    * @param userId - The user ID
    * @param chain - The blockchain network
    * @param recipientAddress - The recipient's address
    * @param amount - The amount to send (as string to preserve precision)
    * @param tokenAddress - Optional token contract address for ERC-20 tokens
+   * @param tokenDecimals - Optional token decimals from Zerion/UI (if provided, will be used directly)
    * @returns Transaction hash
    */
   async sendCrypto(
@@ -585,12 +1408,15 @@ export class WalletService {
     recipientAddress: string,
     amount: string,
     tokenAddress?: string,
+    tokenDecimals?: number,
   ): Promise<{ txHash: string }> {
-    this.logger.log(`Sending crypto for user ${userId} on chain ${chain}: ${amount} to ${recipientAddress}`);
+    this.logger.log(
+      `Sending crypto for user ${userId} on chain ${chain}: ${amount} to ${recipientAddress}`,
+    );
 
     // Check if wallet exists, create if not
     const hasSeed = await this.seedRepository.hasSeed(userId);
-    
+
     if (!hasSeed) {
       this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
@@ -603,363 +1429,433 @@ export class WalletService {
       throw new BadRequestException('Amount must be a positive number');
     }
 
+    // Determine account type for logging and error handling (needed in catch block)
+    const isErc4337 = this.isErc4337Chain(chain);
+    const accountType = isErc4337 ? 'ERC-4337' : 'EOA';
+
     try {
       const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-      const wdk = this.createWdkInstance(seedPhrase);
 
-      // Map chain name to WDK chain identifier
-      const wdkChainMap: Record<string, string> = {
-        ethereum: 'ethereum',
-        base: 'base',
-        arbitrum: 'arbitrum',
-        polygon: 'polygon',
-        tron: 'tron',
-        bitcoin: 'bitcoin',
-        solana: 'solana',
-        ethereumErc4337: 'ethereum-erc4337',
-        baseErc4337: 'base-erc4337',
-        arbitrumErc4337: 'arbitrum-erc4337',
-        polygonErc4337: 'polygon-erc4337',
-      };
+      // Create account using appropriate factory
+      const account = await this.createAccountForChain(seedPhrase, chain);
+      const walletAddress = await account.getAddress();
 
-      const wdkChain = wdkChainMap[chain];
-      if (!wdkChain) {
-        throw new BadRequestException(`Unsupported chain: ${chain}`);
+      this.logger.log(
+        `[Send Debug] User is sending ${amount} ${tokenAddress || 'native'} from ${chain} ` +
+          `(accountType: ${accountType}, address: ${walletAddress})`,
+      );
+
+      // Check if ERC-4337 smart account is deployed, auto-deploy if needed
+      if (isErc4337) {
+        const isDeployed = await this.checkIfDeployed(account);
+        if (!isDeployed) {
+          this.logger.log(
+            `[Auto-Deploy] ERC-4337 account ${walletAddress} is not deployed. Initiating auto-deployment...`,
+          );
+
+          try {
+            // Auto-deploy the smart account
+            await this.deployErc4337Account(account, walletAddress, chain);
+            this.logger.log(
+              `[Auto-Deploy] Successfully deployed ERC-4337 account ${walletAddress}`,
+            );
+          } catch (deployError) {
+            const errorMessage =
+              deployError instanceof Error
+                ? deployError.message
+                : 'Unknown error';
+            this.logger.error(
+              `[Auto-Deploy] Failed to deploy ERC-4337 account ${walletAddress}: ${errorMessage}`,
+            );
+            throw new ServiceUnavailableException(
+              `Failed to auto-deploy ERC-4337 smart account. ` +
+                `Error: ${errorMessage}. ` +
+                `Please ensure you have sufficient funds for deployment or try again later.`,
+            );
+          }
+        } else {
+          this.logger.log(
+            `[Send Debug] ERC-4337 account ${walletAddress} is already deployed`,
+          );
+        }
       }
 
-      const account = await wdk.getAccount(wdkChain, 0);
+      // Get decimals: Use provided tokenDecimals, or fetch from Zerion, or use native decimals
+      let finalDecimals: number;
+      let decimalsSource: string;
 
-      // Convert human amount -> smallest units using authoritative decimals
-      const toSmallest = (val: string, decimals: number): string => {
-        const [wholeRaw, fracRaw] = (val?.trim?.() ?? '').split('.');
-        const whole = wholeRaw ?? '0';
-        const frac = fracRaw ?? '';
-        const cleanWhole = whole.replace(/^0+/, '') || '0';
-        const fracPadded = (frac + '0'.repeat(decimals)).slice(0, decimals);
-        const combined = (cleanWhole + fracPadded).replace(/^0+/, '') || '0';
-        return combined;
-      };
-
-      // Get decimals
-      let tokenDecimals = 18; // Start with common fallback
-      let decimalsSource = 'fallback-18';
       if (tokenAddress) {
-        // Try ERC-20 decimals via provider
-        try {
-          let provider: any = null;
-          if ('provider' in account) provider = (account as any).provider;
-          else if ('getProvider' in account && typeof (account as any).getProvider === 'function') provider = await (account as any).getProvider();
-          if (provider && typeof provider.request === 'function') {
-            const result = await provider.request({
-              method: 'eth_call',
-              params: [{ to: tokenAddress, data: '0x313ce567' }, 'latest'],
-            });
-            if (typeof result === 'string' && result !== '0x' && result !== '0x0') {
-              const parsed = parseInt(result, 16);
-              if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 36) {
-                tokenDecimals = parsed;
-                decimalsSource = 'rpc-decimals()';
-              }
-            }
-          }
-        } catch (e) {
-          this.logger.debug(`ERC-20 decimals() call failed, will try Zerion metadata: ${e instanceof Error ? e.message : 'Unknown error'}`);
-        }
-        // Zerion fallback for decimals - always try if we don't have valid decimals yet
-        if (decimalsSource === 'fallback-18') {
-          try {
-            const addr = await account.getAddress();
-            const zerionChainMap: Record<string, string> = {
-              ethereum: 'ethereum',
-              base: 'base',
-              arbitrum: 'arbitrum',
-              polygon: 'polygon',
-              ethereumErc4337: 'ethereum',
-              baseErc4337: 'base',
-              arbitrumErc4337: 'arbitrum',
-              polygonErc4337: 'polygon',
-            };
-            const zChain = zerionChainMap[chain] || chain;
-            this.logger.debug(`Looking up token decimals from Zerion: token=${tokenAddress}, chain=${zChain}, address=${addr}`);
-            const positionsAny = await this.zerionService.getPositionsAnyChain(addr);
-            
-            // Log all positions to debug
-            if (positionsAny?.data) {
-              this.logger.debug(`Found ${positionsAny.data.length} positions in Zerion for ${addr}`);
-            }
-            
-            const match = positionsAny?.data?.find((p: any) => {
-              const impl = p.attributes?.fungible_info?.implementations?.[0]?.address?.toLowerCase();
-              const cid = p?.relationships?.chain?.data?.id;
-              const matches = impl === tokenAddress.toLowerCase() && cid === zChain;
-              if (impl === tokenAddress.toLowerCase()) {
-                this.logger.debug(`Found matching token address, chain=${cid}, expected=${zChain}, match=${matches}`);
-              }
-              return matches;
-            });
-            
-            if (match) {
-              const d = match?.attributes?.fungible_info?.decimals;
-              this.logger.debug(`Zerion position found: decimals=${d}, symbol=${match?.attributes?.fungible_info?.symbol}`);
-              if (typeof d === 'number' && d >= 0 && d <= 36) {
-                tokenDecimals = d;
-                decimalsSource = 'zerion-positions-any';
-              }
+        // ERC-20 token
+        if (
+          tokenDecimals !== undefined &&
+          tokenDecimals >= 0 &&
+          tokenDecimals <= 36
+        ) {
+          // Use provided decimals from UI/Zerion
+          finalDecimals = tokenDecimals;
+          decimalsSource = 'ui-provided';
+          this.logger.log(
+            `Using provided token decimals: ${finalDecimals} (source: ${decimalsSource})`,
+          );
+        } else {
+          // Fetch from Zerion first
+          const tokenInfo = await this.getZerionTokenInfo(
+            tokenAddress,
+            chain,
+            walletAddress,
+          );
+          if (
+            tokenInfo &&
+            tokenInfo.decimals >= 0 &&
+            tokenInfo.decimals <= 36
+          ) {
+            finalDecimals = tokenInfo.decimals;
+            decimalsSource = 'zerion';
+            this.logger.log(
+              `Fetched token decimals from Zerion: ${finalDecimals} (source: ${decimalsSource})`,
+            );
+          } else {
+            // Zerion failed - try RPC as fallback
+            this.logger.debug(
+              `Zerion token lookup failed for ${tokenAddress}, trying RPC decimals() as fallback`,
+            );
+            const rpcDecimals = await this.fetchDecimalsFromRPC(
+              tokenAddress,
+              account,
+            );
+            if (rpcDecimals !== null && rpcDecimals >= 0 && rpcDecimals <= 36) {
+              finalDecimals = rpcDecimals;
+              decimalsSource = 'rpc-decimals()';
+              this.logger.log(
+                `Fetched token decimals from RPC: ${finalDecimals} (source: ${decimalsSource})`,
+              );
             } else {
-              this.logger.debug(`No matching Zerion position found for token=${tokenAddress} on chain=${zChain}`);
+              // Both Zerion and RPC failed
+              throw new BadRequestException(
+                `Cannot determine token decimals for ${tokenAddress}. ` +
+                  `Tried Zerion and RPC decimals() call, both failed. ` +
+                  `Token may not exist or RPC is unavailable.`,
+              );
             }
-          } catch (e) {
-            this.logger.debug(`Zerion decimals fallback failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
           }
         }
       } else {
         // Native token
-        tokenDecimals = this.getNativeTokenDecimals(chain);
+        finalDecimals = this.getNativeTokenDecimals(chain);
         decimalsSource = 'native';
+        this.logger.log(
+          `Using native token decimals: ${finalDecimals} (source: ${decimalsSource})`,
+        );
       }
 
-      const requestedSmallest = toSmallest(amount, tokenAddress ? tokenDecimals : this.getNativeTokenDecimals(chain));
-      this.logger.log(`Send pre-check: token=${tokenAddress || 'native'}, humanAmount=${amount}, decimals=${tokenDecimals} (source: ${decimalsSource}), requestedSmallest=${requestedSmallest}`);
+      // Convert human-readable amount to smallest units using Zerion's decimals
+      const amountSmallest = this.convertToSmallestUnits(amount, finalDecimals);
+      this.logger.log(
+        `Send pre-check: chain=${chain}, accountType=${accountType}, token=${tokenAddress || 'native'}, ` +
+          `humanAmount=${amount}, decimals=${finalDecimals} (source: ${decimalsSource}), ` +
+          `amountSmallest=${amountSmallest.toString()}`,
+      );
 
       // Validate address format (basic check)
       if (!recipientAddress || recipientAddress.trim().length === 0) {
         throw new BadRequestException('Recipient address is required');
       }
 
-      // Check available balance (prefer on-chain via WDK; fall back to RPC/Zerion if needed)
-      try {
-        let availableSmallest = '0';
-        let balanceSource = 'unknown';
+      // Validate balance using Zerion as primary source
+      const balanceValidation = await this.validateBalanceFromZerion(
+        tokenAddress || null,
+        amountSmallest,
+        chain,
+        walletAddress,
+      );
 
-        if (tokenAddress) {
-          // Try WDK token balance first
-          try {
-            if ('getTokenBalance' in account && typeof (account as any).getTokenBalance === 'function') {
-              const bal = await (account as any).getTokenBalance(tokenAddress);
-              availableSmallest = bal?.toString?.() ?? String(bal);
-              if (/^[0-9]+$/.test(availableSmallest) && availableSmallest !== '0') balanceSource = 'wdk-getTokenBalance';
-            } else if ('balanceOf' in account && typeof (account as any).balanceOf === 'function') {
-              const bal = await (account as any).balanceOf(tokenAddress);
-              availableSmallest = bal?.toString?.() ?? String(bal);
-              if (/^[0-9]+$/.test(availableSmallest) && availableSmallest !== '0') balanceSource = 'wdk-balanceOf';
-            }
-          } catch (e) {
-            this.logger.debug(`WDK token balance check failed, will try RPC fallback: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      this.logger.log(
+        `Balance validation: zerionBalance=${balanceValidation.zerionBalance}, ` +
+          `requested=${amountSmallest.toString()}, sufficient=${balanceValidation.sufficient}`,
+      );
+
+      // Use on-chain balance as source of truth - verify if Zerion says insufficient
+      if (!balanceValidation.sufficient) {
+        // Zerion says insufficient - verify with on-chain balance (source of truth)
+        this.logger.warn(
+          `Zerion reported insufficient balance (${balanceValidation.zerionBalance}), ` +
+            `verifying with on-chain balance (source of truth)`,
+        );
+
+        try {
+          const onChainValidation = await this.validateBalanceOnChain(
+            tokenAddress || null,
+            amountSmallest,
+            account,
+          );
+
+          if (onChainValidation.sufficient) {
+            // On-chain says sufficient - allow transaction (Zerion may be stale)
+            this.logger.warn(
+              `Balance discrepancy detected: Zerion shows ${balanceValidation.zerionBalance}, ` +
+                `on-chain shows ${onChainValidation.balance}, requested ${amountSmallest.toString()}. ` +
+                `Using on-chain balance (source of truth) - proceeding with transaction.`,
+            );
+            // Don't throw error - proceed with send
+          } else {
+            // Both Zerion AND on-chain say insufficient
+            const errorMessage =
+              balanceValidation.error ||
+              `Insufficient balance confirmed by both Zerion and on-chain. ` +
+                `Zerion: ${balanceValidation.zerionBalance} smallest units, ` +
+                `On-chain: ${onChainValidation.balance} smallest units, ` +
+                `Requested: ${amountSmallest.toString()} smallest units`;
+
+            this.logger.error(
+              `Insufficient balance: ${errorMessage}, token=${tokenAddress || 'native'}, ` +
+                `decimals=${finalDecimals}, chain=${chain}`,
+            );
+
+            throw new UnprocessableEntityException(errorMessage);
+          }
+        } catch (e) {
+          if (e instanceof UnprocessableEntityException) {
+            throw e;
           }
 
-          // If not numeric or zero, try direct RPC balanceOf(owner)
-          if (!/^[0-9]+$/.test(availableSmallest) || availableSmallest === '0') {
-            try {
-              // Get provider from account if available (EVM chains)
-              let provider: any = null;
-              if ('provider' in account) {
-                provider = (account as any).provider;
-              } else if ('getProvider' in account && typeof (account as any).getProvider === 'function') {
-                provider = await (account as any).getProvider();
-              }
-              if (provider && typeof provider.request === 'function') {
-                const owner = await account.getAddress();
-                const data = '0x70a08231' + owner.replace(/^0x/, '').padStart(64, '0');
-                const result = await provider.request({
-                  method: 'eth_call',
-                  params: [
-                    { to: tokenAddress, data },
-                    'latest',
-                  ],
-                });
-                if (typeof result === 'string' && result.startsWith('0x')) {
-                  const v = BigInt(result);
-                  availableSmallest = v.toString();
-                  if (availableSmallest !== '0') balanceSource = 'rpc-balanceOf';
-                }
-              }
-            } catch (e) {
-              this.logger.debug(`Direct RPC balanceOf fallback failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-            }
-          }
+          // Couldn't get on-chain balance - trust Zerion
+          this.logger.error(
+            `Could not verify with on-chain balance: ${e instanceof Error ? e.message : 'Unknown error'}. ` +
+              `Trusting Zerion result.`,
+          );
 
-          // Zerion fallback if still not numeric or still zero
-          if (!/^[0-9]+$/.test(availableSmallest) || availableSmallest === '0') {
-            try {
-              const addr = await account.getAddress();
-              // Map internal chain to Zerion canonical chain id
-              const zerionChainMap: Record<string, string> = {
-                ethereum: 'ethereum',
-                base: 'base',
-                arbitrum: 'arbitrum',
-                polygon: 'polygon',
-                ethereumErc4337: 'ethereum',
-                baseErc4337: 'base',
-                arbitrumErc4337: 'arbitrum',
-                polygonErc4337: 'polygon',
-              };
-              const zChain = zerionChainMap[chain] || chain;
+          const errorMessage =
+            balanceValidation.error ||
+            `Insufficient balance. Zerion shows: ${balanceValidation.zerionBalance} smallest units, ` +
+              `Requested: ${amountSmallest.toString()} smallest units. ` +
+              `Could not verify with on-chain balance.`;
 
-              const positionsAny = await this.zerionService.getPositionsAnyChain(addr);
-              const match = positionsAny?.data?.find((p: any) => {
-                const impl = p.attributes?.fungible_info?.implementations?.[0]?.address?.toLowerCase();
-                const cid = p?.relationships?.chain?.data?.id;
-                return impl === tokenAddress.toLowerCase() && cid === zChain;
-              });
-              const q = match?.attributes?.quantity;
-              const smallest = q?.int || '0';
-              if (/^[0-9]+$/.test(smallest) && smallest !== '0') {
-                availableSmallest = smallest;
-                balanceSource = 'zerion-positions-any';
-              }
-            } catch (e) {
-              this.logger.debug(`Zerion token balance fallback failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-            }
-          }
-        } else {
-          // Native balance via WDK
-          try {
-            const bal = await account.getBalance();
-            availableSmallest = bal?.toString?.() ?? String(bal);
-            if (/^[0-9]+$/.test(availableSmallest)) balanceSource = 'wdk-native';
-          } catch (e) {
-            this.logger.debug(`WDK native balance check failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-          }
+          throw new UnprocessableEntityException(errorMessage);
         }
-
-        this.logger.log(`Balance pre-check result: availableSmallest=${availableSmallest} (source: ${balanceSource}), requestedSmallest=${requestedSmallest}`);
-
-        if (/^[0-9]+$/.test(availableSmallest)) {
-          if (BigInt(availableSmallest) < BigInt(requestedSmallest)) {
-            this.logger.error(`Insufficient balance: available=${availableSmallest} (${balanceSource}), requested=${requestedSmallest}, token=${tokenAddress || 'native'}, decimals=${tokenDecimals}`);
-            throw new UnprocessableEntityException(`Insufficient balance. Available: ${availableSmallest} (${balanceSource}), Requested: ${requestedSmallest}`);
-          }
-        } else {
-          // If we couldn't determine balance, allow send to proceed (node will error if truly insufficient)
-          this.logger.warn(`Balance pre-check unavailable; proceeding. available='${availableSmallest}'`);
-        }
-      } catch (error) {
-        if (error instanceof UnprocessableEntityException) {
-          throw error;
-        }
-        this.logger.warn(`Could not check balance, proceeding anyway: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } else {
+        // Zerion says sufficient - log for debugging but proceed
+        this.logger.log(
+          `Balance validation passed: Zerion shows ${balanceValidation.zerionBalance}, ` +
+            `requested ${amountSmallest.toString()}`,
+        );
       }
 
-      // Send transaction
-  let txHash: string = '';
+      // Send transaction using WDK - single mapped method per account type
+      let txHash: string = '';
+      let sendMethod: string = 'unknown';
 
       try {
         if (tokenAddress) {
           // ERC-20 token transfer
-          // Prefer a structured transfer call with token + recipient + amount (BigInt)
-          const amountBigInt = (() => {
-            try { return BigInt(requestedSmallest); } catch { return BigInt(String(requestedSmallest)); }
-          })();
-
-          let sent = false;
-          // 1) account.transfer({ token, recipient|to, amount }) if available
-          if ('transfer' in account && typeof (account as any).transfer === 'function') {
+          // Use account.transfer with structured parameters (preferred for both EOA and ERC-4337)
+          if (
+            'transfer' in account &&
+            typeof (account as any).transfer === 'function'
+          ) {
             try {
-              const result = await (account as any).transfer({ token: tokenAddress, recipient: recipientAddress, amount: amountBigInt });
-              txHash = typeof result === 'string' ? result : (result?.hash || result?.txHash || String(result));
-              sent = true;
+              // Try with 'recipient' key first
+              const result = await (account as any).transfer({
+                token: tokenAddress,
+                recipient: recipientAddress,
+                amount: amountSmallest,
+              });
+              txHash =
+                typeof result === 'string'
+                  ? result
+                  : result?.hash || result?.txHash || String(result);
+              sendMethod = 'transfer({token, recipient, amount})';
             } catch (e1) {
-              // Try with 'to' key if recipient was not accepted
+              // Try with 'to' key if 'recipient' was not accepted
               try {
-                const result = await (account as any).transfer({ token: tokenAddress, to: recipientAddress, amount: amountBigInt });
-                txHash = typeof result === 'string' ? result : (result?.hash || result?.txHash || String(result));
-                sent = true;
+                const result = await (account as any).transfer({
+                  token: tokenAddress,
+                  to: recipientAddress,
+                  amount: amountSmallest,
+                });
+                txHash =
+                  typeof result === 'string'
+                    ? result
+                    : result?.hash || result?.txHash || String(result);
+                sendMethod = 'transfer({token, to, amount})';
               } catch (e2) {
-                this.logger.debug(`account.transfer failed, will try other token send methods: ${e2 instanceof Error ? e2.message : 'unknown'}`);
+                this.logger.error(
+                  `Token transfer via account.transfer failed: ${e2 instanceof Error ? e2.message : 'unknown'}`,
+                );
+                throw new ServiceUnavailableException(
+                  `Token transfer method not supported. Account type: ${accountType}, ` +
+                    `Error: ${e2 instanceof Error ? e2.message : 'unknown'}`,
+                );
               }
             }
-          }
-
-          // 2) account.sendToken(token, recipient, amount)
-          if (!sent && 'sendToken' in account && typeof (account as any).sendToken === 'function') {
-            try {
-              const result = await (account as any).sendToken(tokenAddress, recipientAddress, amountBigInt);
-              txHash = typeof result === 'string' ? result : (result?.hash || result?.txHash || String(result));
-              sent = true;
-            } catch (e) {
-              this.logger.debug(`account.sendToken failed: ${e instanceof Error ? e.message : 'unknown'}`);
-            }
-          }
-
-          // 3) account.transferToken(token, recipient, amount)
-          if (!sent && 'transferToken' in account && typeof (account as any).transferToken === 'function') {
-            try {
-              const result = await (account as any).transferToken(tokenAddress, recipientAddress, amountBigInt);
-              txHash = typeof result === 'string' ? result : (result?.hash || result?.txHash || String(result));
-              sent = true;
-            } catch (e) {
-              this.logger.debug(`account.transferToken failed: ${e instanceof Error ? e.message : 'unknown'}`);
-            }
-          }
-
-          // 4) Fallback: generic send(recipient, amount, { tokenAddress })
-          if (!sent && 'send' in account && typeof (account as any).send === 'function') {
-            const result = await (account as any).send(recipientAddress, amountBigInt, { tokenAddress });
-            txHash = typeof result === 'string' ? result : (result?.hash || result?.txHash || String(result));
-            sent = true;
-          }
-
-          if (!sent || !txHash) {
-            throw new ServiceUnavailableException('Token transfer method not supported by this account');
+          } else {
+            throw new ServiceUnavailableException(
+              `Token transfer not supported for account type ${accountType} on chain ${chain}. ` +
+                `The account does not support the transfer method.`,
+            );
           }
         } else {
           // Native token transfer
           if ('send' in account && typeof account.send === 'function') {
-            const result = await account.send(recipientAddress, requestedSmallest);
-            txHash = typeof result === 'string' ? result : (result as any).hash || (result as any).txHash || String(result);
-          } else if ('transfer' in account && typeof account.transfer === 'function') {
-            const result = await (account as any).transfer({ to: recipientAddress, amount: BigInt(requestedSmallest) });
-            txHash = typeof result === 'string' ? result : (result as any).hash || (result as any).txHash || String(result);
+            const result = await account.send(
+              recipientAddress,
+              amountSmallest.toString(),
+            );
+            txHash =
+              typeof result === 'string'
+                ? result
+                : (result as any).hash ||
+                  (result as any).txHash ||
+                  String(result);
+            sendMethod = 'send(recipient, amount)';
+          } else if (
+            'transfer' in account &&
+            typeof (account as any).transfer === 'function'
+          ) {
+            const result = await (account as any).transfer({
+              to: recipientAddress,
+              amount: amountSmallest,
+            });
+            txHash =
+              typeof result === 'string'
+                ? result
+                : result.hash || result.txHash || String(result);
+            sendMethod = 'transfer({to, amount})';
           } else {
-            throw new BadRequestException(`Chain ${chain} does not support send operation`);
+            throw new BadRequestException(
+              `Native token send not supported for chain ${chain}. ` +
+                `Account type: ${accountType}. Please check if this chain/account combination is supported.`,
+            );
           }
         }
 
         if (!txHash || typeof txHash !== 'string') {
-          throw new ServiceUnavailableException('Transaction submitted but no transaction hash returned');
+          throw new ServiceUnavailableException(
+            'Transaction submitted but no transaction hash returned',
+          );
         }
 
-        // Invalidate Zerion cache for this address/chain after successful send
+        // Structured logging for successful transaction
+        this.logger.log(
+          `Transaction successful: chain=${chain}, accountType=${accountType}, ` +
+            `token=${tokenAddress || 'native'}, decimals=${finalDecimals} (source: ${decimalsSource}), ` +
+            `humanAmount=${amount}, amountSmallest=${amountSmallest.toString()}, ` +
+            `method=${sendMethod}, txHash=${txHash}, recipient=${recipientAddress}`,
+        );
+
+        // Invalidate caches after successful send
         try {
-          const address = await account.getAddress();
-          this.zerionService.invalidateCache(address, chain);
-          this.logger.log(`Invalidated Zerion cache for ${address} on ${chain} after send`);
+          // Invalidate Zerion cache
+          this.zerionService.invalidateCache(walletAddress, chain);
+          this.logger.log(
+            `Invalidated Zerion cache for ${walletAddress} on ${chain} after send`,
+          );
         } catch (cacheError) {
-          this.logger.warn(`Failed to invalidate cache: ${cacheError instanceof Error ? cacheError.message : 'Unknown error'}`);
+          this.logger.warn(
+            `Failed to invalidate cache: ${cacheError instanceof Error ? cacheError.message : 'Unknown error'}`,
+          );
         }
 
-        this.logger.log(`Successfully sent crypto. Transaction hash: ${txHash}`);
         return { txHash };
       } catch (error) {
-        if (error instanceof BadRequestException || error instanceof UnprocessableEntityException) {
+        // Structured error logging
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(
+          `Transaction failed: chain=${chain}, accountType=${accountType}, ` +
+            `token=${tokenAddress || 'native'}, decimals=${finalDecimals} (source: ${decimalsSource}), ` +
+            `humanAmount=${amount}, amountSmallest=${amountSmallest.toString()}, ` +
+            `method=${sendMethod}, error=${errorMessage}`,
+        );
+
+        // Re-throw known exceptions
+        if (
+          error instanceof BadRequestException ||
+          error instanceof UnprocessableEntityException ||
+          error instanceof ServiceUnavailableException
+        ) {
           throw error;
         }
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`Transaction failed: ${errorMessage}`);
-        
-        // Check for common error patterns
-        if (errorMessage.includes('insufficient') || errorMessage.includes('balance')) {
-          throw new UnprocessableEntityException('Insufficient balance for this transaction');
+
+        // Enhanced error handling with specific messages
+        const lowerError = errorMessage.toLowerCase();
+
+        // ERC-4337 specific errors
+        if (
+          isErc4337 &&
+          (lowerError.includes('paymaster') || lowerError.includes('sponsor'))
+        ) {
+          throw new ServiceUnavailableException(
+            `ERC-4337 account deployment or gas sponsorship failed. ` +
+              `This may be due to missing paymaster configuration or insufficient funds for deployment. ` +
+              `Error: ${errorMessage}`,
+          );
         }
-        if (errorMessage.includes('network') || errorMessage.includes('timeout') || errorMessage.includes('RPC')) {
-          throw new ServiceUnavailableException('Blockchain network is unavailable. Please try again later.');
+
+        if (
+          lowerError.includes('insufficient') ||
+          lowerError.includes('balance')
+        ) {
+          throw new UnprocessableEntityException(
+            `Insufficient balance for this transaction. ` +
+              `Please check your balance and try again. Error: ${errorMessage}`,
+          );
         }
-        if (errorMessage.includes('invalid address') || errorMessage.includes('address')) {
-          throw new BadRequestException(`Invalid recipient address: ${errorMessage}`);
+
+        if (
+          lowerError.includes('network') ||
+          lowerError.includes('timeout') ||
+          lowerError.includes('rpc')
+        ) {
+          throw new ServiceUnavailableException(
+            `Blockchain network is unavailable. Please try again later. Error: ${errorMessage}`,
+          );
         }
-        
-        throw new ServiceUnavailableException(`Transaction failed: ${errorMessage}`);
+
+        if (
+          lowerError.includes('invalid address') ||
+          lowerError.includes('address')
+        ) {
+          throw new BadRequestException(
+            `Invalid recipient address. Error: ${errorMessage}`,
+          );
+        }
+
+        if (
+          lowerError.includes('nonce') ||
+          lowerError.includes('replacement')
+        ) {
+          throw new ServiceUnavailableException(
+            `Transaction nonce error. Please wait a moment and try again. Error: ${errorMessage}`,
+          );
+        }
+
+        // Generic fallback
+        throw new ServiceUnavailableException(
+          `Transaction failed: ${errorMessage}`,
+        );
       }
     } catch (error) {
-      if (error instanceof BadRequestException || 
-          error instanceof UnprocessableEntityException || 
-          error instanceof ServiceUnavailableException) {
+      // Re-throw known exceptions (they already have proper error messages)
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnprocessableEntityException ||
+        error instanceof ServiceUnavailableException
+      ) {
         throw error;
       }
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Error sending crypto: ${errorMessage}`);
-      this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`);
-        throw new ServiceUnavailableException(`Failed to send crypto: ${errorMessage}`);
+      // Log unexpected errors with full context
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Unexpected error in sendCrypto: userId=${userId}, chain=${chain}, ` +
+          `token=${tokenAddress || 'native'}, amount=${amount}, error=${errorMessage}`,
+      );
+      this.logger.error(
+        `Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`,
+      );
+      throw new ServiceUnavailableException(
+        `Failed to send crypto: ${errorMessage}`,
+      );
     }
   }
 
@@ -985,11 +1881,13 @@ export class WalletService {
       nonce?: string;
     },
   ): Promise<{ txHash: string }> {
-    this.logger.log(`Signing WalletConnect transaction for user ${userId} on chain ${chainId}`);
+    this.logger.log(
+      `Signing WalletConnect transaction for user ${userId} on chain ${chainId}`,
+    );
 
     // Check if wallet exists, create if not
     const hasSeed = await this.seedRepository.hasSeed(userId);
-    
+
     if (!hasSeed) {
       this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
@@ -1000,146 +1898,174 @@ export class WalletService {
     // Format: eip155:chainId (e.g., eip155:1 for Ethereum, eip155:8453 for Base)
     const chainIdMatch = chainId.match(/^eip155:(\d+)$/);
     if (!chainIdMatch || !chainIdMatch[1]) {
-      throw new BadRequestException(`Invalid WalletConnect chain ID format: ${chainId}. Expected format: eip155:chainId`);
+      throw new BadRequestException(
+        `Invalid WalletConnect chain ID format: ${chainId}. Expected format: eip155:chainId`,
+      );
     }
 
     const numericChainId = parseInt(chainIdMatch[1], 10);
-    
+
     // Map chain ID to internal chain name
     // Prefer ERC-4337 chains for better UX (gasless transactions)
     const chainIdMap: Record<number, string> = {
-      1: 'ethereumErc4337',      // Ethereum Mainnet
-      8453: 'baseErc4337',       // Base
-      42161: 'arbitrumErc4337',  // Arbitrum
-      137: 'polygonErc4337',     // Polygon
+      1: 'ethereumErc4337', // Ethereum Mainnet
+      8453: 'baseErc4337', // Base
+      42161: 'arbitrumErc4337', // Arbitrum
+      137: 'polygonErc4337', // Polygon
+      43114: 'avalancheErc4337', // Avalanche C-Chain
       // Fallback to EOA chains if ERC-4337 not available
       // 1: 'ethereum',
       // 8453: 'base',
       // 42161: 'arbitrum',
       // 137: 'polygon',
+      // 43114: 'avalanche',
     };
 
     const internalChain = chainIdMap[numericChainId];
     if (!internalChain) {
-      throw new BadRequestException(`Unsupported chain ID: ${numericChainId}. Supported chains: Ethereum (1), Base (8453), Arbitrum (42161), Polygon (137)`);
+      throw new BadRequestException(
+        `Unsupported chain ID: ${numericChainId}. Supported chains: Ethereum (1), Base (8453), Arbitrum (42161), Polygon (137), Avalanche (43114)`,
+      );
     }
 
     try {
       const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-      const wdk = this.createWdkInstance(seedPhrase);
 
-      // Map internal chain name to WDK chain identifier
-      const wdkChainMap: Record<string, string> = {
-        ethereum: 'ethereum',
-        base: 'base',
-        arbitrum: 'arbitrum',
-        polygon: 'polygon',
-        ethereumErc4337: 'ethereum-erc4337',
-        baseErc4337: 'base-erc4337',
-        arbitrumErc4337: 'arbitrum-erc4337',
-        polygonErc4337: 'polygon-erc4337',
-      };
-
-      const wdkChain = wdkChainMap[internalChain];
-      if (!wdkChain) {
-        throw new BadRequestException(`Unsupported chain: ${internalChain}`);
-      }
-
-      const account = await wdk.getAccount(wdkChain, 0);
+      // Create account using appropriate factory
+      const account = await this.createAccountForChain(
+        seedPhrase,
+        internalChain,
+      );
       const accountAddress = await account.getAddress();
 
       // Verify that the 'from' address matches the account address
       if (transaction.from.toLowerCase() !== accountAddress.toLowerCase()) {
-        throw new BadRequestException(`Transaction 'from' address (${transaction.from}) does not match wallet address (${accountAddress})`);
+        throw new BadRequestException(
+          `Transaction 'from' address (${transaction.from}) does not match wallet address (${accountAddress})`,
+        );
       }
 
       // Prepare transaction object
       const txParams: any = {};
-      
+
       if (transaction.to) {
         txParams.to = transaction.to;
       }
-      
+
       if (transaction.value) {
         // Convert hex value to BigInt if needed
-        const value = transaction.value.startsWith('0x') 
-          ? BigInt(transaction.value).toString() 
+        const value = transaction.value.startsWith('0x')
+          ? BigInt(transaction.value).toString()
           : transaction.value;
         txParams.value = value;
       }
-      
+
       if (transaction.data) {
         txParams.data = transaction.data;
       }
-      
+
       if (transaction.gas) {
-        txParams.gas = transaction.gas.startsWith('0x') 
-          ? parseInt(transaction.gas, 16).toString() 
+        txParams.gas = transaction.gas.startsWith('0x')
+          ? parseInt(transaction.gas, 16).toString()
           : transaction.gas;
       }
-      
+
       if (transaction.gasPrice) {
-        txParams.gasPrice = transaction.gasPrice.startsWith('0x') 
-          ? BigInt(transaction.gasPrice).toString() 
+        txParams.gasPrice = transaction.gasPrice.startsWith('0x')
+          ? BigInt(transaction.gasPrice).toString()
           : transaction.gasPrice;
       }
-      
+
       if (transaction.maxFeePerGas) {
-        txParams.maxFeePerGas = transaction.maxFeePerGas.startsWith('0x') 
-          ? BigInt(transaction.maxFeePerGas).toString() 
+        txParams.maxFeePerGas = transaction.maxFeePerGas.startsWith('0x')
+          ? BigInt(transaction.maxFeePerGas).toString()
           : transaction.maxFeePerGas;
       }
-      
+
       if (transaction.maxPriorityFeePerGas) {
-        txParams.maxPriorityFeePerGas = transaction.maxPriorityFeePerGas.startsWith('0x') 
-          ? BigInt(transaction.maxPriorityFeePerGas).toString() 
-          : transaction.maxPriorityFeePerGas;
+        txParams.maxPriorityFeePerGas =
+          transaction.maxPriorityFeePerGas.startsWith('0x')
+            ? BigInt(transaction.maxPriorityFeePerGas).toString()
+            : transaction.maxPriorityFeePerGas;
       }
-      
+
       if (transaction.nonce) {
-        txParams.nonce = transaction.nonce.startsWith('0x') 
-          ? parseInt(transaction.nonce, 16) 
+        txParams.nonce = transaction.nonce.startsWith('0x')
+          ? parseInt(transaction.nonce, 16)
           : parseInt(transaction.nonce, 10);
       }
 
       // Send transaction using account's sendTransaction method
       let txHash: string = '';
-      
-      if ('sendTransaction' in account && typeof (account as any).sendTransaction === 'function') {
+
+      if (
+        'sendTransaction' in account &&
+        typeof (account as any).sendTransaction === 'function'
+      ) {
         const result = await (account as any).sendTransaction(txParams);
-        txHash = typeof result === 'string' ? result : (result?.hash || result?.txHash || String(result));
+        txHash =
+          typeof result === 'string'
+            ? result
+            : result?.hash || result?.txHash || String(result);
       } else if ('send' in account && typeof account.send === 'function') {
         // Fallback to send method if sendTransaction not available
         const recipient = transaction.to || accountAddress;
-        const amount = transaction.value ? (transaction.value.startsWith('0x') ? BigInt(transaction.value).toString() : transaction.value) : '0';
+        const amount = transaction.value
+          ? transaction.value.startsWith('0x')
+            ? BigInt(transaction.value).toString()
+            : transaction.value
+          : '0';
         const result = await account.send(recipient, amount);
-        txHash = typeof result === 'string' ? result : (result as any).hash || (result as any).txHash || String(result);
+        txHash =
+          typeof result === 'string'
+            ? result
+            : (result as any).hash || (result as any).txHash || String(result);
       } else {
-        throw new ServiceUnavailableException(`Account does not support sendTransaction or send methods`);
+        throw new ServiceUnavailableException(
+          `Account does not support sendTransaction or send methods`,
+        );
       }
 
       if (!txHash || typeof txHash !== 'string') {
-        throw new ServiceUnavailableException('Transaction submitted but no transaction hash returned');
+        throw new ServiceUnavailableException(
+          'Transaction submitted but no transaction hash returned',
+        );
       }
 
       // Invalidate Zerion cache for this address/chain after successful send
       try {
         this.zerionService.invalidateCache(accountAddress, internalChain);
-        this.logger.log(`Invalidated Zerion cache for ${accountAddress} on ${internalChain} after WalletConnect transaction`);
+        this.logger.log(
+          `Invalidated Zerion cache for ${accountAddress} on ${internalChain} after WalletConnect transaction`,
+        );
       } catch (cacheError) {
-        this.logger.warn(`Failed to invalidate cache: ${cacheError instanceof Error ? cacheError.message : 'Unknown error'}`);
+        this.logger.warn(
+          `Failed to invalidate cache: ${cacheError instanceof Error ? cacheError.message : 'Unknown error'}`,
+        );
       }
 
-      this.logger.log(`Successfully signed WalletConnect transaction. Transaction hash: ${txHash}`);
+      this.logger.log(
+        `Successfully signed WalletConnect transaction. Transaction hash: ${txHash}`,
+      );
       return { txHash };
     } catch (error) {
-      if (error instanceof BadRequestException || error instanceof UnprocessableEntityException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnprocessableEntityException
+      ) {
         throw error;
       }
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Error signing WalletConnect transaction: ${errorMessage}`);
-      this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`);
-      throw new ServiceUnavailableException(`Failed to sign WalletConnect transaction: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Error signing WalletConnect transaction: ${errorMessage}`,
+      );
+      this.logger.error(
+        `Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`,
+      );
+      throw new ServiceUnavailableException(
+        `Failed to sign WalletConnect transaction: ${errorMessage}`,
+      );
     }
   }
 
@@ -1152,12 +2078,21 @@ export class WalletService {
   async getTokenBalances(
     userId: string,
     chain: string,
-  ): Promise<Array<{ address: string | null; symbol: string; balance: string; decimals: number }>> {
-    this.logger.log(`Getting token balances for user ${userId} on chain ${chain} using Zerion`);
+  ): Promise<
+    Array<{
+      address: string | null;
+      symbol: string;
+      balance: string;
+      decimals: number;
+    }>
+  > {
+    this.logger.log(
+      `Getting token balances for user ${userId} on chain ${chain} using Zerion`,
+    );
 
     // Check if wallet exists, create if not
     const hasSeed = await this.seedRepository.hasSeed(userId);
-    
+
     if (!hasSeed) {
       this.logger.log(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
@@ -1168,7 +2103,7 @@ export class WalletService {
       // Get address for this chain
       const addresses = await this.getAddresses(userId);
       const address = addresses[chain as keyof WalletAddresses];
-      
+
       if (!address) {
         this.logger.warn(`No address found for chain ${chain}`);
         return [];
@@ -1176,15 +2111,26 @@ export class WalletService {
 
       // Get portfolio from Zerion (includes native + all ERC-20 tokens)
       const portfolio = await this.zerionService.getPortfolio(address, chain);
-      
+
       // Check if portfolio has valid data array
-      if (!portfolio?.data || !Array.isArray(portfolio.data) || portfolio.data.length === 0) {
+      if (
+        !portfolio?.data ||
+        !Array.isArray(portfolio.data) ||
+        portfolio.data.length === 0
+      ) {
         // Zerion doesn't support this chain or returned no data
-        this.logger.warn(`No portfolio data from Zerion for ${address} on ${chain}`);
+        this.logger.warn(
+          `No portfolio data from Zerion for ${address} on ${chain}`,
+        );
         return [];
       }
 
-      const tokens: Array<{ address: string | null; symbol: string; balance: string; decimals: number }> = [];
+      const tokens: Array<{
+        address: string | null;
+        symbol: string;
+        balance: string;
+        decimals: number;
+      }> = [];
 
       // Process each token in portfolio
       for (const tokenData of portfolio.data) {
@@ -1194,22 +2140,23 @@ export class WalletService {
 
           const intPart = quantity.int || '0';
           const decimals = quantity.decimals || 0;
-          
+
           // Convert to standard format (18 decimals)
           const balance = `${intPart}${'0'.repeat(Math.max(0, 18 - decimals))}`;
-          
+
           // Skip zero balances
           if (parseFloat(balance) === 0) continue;
 
           // Determine if native token or ERC-20
-          const isNative = tokenData.type === 'native' || !tokenData.attributes?.fungible_info;
+          const isNative =
+            tokenData.type === 'native' || !tokenData.attributes?.fungible_info;
           const fungibleInfo = tokenData.attributes?.fungible_info;
-          
+
           if (isNative) {
             // Native token
             const nativeSymbol = this.getNativeTokenSymbol(chain);
             const nativeDecimals = this.getNativeTokenDecimals(chain);
-            
+
             tokens.push({
               address: null,
               symbol: nativeSymbol,
@@ -1218,9 +2165,13 @@ export class WalletService {
             });
           } else if (fungibleInfo) {
             // ERC-20 token
-            const tokenAddress = fungibleInfo.implementations?.[0]?.address || null;
+            const tokenAddress =
+              fungibleInfo.implementations?.[0]?.address || null;
             const symbol = fungibleInfo.symbol || 'UNKNOWN';
-            const tokenDecimals = fungibleInfo.decimals || 18;
+            // Use smart fallback for known tokens
+            const tokenDecimals =
+              fungibleInfo.decimals ??
+              this.getDefaultDecimals(chain, tokenAddress);
 
             tokens.push({
               address: tokenAddress,
@@ -1230,55 +2181,27 @@ export class WalletService {
             });
           }
         } catch (error) {
-          this.logger.debug(`Error processing token from Zerion: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          this.logger.debug(
+            `Error processing token from Zerion: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
         }
       }
 
-      this.logger.log(`Retrieved ${tokens.length} tokens from Zerion for ${chain}`);
+      this.logger.log(
+        `Retrieved ${tokens.length} tokens from Zerion for ${chain}`,
+      );
       return tokens;
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Error getting token balances from Zerion: ${errorMessage}`);
-      
-      // Fallback: try WDK if Zerion fails
-      this.logger.warn(`Falling back to WDK for token balances on ${chain}`);
-      try {
-        const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-        const wdk = this.createWdkInstance(seedPhrase);
-        const wdkChainMap: Record<string, string> = {
-          ethereum: 'ethereum',
-          base: 'base',
-          arbitrum: 'arbitrum',
-          polygon: 'polygon',
-          tron: 'tron',
-          bitcoin: 'bitcoin',
-          solana: 'solana',
-          ethereumErc4337: 'ethereum-erc4337',
-          baseErc4337: 'base-erc4337',
-          arbitrumErc4337: 'arbitrum-erc4337',
-          polygonErc4337: 'polygon-erc4337',
-        };
-        const wdkChain = wdkChainMap[chain];
-        if (wdkChain) {
-          const account = await wdk.getAccount(wdkChain, 0);
-          const nativeBalance = await account.getBalance();
-          const nativeSymbol = this.getNativeTokenSymbol(chain);
-          const nativeDecimals = this.getNativeTokenDecimals(chain);
-          
-          return [{
-            address: null,
-            symbol: nativeSymbol,
-            balance: nativeBalance.toString(),
-            decimals: nativeDecimals,
-          }];
-        }
-      } catch (fallbackError) {
-        this.logger.error(`Fallback to WDK also failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`);
-      }
-      
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Error getting token balances from Zerion: ${errorMessage}`,
+      );
+
+      // Return empty array if Zerion fails (Zerion is primary source)
       return [];
     }
   }
@@ -1292,6 +2215,7 @@ export class WalletService {
       base: 'ETH',
       arbitrum: 'ETH',
       polygon: 'MATIC',
+      avalanche: 'AVAX',
       tron: 'TRX',
       bitcoin: 'BTC',
       solana: 'SOL',
@@ -1299,6 +2223,7 @@ export class WalletService {
       baseErc4337: 'ETH',
       arbitrumErc4337: 'ETH',
       polygonErc4337: 'MATIC',
+      avalancheErc4337: 'AVAX',
     };
     return symbols[chain] || chain.toUpperCase();
   }
@@ -1312,6 +2237,7 @@ export class WalletService {
       base: 18,
       arbitrum: 18,
       polygon: 18,
+      avalanche: 18,
       tron: 6,
       bitcoin: 8,
       solana: 9,
@@ -1319,15 +2245,77 @@ export class WalletService {
       baseErc4337: 18,
       arbitrumErc4337: 18,
       polygonErc4337: 18,
+      avalancheErc4337: 18,
     };
     return decimals[chain] || 18;
+  }
+
+  /**
+   * Get default decimals for a token address with known overrides
+   * Used as fallback when Zerion doesn't provide decimals
+   * @param chain - The blockchain network
+   * @param address - The token contract address (lowercase)
+   * @returns Token decimals (defaults to 18 for unknown tokens)
+   */
+  private getDefaultDecimals(chain: string, address: string | null): number {
+    // Native tokens - return 0 to indicate native (caller should use chain-specific decimals)
+    if (!address) {
+      return 0;
+    }
+
+    const addr = address.toLowerCase();
+
+    // Known token decimals overrides (cross-chain)
+    const overrides: Record<string, number> = {
+      // === Native USDC (6 decimals) ===
+      // Base
+      '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 6,
+      // Ethereum
+      '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 6,
+      // Arbitrum
+      '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 6,
+      // Polygon
+      '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': 6,
+
+      // === USDT (6 decimals) ===
+      // Ethereum
+      '0xdac17f958d2ee523a2206206994597c13d831ec7': 6,
+      // Arbitrum
+      '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': 6,
+      // Polygon
+      '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': 6,
+
+      // === Bridged USDbC (Base - 18 decimals) ===
+      '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': 18,
+
+      // === WBTC (8 decimals) ===
+      // Ethereum
+      '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 8,
+      // Arbitrum
+      '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f': 8,
+      // Polygon
+      '0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6': 8,
+    };
+
+    return overrides[addr] ?? 18;
   }
 
   /**
    * Check if chain is EVM-compatible
    */
   private isEvmChain(chain: string): boolean {
-    const evmChains = ['ethereum', 'base', 'arbitrum', 'polygon', 'ethereumErc4337', 'baseErc4337', 'arbitrumErc4337', 'polygonErc4337'];
+    const evmChains = [
+      'ethereum',
+      'base',
+      'arbitrum',
+      'polygon',
+      'avalanche',
+      'ethereumErc4337',
+      'baseErc4337',
+      'arbitrumErc4337',
+      'polygonErc4337',
+      'avalancheErc4337',
+    ];
     return evmChains.includes(chain);
   }
 
@@ -1338,154 +2326,200 @@ export class WalletService {
   private async discoverTokensFromEvents(
     account: any,
     chain: string,
-  ): Promise<Array<{ address: string | null; symbol: string; balance: string; decimals: number }>> {
-    const tokens: Array<{ address: string | null; symbol: string; balance: string; decimals: number }> = [];
+  ): Promise<
+    Array<{
+      address: string | null;
+      symbol: string;
+      balance: string;
+      decimals: number;
+    }>
+  > {
+    const tokens: Array<{
+      address: string | null;
+      symbol: string;
+      balance: string;
+      decimals: number;
+    }> = [];
     const discoveredTokenAddresses = new Set<string>();
 
     try {
       // Get account address
       const address = await account.getAddress();
-      
+
       // ERC-20 Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
-      const transferEventSignature = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-      
+      const transferEventSignature =
+        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
       // Try to get RPC provider from account to query events
       let provider: any = null;
       if ('provider' in account) {
         provider = account.provider;
-      } else if ('getProvider' in account && typeof account.getProvider === 'function') {
+      } else if (
+        'getProvider' in account &&
+        typeof account.getProvider === 'function'
+      ) {
         provider = await account.getProvider();
       }
 
       if (provider && typeof provider.request === 'function') {
         // Query recent Transfer events where this address is the recipient or sender
         // This finds all tokens the address has interacted with
-        const currentBlock = await provider.request({ method: 'eth_blockNumber' });
+        const currentBlock = await provider.request({
+          method: 'eth_blockNumber',
+        });
         const blockNumber = parseInt(currentBlock, 16);
         // Reduced to 1000 blocks (~4 hours on Ethereum mainnet) for better performance
         const fromBlock = Math.max(0, blockNumber - 1000);
-        
+
         // Pad address to 32 bytes (64 hex chars) for topic encoding
         const addressLower = address.toLowerCase();
         const paddedAddress = '0x' + addressLower.slice(2).padStart(64, '0');
-        
+
         try {
           const events = await provider.request({
             method: 'eth_getLogs',
-            params: [{
-              fromBlock: '0x' + fromBlock.toString(16),
-              toBlock: 'latest',
-              topics: [
-                transferEventSignature,
-                null, // from address (any)
-                paddedAddress, // to address (this account)
-              ],
-            }],
+            params: [
+              {
+                fromBlock: '0x' + fromBlock.toString(16),
+                toBlock: 'latest',
+                topics: [
+                  transferEventSignature,
+                  null, // from address (any)
+                  paddedAddress, // to address (this account)
+                ],
+              },
+            ],
           });
 
           // Also check for outgoing transfers
           const outgoingEvents = await provider.request({
             method: 'eth_getLogs',
-            params: [{
-              fromBlock: '0x' + fromBlock.toString(16),
-              toBlock: 'latest',
-              topics: [
-                transferEventSignature,
-                paddedAddress, // from address (this account)
-                null, // to address (any)
-              ],
-            }],
+            params: [
+              {
+                fromBlock: '0x' + fromBlock.toString(16),
+                toBlock: 'latest',
+                topics: [
+                  transferEventSignature,
+                  paddedAddress, // from address (this account)
+                  null, // to address (any)
+                ],
+              },
+            ],
           });
 
           // Combine both sets of events
           const allEvents = [...(events || []), ...(outgoingEvents || [])];
-          
+
           // Extract unique token contract addresses
           allEvents.forEach((event: any) => {
-            if (event.address && !discoveredTokenAddresses.has(event.address.toLowerCase())) {
+            if (
+              event.address &&
+              !discoveredTokenAddresses.has(event.address.toLowerCase())
+            ) {
               discoveredTokenAddresses.add(event.address.toLowerCase());
             }
           });
         } catch (error) {
-          this.logger.debug(`Failed to query Transfer events: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          this.logger.debug(
+            `Failed to query Transfer events: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
         }
       }
 
       // For each discovered token, get balance, symbol, and decimals
       // Limit to first 50 tokens to prevent excessive RPC calls
-      const tokenAddressesArray = Array.from(discoveredTokenAddresses).slice(0, 50);
-      
+      const tokenAddressesArray = Array.from(discoveredTokenAddresses).slice(
+        0,
+        50,
+      );
+
       // Process in parallel batches of 10 to speed up
       const batchSize = 10;
       for (let i = 0; i < tokenAddressesArray.length; i += batchSize) {
         const batch = tokenAddressesArray.slice(i, i + batchSize);
         const batchPromises = batch.map(async (tokenAddress) => {
-        try {
-          // Get token balance
-          let tokenBalance: any = '0';
-          if ('getTokenBalance' in account && typeof (account as any).getTokenBalance === 'function') {
-            tokenBalance = await (account as any).getTokenBalance(tokenAddress);
-          } else if (provider) {
-            // Fallback: Call balanceOf directly via RPC
-            const balanceResult = await provider.request({
-              method: 'eth_call',
-              params: [{
-                to: tokenAddress,
-                data: '0x70a08231' + address.slice(2).padStart(64, '0'), // balanceOf(address)
-              }, 'latest'],
-            });
-            tokenBalance = BigInt(balanceResult).toString();
-          }
-
-          if (tokenBalance && parseFloat(tokenBalance.toString()) > 0) {
-            // Get token symbol and decimals
-            let symbol = 'UNKNOWN';
-            let decimals = 18;
-
-            try {
-              if (provider) {
-                // Call symbol() - 0x95d89b41
-                const symbolResult = await provider.request({
-                  method: 'eth_call',
-                  params: [{
+          try {
+            // Get token balance
+            let tokenBalance: any = '0';
+            if (
+              'getTokenBalance' in account &&
+              typeof account.getTokenBalance === 'function'
+            ) {
+              tokenBalance = await account.getTokenBalance(tokenAddress);
+            } else if (provider) {
+              // Fallback: Call balanceOf directly via RPC
+              const balanceResult = await provider.request({
+                method: 'eth_call',
+                params: [
+                  {
                     to: tokenAddress,
-                    data: '0x95d89b41',
-                  }, 'latest'],
-                });
-                if (symbolResult && symbolResult !== '0x') {
-                  symbol = this.decodeStringFromHex(symbolResult);
-                }
-
-                // Call decimals() - 0x313ce567
-                const decimalsResult = await provider.request({
-                  method: 'eth_call',
-                  params: [{
-                    to: tokenAddress,
-                    data: '0x313ce567',
-                  }, 'latest'],
-                });
-                if (decimalsResult && decimalsResult !== '0x') {
-                  decimals = parseInt(decimalsResult, 16);
-                }
-              }
-            } catch (error) {
-              this.logger.debug(`Failed to fetch token metadata for ${tokenAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    data: '0x70a08231' + address.slice(2).padStart(64, '0'), // balanceOf(address)
+                  },
+                  'latest',
+                ],
+              });
+              tokenBalance = BigInt(balanceResult).toString();
             }
 
-            tokens.push({
-              address: tokenAddress,
-              symbol,
-              balance: tokenBalance.toString(),
-              decimals,
-            });
+            if (tokenBalance && parseFloat(tokenBalance.toString()) > 0) {
+              // Get token symbol and decimals
+              let symbol = 'UNKNOWN';
+              let decimals = 18;
+
+              try {
+                if (provider) {
+                  // Call symbol() - 0x95d89b41
+                  const symbolResult = await provider.request({
+                    method: 'eth_call',
+                    params: [
+                      {
+                        to: tokenAddress,
+                        data: '0x95d89b41',
+                      },
+                      'latest',
+                    ],
+                  });
+                  if (symbolResult && symbolResult !== '0x') {
+                    symbol = this.decodeStringFromHex(symbolResult);
+                  }
+
+                  // Call decimals() - 0x313ce567
+                  const decimalsResult = await provider.request({
+                    method: 'eth_call',
+                    params: [
+                      {
+                        to: tokenAddress,
+                        data: '0x313ce567',
+                      },
+                      'latest',
+                    ],
+                  });
+                  if (decimalsResult && decimalsResult !== '0x') {
+                    decimals = parseInt(decimalsResult, 16);
+                  }
+                }
+              } catch (error) {
+                this.logger.debug(
+                  `Failed to fetch token metadata for ${tokenAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                );
+              }
+
+              tokens.push({
+                address: tokenAddress,
+                symbol,
+                balance: tokenBalance.toString(),
+                decimals,
+              });
+            }
+            return null;
+          } catch (error) {
+            this.logger.debug(
+              `Failed to process token ${tokenAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            );
+            return null;
           }
-          return null;
-        } catch (error) {
-          this.logger.debug(`Failed to process token ${tokenAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          return null;
-        }
         });
-        
+
         const batchResults = await Promise.all(batchPromises);
         batchResults.forEach((token) => {
           if (token) {
@@ -1494,7 +2528,9 @@ export class WalletService {
         });
       }
     } catch (error) {
-      this.logger.warn(`Token discovery from events failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.warn(
+        `Token discovery from events failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
 
     return tokens;
@@ -1507,13 +2543,13 @@ export class WalletService {
     try {
       // Remove 0x prefix
       const hexWithoutPrefix = hex.startsWith('0x') ? hex.slice(2) : hex;
-      
+
       // Skip offset and length (first 64 chars = 32 bytes each)
       // Then decode the string
       const offset = parseInt(hexWithoutPrefix.slice(0, 64), 16);
       const length = parseInt(hexWithoutPrefix.slice(64, 128), 16);
       const stringHex = hexWithoutPrefix.slice(128, 128 + length * 2);
-      
+
       // Convert hex to string
       let result = '';
       for (let i = 0; i < stringHex.length; i += 2) {
@@ -1522,7 +2558,7 @@ export class WalletService {
           result += String.fromCharCode(charCode);
         }
       }
-      
+
       return result || 'UNKNOWN';
     } catch (error) {
       return 'UNKNOWN';
@@ -1531,81 +2567,38 @@ export class WalletService {
 
   /**
    * Refresh balances for known tokens (used when serving from cache)
+   * Note: This method now primarily relies on Zerion API for real-time balances
+   * Fallback to cached values is acceptable since cache is refreshed periodically
    */
   private async refreshTokenBalances(
     userId: string,
     chain: string,
-    cachedTokens: Array<{ address: string | null; symbol: string; balance: string; decimals: number }>,
-  ): Promise<Array<{ address: string | null; symbol: string; balance: string; decimals: number }>> {
+    cachedTokens: Array<{
+      address: string | null;
+      symbol: string;
+      balance: string;
+      decimals: number;
+    }>,
+  ): Promise<
+    Array<{
+      address: string | null;
+      symbol: string;
+      balance: string;
+      decimals: number;
+    }>
+  > {
     try {
-      const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-      const wdk = this.createWdkInstance(seedPhrase);
-
-      const wdkChainMap: Record<string, string> = {
-        ethereum: 'ethereum',
-        base: 'base',
-        arbitrum: 'arbitrum',
-        polygon: 'polygon',
-        tron: 'tron',
-        bitcoin: 'bitcoin',
-        solana: 'solana',
-        ethereumErc4337: 'ethereum-erc4337',
-        baseErc4337: 'base-erc4337',
-        arbitrumErc4337: 'arbitrum-erc4337',
-        polygonErc4337: 'polygon-erc4337',
-      };
-
-      const wdkChain = wdkChainMap[chain];
-      if (!wdkChain) {
-        return cachedTokens;
-      }
-
-      const account = await wdk.getAccount(wdkChain, 0);
-      const refreshedTokens: Array<{ address: string | null; symbol: string; balance: string; decimals: number }> = [];
-
-      // Refresh all token balances in parallel
-      const refreshPromises = cachedTokens.map(async (cachedToken) => {
-        try {
-          if (cachedToken.address === null) {
-            // Native token
-            const balance = await account.getBalance();
-            return {
-              ...cachedToken,
-              balance: balance.toString(),
-            };
-          } else {
-            // ERC-20 token
-            let balance: any = '0';
-            if ('getTokenBalance' in account && typeof (account as any).getTokenBalance === 'function') {
-              balance = await (account as any).getTokenBalance(cachedToken.address);
-            } else if ('balanceOf' in account && typeof (account as any).balanceOf === 'function') {
-              balance = await (account as any).balanceOf(cachedToken.address);
-            }
-
-            if (balance && parseFloat(balance.toString()) > 0) {
-              return {
-                ...cachedToken,
-                balance: balance.toString(),
-              };
-            }
-            return null; // Token balance is now 0, exclude it
-          }
-        } catch (error) {
-          this.logger.debug(`Failed to refresh balance for token ${cachedToken.symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          return cachedToken; // Return cached value on error
-        }
-      });
-
-      const refreshed = await Promise.all(refreshPromises);
-      refreshed.forEach((token) => {
-        if (token) {
-          refreshedTokens.push(token);
-        }
-      });
-
-      return refreshedTokens;
+      // For now, return cached tokens as-is
+      // The primary balance source is Zerion API which is called in getTokenBalances()
+      // This method is mainly used to serve from cache while a background refresh happens
+      this.logger.debug(
+        `Serving cached token balances for ${chain} (${cachedTokens.length} tokens)`,
+      );
+      return cachedTokens;
     } catch (error) {
-      this.logger.warn(`Failed to refresh token balances: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.warn(
+        `Failed to refresh token balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       return cachedTokens; // Return cached on error
     }
   }
@@ -1614,112 +2607,71 @@ export class WalletService {
    * Get token addresses for a chain (fallback list for common tokens)
    * Used when dynamic discovery fails
    */
-  private getTokenAddressesForChain(chain: string): Array<{ address: string; symbol: string; decimals: number }> {
+  private getTokenAddressesForChain(
+    chain: string,
+  ): Array<{ address: string; symbol: string; decimals: number }> {
     // Token addresses per network (fallback for common tokens)
-    const tokens: Record<string, Array<{ address: string; symbol: string; decimals: number }>> = {
+    const tokens: Record<
+      string,
+      Array<{ address: string; symbol: string; decimals: number }>
+    > = {
       ethereum: [
-        { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6 },
-        { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6 },
+        {
+          address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+          symbol: 'USDT',
+          decimals: 6,
+        },
+        {
+          address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+          symbol: 'USDC',
+          decimals: 6,
+        },
       ],
       ethereumErc4337: [
-        { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6 },
-        { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6 },
+        {
+          address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+          symbol: 'USDT',
+          decimals: 6,
+        },
+        {
+          address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+          symbol: 'USDC',
+          decimals: 6,
+        },
       ],
       baseErc4337: [
-        { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
+        {
+          address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          symbol: 'USDC',
+          decimals: 6,
+        },
       ],
       arbitrumErc4337: [
-        { address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', symbol: 'USDT', decimals: 6 },
-        { address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', symbol: 'USDC', decimals: 6 },
+        {
+          address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+          symbol: 'USDT',
+          decimals: 6,
+        },
+        {
+          address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+          symbol: 'USDC',
+          decimals: 6,
+        },
       ],
       polygonErc4337: [
-        { address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', symbol: 'USDT', decimals: 6 },
-        { address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', symbol: 'USDC', decimals: 6 },
+        {
+          address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+          symbol: 'USDT',
+          decimals: 6,
+        },
+        {
+          address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+          symbol: 'USDC',
+          decimals: 6,
+        },
       ],
     };
     return tokens[chain] || [];
-  }
-
-  /**
-   * Create a WDK instance with all wallet managers registered
-   * @param seedPhrase - The seed phrase
-   * @returns Configured WDK instance
-   */
-  private createWdkInstance(seedPhrase: string) {
-    return new WDK(seedPhrase)
-      .registerWallet('ethereum', WalletManagerEvm, {
-        provider: this.configService.get<string>('ETH_RPC_URL') || 'https://eth.llamarpc.com',
-      })
-      .registerWallet('base', WalletManagerEvm, {
-        provider: this.configService.get<string>('BASE_RPC_URL') || 'https://mainnet.base.org',
-      })
-      .registerWallet('arbitrum', WalletManagerEvm, {
-        provider: this.configService.get<string>('ARB_RPC_URL') || 'https://arb1.arbitrum.io/rpc',
-      })
-      .registerWallet('polygon', WalletManagerEvm, {
-        provider: this.configService.get<string>('POLYGON_RPC_URL') || 'https://polygon-rpc.com',
-      })
-      .registerWallet('tron', WalletManagerTron, {
-        provider: this.configService.get<string>('TRON_RPC_URL') || 'https://api.trongrid.io',
-      })
-      .registerWallet('bitcoin', WalletManagerBtc as any, {
-        provider: this.configService.get<string>('BTC_RPC_URL') || 'https://blockstream.info/api',
-      })
-      .registerWallet('solana', WalletManagerSolana, {
-        rpcUrl: this.configService.get<string>('SOL_RPC_URL') || 'https://api.mainnet-beta.solana.com',
-      })
-      .registerWallet('ethereum-erc4337', WalletManagerEvmErc4337, {
-        chainId: 1,
-        provider: this.configService.get<string>('ETH_ERC4337_RPC_URL') || 'https://eth.llamarpc.com',
-        bundlerUrl: this.configService.get<string>('ETH_BUNDLER_URL') || 'https://api.candide.dev/public/v3/ethereum',
-        paymasterUrl: this.configService.get<string>('ETH_PAYMASTER_URL') || 'https://api.candide.dev/public/v3/ethereum',
-        paymasterAddress: this.configService.get<string>('ETH_PAYMASTER_ADDRESS') || '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
-        entryPointAddress: this.configService.get<string>('ENTRY_POINT_ADDRESS') || '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-        safeModulesVersion: this.configService.get<string>('SAFE_MODULES_VERSION') || '0.3.0',
-        paymasterToken: {
-          address: this.configService.get<string>('ETH_PAYMASTER_TOKEN') || '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-        },
-        transferMaxFee: parseInt(this.configService.get<string>('TRANSFER_MAX_FEE') || '100000000000000'),
-      })
-      .registerWallet('base-erc4337', WalletManagerEvmErc4337, {
-        chainId: 8453,
-        provider: this.configService.get<string>('BASE_RPC_URL') || 'https://mainnet.base.org',
-        bundlerUrl: this.configService.get<string>('BASE_BUNDLER_URL') || 'https://api.candide.dev/public/v3/base',
-        paymasterUrl: this.configService.get<string>('BASE_PAYMASTER_URL') || 'https://api.candide.dev/public/v3/base',
-        paymasterAddress: this.configService.get<string>('BASE_PAYMASTER_ADDRESS') || '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
-        entryPointAddress: this.configService.get<string>('ENTRY_POINT_ADDRESS') || '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-        safeModulesVersion: this.configService.get<string>('SAFE_MODULES_VERSION') || '0.3.0',
-        paymasterToken: {
-          address: this.configService.get<string>('BASE_PAYMASTER_TOKEN') || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-        },
-        transferMaxFee: parseInt(this.configService.get<string>('TRANSFER_MAX_FEE') || '100000000000000'),
-      })
-      .registerWallet('arbitrum-erc4337', WalletManagerEvmErc4337, {
-        chainId: 42161,
-        provider: this.configService.get<string>('ARB_RPC_URL') || 'https://arb1.arbitrum.io/rpc',
-        bundlerUrl: this.configService.get<string>('ARB_BUNDLER_URL') || 'https://api.candide.dev/public/v3/arbitrum',
-        paymasterUrl: this.configService.get<string>('ARB_PAYMASTER_URL') || 'https://api.candide.dev/public/v3/arbitrum',
-        paymasterAddress: this.configService.get<string>('ARB_PAYMASTER_ADDRESS') || '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
-        entryPointAddress: this.configService.get<string>('ENTRY_POINT_ADDRESS') || '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-        safeModulesVersion: this.configService.get<string>('SAFE_MODULES_VERSION') || '0.3.0',
-        paymasterToken: {
-          address: this.configService.get<string>('ARB_PAYMASTER_TOKEN') || '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
-        },
-        transferMaxFee: parseInt(this.configService.get<string>('TRANSFER_MAX_FEE') || '100000000000000'),
-      })
-      .registerWallet('polygon-erc4337', WalletManagerEvmErc4337, {
-        chainId: 137,
-        provider: this.configService.get<string>('POLYGON_RPC_URL') || 'https://polygon-rpc.com',
-        bundlerUrl: this.configService.get<string>('POLYGON_BUNDLER_URL') || 'https://api.candide.dev/public/v3/polygon',
-        paymasterUrl: this.configService.get<string>('POLYGON_PAYMASTER_URL') || 'https://api.candide.dev/public/v3/polygon',
-        paymasterAddress: this.configService.get<string>('POLYGON_PAYMASTER_ADDRESS') || '0x8b1f6cb5d062aa2ce8d581942bbb960420d875ba',
-        entryPointAddress: this.configService.get<string>('ENTRY_POINT_ADDRESS') || '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
-        safeModulesVersion: this.configService.get<string>('SAFE_MODULES_VERSION') || '0.3.0',
-        paymasterToken: {
-          address: this.configService.get<string>('POLYGON_PAYMASTER_TOKEN') || '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
-        },
-        transferMaxFee: parseInt(this.configService.get<string>('TRANSFER_MAX_FEE') || '100000000000000'),
-      });
   }
 
   /**
@@ -1733,19 +2685,23 @@ export class WalletService {
     userId: string,
     chain: string,
     limit: number = 50,
-  ): Promise<Array<{
-    txHash: string;
-    from: string;
-    to: string | null;
-    value: string;
-    timestamp: number | null;
-    blockNumber: number | null;
-    status: 'success' | 'failed' | 'pending';
-    chain: string;
-    tokenSymbol?: string;
-    tokenAddress?: string;
-  }>> {
-    this.logger.log(`Getting transaction history for user ${userId} on chain ${chain} using Zerion`);
+  ): Promise<
+    Array<{
+      txHash: string;
+      from: string;
+      to: string | null;
+      value: string;
+      timestamp: number | null;
+      blockNumber: number | null;
+      status: 'success' | 'failed' | 'pending';
+      chain: string;
+      tokenSymbol?: string;
+      tokenAddress?: string;
+    }>
+  > {
+    this.logger.log(
+      `Getting transaction history for user ${userId} on chain ${chain} using Zerion`,
+    );
 
     // Check if wallet exists, create if not
     const hasSeed = await this.seedRepository.hasSeed(userId);
@@ -1760,17 +2716,23 @@ export class WalletService {
       // Get address for this chain
       const addresses = await this.getAddresses(userId);
       const address = addresses[chain as keyof WalletAddresses];
-      
+
       if (!address) {
         this.logger.warn(`No address found for chain ${chain}`);
         return [];
       }
 
       // Get transactions from Zerion
-      const zerionTransactions = await this.zerionService.getTransactions(address, chain, limit);
-      
+      const zerionTransactions = await this.zerionService.getTransactions(
+        address,
+        chain,
+        limit,
+      );
+
       if (!zerionTransactions || zerionTransactions.length === 0) {
-        this.logger.debug(`No transactions from Zerion for ${address} on ${chain}`);
+        this.logger.debug(
+          `No transactions from Zerion for ${address} on ${chain}`,
+        );
         return [];
       }
 
@@ -1794,7 +2756,7 @@ export class WalletService {
           const txHash = attributes.hash || zerionTx.id || '';
           const timestamp = attributes.mined_at || attributes.sent_at || null;
           const blockNumber = attributes.block_number || null;
-          
+
           // Determine status
           let status: 'success' | 'failed' | 'pending' = 'pending';
           if (attributes.status) {
@@ -1804,7 +2766,10 @@ export class WalletService {
             } else if (statusLower === 'failed' || statusLower === 'error') {
               status = 'failed';
             }
-          } else if (attributes.block_confirmations !== undefined && attributes.block_confirmations > 0) {
+          } else if (
+            attributes.block_confirmations !== undefined &&
+            attributes.block_confirmations > 0
+          ) {
             status = 'success';
           }
 
@@ -1848,20 +2813,26 @@ export class WalletService {
             tokenAddress,
           });
         } catch (error) {
-          this.logger.debug(`Error processing transaction from Zerion: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          this.logger.debug(
+            `Error processing transaction from Zerion: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
         }
       }
 
-      this.logger.log(`Retrieved ${transactions.length} transactions from Zerion for ${chain}`);
+      this.logger.log(
+        `Retrieved ${transactions.length} transactions from Zerion for ${chain}`,
+      );
       return transactions;
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Error getting transaction history from Zerion: ${errorMessage}`);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Error getting transaction history from Zerion: ${errorMessage}`,
+      );
       return [];
     }
   }
 }
-

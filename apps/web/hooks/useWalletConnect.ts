@@ -3,7 +3,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import SignClient from '@walletconnect/sign-client';
 import { SessionTypes } from '@walletconnect/types';
-import { walletApi, ApiError } from '@/lib/api';
+import { walletApi, ApiError, WalletConnectNamespacePayload } from '@/lib/api';
+
+const DEFAULT_WALLETCONNECT_METHODS = [
+  'eth_sendTransaction',
+  'eth_signTransaction',
+  'eth_sign',
+  'personal_sign',
+];
+
+const DEFAULT_WALLETCONNECT_EVENTS = ['chainChanged', 'accountsChanged'];
+
+const SUPPORTED_WALLETCONNECT_CHAINS = [
+  'eip155:1',
+  'eip155:8453',
+  'eip155:42161',
+  'eip155:137',
+  'eip155:43114',
+];
 
 export interface WalletConnectSession {
   topic: string;
@@ -87,142 +104,183 @@ export function useWalletConnect(userId: string | null): UseWalletConnectReturn 
           
           // Auto-approve session proposals (you can add user confirmation UI here)
           try {
-            // Fetch user addresses - ensure wallet is created first
-            let addresses;
-            try {
-              addresses = await walletApi.getAddresses(userId);
-            } catch (err) {
-              // If addresses fail, try creating wallet first
-              console.log('Addresses not found, creating wallet...');
-              await walletApi.createOrImportSeed({ userId, mode: 'random' });
-              // Wait a moment for wallet creation
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              addresses = await walletApi.getAddresses(userId);
-            }
-            
-            console.log('Fetched addresses for WalletConnect:', addresses);
-            
+            const fetchWalletConnectNamespace = async (): Promise<WalletConnectNamespacePayload> => {
+              try {
+                return await walletApi.getWalletConnectAccounts(userId);
+              } catch (err) {
+                if (err instanceof ApiError && (err.status === 400 || err.status === 404)) {
+                  console.log('WalletConnect accounts not ready, creating wallet...');
+                  await walletApi.createOrImportSeed({ userId, mode: 'random' });
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  return await walletApi.getWalletConnectAccounts(userId);
+                }
+                throw err;
+              }
+            };
+
+            const namespacePayload = await fetchWalletConnectNamespace();
+            console.log('Fetched WalletConnect namespace payload:', namespacePayload);
+
             const namespaces: SessionTypes.Namespaces = {};
             const requestedChains: string[] = [];
-            
-            // Helper function to process a namespace (required or optional)
-            const processNamespace = (namespaceKey: string, namespaceData: any, isRequired: boolean) => {
-              // Get chains from the namespace - they might be in different formats
-              let chains: string[] = [];
-              
-              if (namespaceData.chains && Array.isArray(namespaceData.chains)) {
-                chains = namespaceData.chains;
-              } else if (namespaceData.chains && typeof namespaceData.chains === 'string') {
-                chains = [namespaceData.chains];
-              } else if (namespaceData.accounts && Array.isArray(namespaceData.accounts)) {
-                // Sometimes chains are embedded in accounts (e.g., "eip155:1:0x...")
-                chains = namespaceData.accounts
+            const allRequestedChains: string[] = [];
+            const unsupportedChains: Set<string> = new Set();
+
+            const extractChains = (namespaceKey: string, namespaceData: any): string[] => {
+              if (Array.isArray(namespaceData?.chains)) {
+                return namespaceData.chains;
+              }
+              if (typeof namespaceData?.chains === 'string') {
+                return [namespaceData.chains];
+              }
+              if (Array.isArray(namespaceData?.accounts)) {
+                return namespaceData.accounts
                   .map((acc: string) => {
                     const parts = acc.split(':');
                     return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : null;
                   })
                   .filter((c: string | null): c is string => c !== null);
               }
-              
-              // If no chains found and this is eip155 namespace, default to Ethereum mainnet
-              if (chains.length === 0 && namespaceKey === 'eip155') {
-                console.log('No chains specified for eip155 namespace, defaulting to Ethereum mainnet');
-                chains = ['eip155:1'];
+              if (namespaceKey === namespacePayload.namespace && namespacePayload.chains.length > 0) {
+                console.log(`No chains specified for ${namespaceKey}, defaulting to backend-supported chains`);
+                return namespacePayload.chains;
               }
-              
+              return [];
+            };
+
+            // Helper function to process a namespace (required or optional)
+            const processNamespace = (namespaceKey: string, namespaceData: any, isRequired: boolean) => {
+              if (namespaceKey !== namespacePayload.namespace) {
+                console.warn(`Unsupported namespace ${namespaceKey}. Supported namespace: ${namespacePayload.namespace}`);
+                return;
+              }
+
+              const chains = extractChains(namespaceKey, namespaceData);
+
               if (chains.length === 0) {
                 console.warn(`No chains found for namespace ${namespaceKey}`, namespaceData);
                 return;
               }
-              
+
               console.log(`Processing ${isRequired ? 'required' : 'optional'} namespace ${namespaceKey} with chains:`, chains);
-              
-              // Map WalletConnect chain IDs to internal chain names and get addresses
+
+              chains.forEach((chain) => allRequestedChains.push(chain));
+
+              const supportedChains = chains.filter((chain) => {
+                const isSupported = SUPPORTED_WALLETCONNECT_CHAINS.includes(chain);
+                if (!isSupported) {
+                  unsupportedChains.add(chain);
+                }
+                return isSupported;
+              });
+
+              const filteredOutChains = chains.filter((chain) => !SUPPORTED_WALLETCONNECT_CHAINS.includes(chain));
+
+              if (filteredOutChains.length > 0) {
+                console.warn(
+                  `Filtering out unsupported chains for namespace ${namespaceKey}: ${filteredOutChains.join(', ')}`,
+                );
+              }
+
+              if (supportedChains.length === 0) {
+                if (isRequired) {
+                  throw new Error(
+                    `DApp requested chains (${chains.join(
+                      ', ',
+                    )}) that are not currently supported. Supported chains: ${SUPPORTED_WALLETCONNECT_CHAINS.join(', ')}.`,
+                  );
+                }
+                console.warn(
+                  `Skipping namespace ${namespaceKey} because no supported chains were requested (chains: ${chains.join(', ')})`,
+                );
+                return;
+              }
+
               const accounts: string[] = [];
-              
-              chains.forEach((chain: string) => {
+              const missingForNamespace: string[] = [];
+
+              supportedChains.forEach((chain: string) => {
                 requestedChains.push(chain);
-                const chainParts = chain.split(':');
-                if (chainParts.length < 2) {
-                  console.warn(`Invalid chain format: ${chain}`);
-                  return;
-                }
-                
-                const chainId = chainParts[1];
-                let address: string | null = null;
-                
-                // Map chain ID to internal chain name and get address
-                switch (chainId) {
-                  case '1': // Ethereum
-                    address = addresses.ethereumErc4337 || addresses.ethereum;
-                    break;
-                  case '8453': // Base
-                    address = addresses.baseErc4337 || addresses.base;
-                    break;
-                  case '42161': // Arbitrum
-                    address = addresses.arbitrumErc4337 || addresses.arbitrum;
-                    break;
-                  case '137': // Polygon
-                    address = addresses.polygonErc4337 || addresses.polygon;
-                    break;
-                  default:
-                    console.warn(`Unsupported chain ID: ${chainId}`);
-                    return;
-                }
-                
+                const address = namespacePayload.addressesByChain[chain];
                 if (address) {
                   accounts.push(`${chain}:${address}`);
-                  console.log(`Mapped chain ${chain} (ID: ${chainId}) to address: ${address}`);
+                  console.log(`Mapped chain ${chain} to address: ${address}`);
                 } else {
-                  console.warn(`No address found for chain ${chainId} (${chain}). Available addresses:`, {
-                    ethereum: addresses.ethereum,
-                    ethereumErc4337: addresses.ethereumErc4337,
-                    base: addresses.base,
-                    baseErc4337: addresses.baseErc4337,
-                  });
+                  missingForNamespace.push(chain);
+                  unsupportedChains.add(chain);
+                  console.warn(`No address available for chain ${chain}. Supported chains:`, namespacePayload.chains);
                 }
               });
-              
-              // Only add namespace if we have at least one account
+
               if (accounts.length > 0) {
                 namespaces[namespaceKey] = {
+                  chains: supportedChains,
                   accounts,
-                  methods: namespaceData.methods || ['eth_sendTransaction', 'eth_signTransaction', 'eth_sign', 'personal_sign'],
-                  events: namespaceData.events || ['chainChanged', 'accountsChanged'],
+                  methods:
+                    Array.isArray(namespaceData.methods) && namespaceData.methods.length > 0
+                      ? namespaceData.methods
+                      : DEFAULT_WALLETCONNECT_METHODS,
+                  events:
+                    Array.isArray(namespaceData.events) && namespaceData.events.length > 0
+                      ? namespaceData.events
+                      : DEFAULT_WALLETCONNECT_EVENTS,
                 };
                 console.log(`Added namespace ${namespaceKey} with ${accounts.length} account(s)`);
               } else {
                 console.warn(`No accounts found for namespace ${namespaceKey} (requested chains: ${chains.join(', ')})`);
               }
+
+              if (missingForNamespace.length > 0) {
+                console.warn(`Missing accounts for chains: ${missingForNamespace.join(', ')}`);
+              }
             };
-            
+
             // Process required namespaces first
             if (params.requiredNamespaces) {
               Object.keys(params.requiredNamespaces).forEach((key) => {
                 processNamespace(key, params.requiredNamespaces[key], true);
               });
             }
-            
+
             // Process optional namespaces if no accounts were found in required namespaces
             if (Object.keys(namespaces).length === 0 && params.optionalNamespaces) {
               console.log('No accounts found in required namespaces, checking optional namespaces...');
               Object.keys(params.optionalNamespaces).forEach((key) => {
-                // Only process if we haven't already added this namespace
                 if (!namespaces[key]) {
                   processNamespace(key, params.optionalNamespaces[key], false);
                 }
               });
             }
 
-            // Validate that we have at least one namespace with accounts
-            const hasValidNamespaces = Object.keys(namespaces).length > 0 && 
-              Object.values(namespaces).some(ns => ns.accounts && ns.accounts.length > 0);
+            if (unsupportedChains.size > 0) {
+              const unsupportedList = Array.from(unsupportedChains);
+              const errorMsg = `DApp requested unsupported chains: ${unsupportedList.join(
+                ', ',
+              )}. Please disable those networks and reconnect. Supported chains: ${SUPPORTED_WALLETCONNECT_CHAINS.join(
+                ', ',
+              )}.`;
+              console.error(errorMsg, {
+                namespacePayload,
+                allRequestedChains,
+                unsupportedChains: unsupportedList,
+                requiredNamespaces: params.requiredNamespaces,
+                optionalNamespaces: params.optionalNamespaces,
+              });
+              throw new Error(errorMsg);
+            }
+
+            const hasValidNamespaces =
+              Object.keys(namespaces).length > 0 &&
+              Object.values(namespaces).some((ns) => ns.accounts && ns.accounts.length > 0);
 
             if (!hasValidNamespaces) {
-              const errorMsg = `No valid accounts found for requested chains: ${requestedChains.length > 0 ? requestedChains.join(', ') : 'none specified'}. Please ensure your wallet is initialized and has addresses for these chains.`;
-              console.error(errorMsg, { 
-                addresses, 
+              const errorMsg = `No valid accounts found for requested chains: ${
+                requestedChains.length > 0 ? requestedChains.join(', ') : 'none specified'
+              }. Supported chains: ${SUPPORTED_WALLETCONNECT_CHAINS.join(', ')}.`;
+              console.error(errorMsg, {
+                namespacePayload,
                 requestedChains,
+                unsupportedChains: Array.from(unsupportedChains),
                 requiredNamespaces: params.requiredNamespaces,
                 optionalNamespaces: params.optionalNamespaces,
               });

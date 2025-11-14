@@ -42,6 +42,8 @@ const CHAIN_NAMES: Record<string, string> = {
   base: "Base",
   arbitrum: "Arbitrum",
   polygon: "Polygon",
+  avalancheErc4337: "Avalanche (ERC-4337)",
+  avalanche: "Avalanche",
 };
 
 // Address validation per chain type
@@ -53,7 +55,7 @@ const validateAddress = (address: string, chain: string): string | null => {
   const trimmed = address.trim();
 
   // EVM chains (Ethereum, ERC-4337 chains, Base/Arbitrum/Polygon EOAs)
-  if (["ethereum", "ethereumErc4337", "base", "baseErc4337", "arbitrum", "arbitrumErc4337", "polygon", "polygonErc4337"].includes(chain)) {
+  if (["ethereum", "ethereumErc4337", "base", "baseErc4337", "arbitrum", "arbitrumErc4337", "polygon", "polygonErc4337", "avalanche", "avalancheErc4337"].includes(chain)) {
     if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
       return "Invalid Ethereum address format (must start with 0x and be 42 characters)";
     }
@@ -93,6 +95,8 @@ const getExplorerUrl = (txHash: string, chain: string): string => {
     arbitrum: `https://arbiscan.io/tx/${txHash}`,
     polygonErc4337: `https://polygonscan.com/tx/${txHash}`,
     polygon: `https://polygonscan.com/tx/${txHash}`,
+    avalancheErc4337: `https://snowtrace.io/tx/${txHash}`,
+    avalanche: `https://snowtrace.io/tx/${txHash}`,
     tron: `https://tronscan.org/#/transaction/${txHash}`,
     bitcoin: `https://blockstream.info/tx/${txHash}`,
     solana: `https://solscan.io/tx/${txHash}`,
@@ -112,6 +116,8 @@ const mapToZerionChain = (chain: string): string => {
     polygon: 'polygon',
     polygonErc4337: 'polygon',
     solana: 'solana',
+    avalanche: 'avalanche',
+    avalancheErc4337: 'avalanche',
   };
   return m[chain] || chain;
 };
@@ -153,12 +159,12 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
       const allAssets: AnyChainAsset[] = await walletApi.getAssetsAny(userId);
       const zChain = mapToZerionChain(chain);
       const filtered = allAssets.filter(a => a.chain === zChain);
-      // Transform to TokenBalance shape; balances are 18-dec normalized by backend
+      // Transform to TokenBalance shape with actual decimals from Zerion
       const tokenList: TokenBalance[] = filtered.map(a => ({
         address: a.address,
         symbol: a.symbol,
-        balance: a.balance, // 18-dec normalized
-        decimals: a.decimals, // actual token decimals
+        balance: a.balance, // smallest units (wei, satoshi, etc.)
+        decimals: a.decimals, // actual token decimals (6 for USDC, 18 for ETH, etc.)
       }));
 
       // Keep native first, then others; native has address === null
@@ -193,10 +199,10 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
       if (isNaN(amountNum) || amountNum <= 0) {
         errors.amount = "Amount must be a positive number";
       } else if (selectedToken) {
-        // Balances from backend are normalized to 18 decimals
-        const available = parseFloat(selectedToken.balance) / Math.pow(10, 18);
+        // Convert balance from smallest units using actual token decimals
+        const available = parseFloat(selectedToken.balance) / Math.pow(10, selectedToken.decimals);
         if (amountNum > available) {
-          errors.amount = `Insufficient balance. Available: ${formatBalance(selectedToken.balance)} ${selectedToken.symbol}`;
+          errors.amount = `Insufficient balance. Available: ${formatBalance(selectedToken.balance, selectedToken.decimals)} ${selectedToken.symbol}`;
         }
       }
     }
@@ -211,11 +217,11 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
     return Object.keys(errors).length === 0;
   };
 
-  // Backend normalizes balances to 18 decimals; display in human units accordingly
-  const formatBalance = (balance: string): string => {
+  // Convert balance from smallest units to human-readable using actual token decimals
+  const formatBalance = (balance: string, decimals: number): string => {
     const num = parseFloat(balance);
     if (isNaN(num)) return "0";
-    return (num / Math.pow(10, 18)).toFixed(6).replace(/\.?0+$/, "");
+    return (num / Math.pow(10, decimals)).toFixed(6).replace(/\.?0+$/, "");
   };
 
   const handleSend = async () => {
@@ -233,6 +239,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
         userId,
         chain,
         tokenAddress: selectedToken.address || undefined,
+        tokenDecimals: selectedToken.decimals,
         amount: amount, // human-readable amount; server converts using ERC-20 decimals / Zerion
         recipientAddress: recipientAddress.trim(),
       });
@@ -326,7 +333,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
                 <SelectContent>
                   {tokens.map((token) => (
                     <SelectItem key={token.address || "native"} value={token.address || "native"}>
-                      {token.symbol} - {formatBalance(token.balance)}
+                      {token.symbol} - {formatBalance(token.balance, token.decimals)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -359,7 +366,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
             )}
             {selectedToken && !fieldErrors.amount && (
               <p className="text-xs text-muted-foreground">
-                Available: {formatBalance(selectedToken.balance)} {selectedToken.symbol}
+                Available: {formatBalance(selectedToken.balance, selectedToken.decimals)} {selectedToken.symbol}
               </p>
             )}
           </div>

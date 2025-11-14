@@ -16,6 +16,7 @@ const CHAIN_NAMES: Record<string, string> = {
   arbitrum: "Arbitrum",
   polygon: "Polygon",
   solana: "Solana",
+  avalanche: "Avalanche",
   // Legacy/internal (not expected here but kept as fallback)
   tron: "Tron",
   bitcoin: "Bitcoin",
@@ -23,6 +24,7 @@ const CHAIN_NAMES: Record<string, string> = {
   baseErc4337: "Base (ERC-4337)",
   arbitrumErc4337: "Arbitrum (ERC-4337)",
   polygonErc4337: "Polygon (ERC-4337)",
+  avalancheErc4337: "Avalanche (ERC-4337)",
 };
 
 const NATIVE_TOKEN_SYMBOLS: Record<string, string> = {
@@ -32,6 +34,7 @@ const NATIVE_TOKEN_SYMBOLS: Record<string, string> = {
   arbitrum: 'ETH',
   polygon: 'MATIC',
   solana: 'SOL',
+  avalanche: 'AVAX',
   // Legacy/internal fallbacks
   tron: 'TRX',
   bitcoin: 'BTC',
@@ -39,23 +42,27 @@ const NATIVE_TOKEN_SYMBOLS: Record<string, string> = {
   baseErc4337: 'ETH',
   arbitrumErc4337: 'ETH',
   polygonErc4337: 'MATIC',
+  avalancheErc4337: 'AVAX',
 };
 
 const getNativeTokenSymbol = (chain: string): string => {
   return NATIVE_TOKEN_SYMBOLS[chain] || 'TOKEN';
 };
 
-// All balances coming from assets-any are normalized to 18 decimals on the backend
-const formatBalance = (balance: string): string => {
+// Convert smallest units to human-readable using actual token decimals
+const formatBalance = (balance: string, decimals: number): string => {
   const num = parseFloat(balance);
   if (isNaN(num)) return "0";
-  return (num / Math.pow(10, 18)).toFixed(6).replace(/\.?0+$/, "");
+  const humanReadable = num / Math.pow(10, decimals);
+  return humanReadable.toFixed(6).replace(/\.?0+$/, "");
 };
 
 interface ChainBalance {
   chain: string;
   nativeBalance: string;
-  tokens: TokenBalance[];
+  nativeDecimals: number;
+  nativeBalanceHuman?: string;
+  tokens: (TokenBalance & { balanceHuman?: string })[];
 }
 
 export default function TransactionsPage() {
@@ -86,12 +93,27 @@ export default function TransactionsPage() {
       // Group assets by chain and split native vs tokens
       const map = new Map<string, ChainBalance>();
       for (const a of assets) {
-        const existing = map.get(a.chain) || { chain: a.chain, nativeBalance: '0', tokens: [] as TokenBalance[] };
+        const existing = map.get(a.chain) || { 
+          chain: a.chain, 
+          nativeBalance: '0', 
+          nativeDecimals: 18,
+          nativeBalanceHuman: undefined,
+          tokens: []
+        };
         if (a.address === null) {
-          // Native token (already normalized to 18 decimals)
+          // Native token - use actual decimals from API
           existing.nativeBalance = a.balance;
+          existing.nativeDecimals = a.decimals;
+          existing.nativeBalanceHuman = a.balanceHuman;
         } else {
-          existing.tokens.push({ address: a.address, symbol: a.symbol, balance: a.balance, decimals: 18 });
+          // ERC-20 or other tokens - preserve decimals and balanceHuman
+          existing.tokens.push({ 
+            address: a.address, 
+            symbol: a.symbol, 
+            balance: a.balance, 
+            decimals: a.decimals,
+            balanceHuman: a.balanceHuman
+          });
         }
         map.set(a.chain, existing);
       }
@@ -108,11 +130,21 @@ export default function TransactionsPage() {
   // Map Zerion chain ids to backend internal chain identifiers for sending
   const mapChainForSend = (chain: string): string | null => {
     const m: Record<string, string> = {
+      // Zerion canonical chains (map to internal send identifiers)
       ethereum: 'ethereum',
       base: 'baseErc4337',
       arbitrum: 'arbitrumErc4337',
       polygon: 'polygonErc4337',
       solana: 'solana',
+      avalanche: 'avalancheErc4337',
+      tron: 'tron',
+      bitcoin: 'bitcoin',
+      // Already-internal identifiers should pass through unchanged
+      ethereumErc4337: 'ethereumErc4337',
+      baseErc4337: 'baseErc4337',
+      arbitrumErc4337: 'arbitrumErc4337',
+      polygonErc4337: 'polygonErc4337',
+      avalancheErc4337: 'avalancheErc4337',
     };
     return m[chain] || null;
   };
@@ -192,14 +224,17 @@ export default function TransactionsPage() {
                     })
                     .map((chainBalance) => {
                 const chainName = CHAIN_NAMES[chainBalance.chain] || chainBalance.chain;
-                const formattedNative = formatBalance(chainBalance.nativeBalance);
+                // Use balanceHuman from backend if available, otherwise calculate
+                const formattedNative = chainBalance.nativeBalanceHuman || 
+                  formatBalance(chainBalance.nativeBalance, chainBalance.nativeDecimals);
                 
                 // Format token balances (only non-zero)
+                // Use balanceHuman from backend if available, otherwise calculate with correct decimals
                 const formattedTokens = chainBalance.tokens
                   .filter(token => parseFloat(token.balance) > 0)
                   .map(token => {
-                    const tokenBalanceNum = parseFloat(token.balance);
-                    const formatted = (tokenBalanceNum / Math.pow(10, 18)).toFixed(6).replace(/\.?0+$/, "");
+                    const formatted = token.balanceHuman || 
+                      formatBalance(token.balance, token.decimals);
                     return { ...token, formatted };
                   });
                 

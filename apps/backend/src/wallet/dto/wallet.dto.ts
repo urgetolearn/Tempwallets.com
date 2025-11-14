@@ -1,4 +1,14 @@
-import { IsString, IsNotEmpty, IsIn, IsOptional, ValidateIf, Matches } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsIn,
+  IsOptional,
+  ValidateIf,
+  Matches,
+  IsNumber,
+  Min,
+  Max,
+} from 'class-validator';
 
 export class CreateOrImportSeedDto {
   @IsString()
@@ -21,10 +31,12 @@ const SUPPORTED_CHAINS = [
   'tron',
   'bitcoin',
   'solana',
+  'avalanche',
   'ethereumErc4337',
   'baseErc4337',
   'arbitrumErc4337',
   'polygonErc4337',
+  'avalancheErc4337',
 ] as const;
 
 export class SendCryptoDto {
@@ -40,9 +52,17 @@ export class SendCryptoDto {
   @IsOptional()
   tokenAddress?: string;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  @Max(36)
+  tokenDecimals?: number;
+
   @IsString()
   @IsNotEmpty()
-  @Matches(/^[0-9]+(\.[0-9]+)?$/, { message: 'Amount must be a positive number' })
+  @Matches(/^[0-9]+(\.[0-9]+)?$/, {
+    message: 'Amount must be a positive number',
+  })
   amount: string;
 
   @IsString()
@@ -95,4 +115,3 @@ export class WalletConnectSignDto {
   @IsOptional()
   nonce?: string;
 }
-

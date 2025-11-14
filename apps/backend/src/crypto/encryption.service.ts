@@ -20,7 +20,7 @@ export class EncryptionService {
     }
     // Convert base64 encoded key to Buffer
     this.key = Buffer.from(keyStr, 'base64');
-    
+
     if (this.key.length !== 32) {
       throw new Error('WALLET_ENC_KEY must be a 32-byte base64 encoded string');
     }
@@ -34,14 +34,14 @@ export class EncryptionService {
   encrypt(plaintext: string): EncryptedData {
     // Generate a random IV for this encryption
     const iv = crypto.randomBytes(16);
-    
+
     const cipher = crypto.createCipheriv(this.algorithm, this.key, iv);
-    
+
     let ciphertext = cipher.update(plaintext, 'utf8', 'hex');
     ciphertext += cipher.final('hex');
-    
+
     const authTag = cipher.getAuthTag();
-    
+
     return {
       ciphertext,
       iv: iv.toString('hex'),
@@ -57,14 +57,13 @@ export class EncryptionService {
   decrypt(encryptedData: EncryptedData): string {
     const iv = Buffer.from(encryptedData.iv, 'hex');
     const authTag = Buffer.from(encryptedData.authTag, 'hex');
-    
+
     const decipher = crypto.createDecipheriv(this.algorithm, this.key, iv);
     decipher.setAuthTag(authTag);
-    
+
     let plaintext = decipher.update(encryptedData.ciphertext, 'hex', 'utf8');
     plaintext += decipher.final('utf8');
-    
+
     return plaintext;
   }
 }
-

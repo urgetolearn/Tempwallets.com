@@ -1,3 +1,4 @@
+import { LandingPageTracker } from "@/components/analytics/landing-page-tracker";
 import Hero from "../components/landing/hero";
 import Services from "../components/landing/services";
 import About from "../components/landing/about";
@@ -10,6 +11,7 @@ import Team from "@/components/landing/team";
 export default function Home() {
   return (
     <>
+      <LandingPageTracker />
       <Hero />
       <Services />
       <About />
