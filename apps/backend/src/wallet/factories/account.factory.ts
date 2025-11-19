@@ -127,6 +127,13 @@ export class AccountFactory implements IAccountFactory {
       tron: 'tron',
       bitcoin: 'bitcoin',
       solana: 'solana',
+      moonbeamtestnet: 'moonbeamtestnet', // Use ethereum manager for EVM-compatible chains
+      astarshibuya: 'astarshibuya',
+      paseopassethub: 'paseopassethub',
+      hydration: 'hydration',
+      unique: 'unique',
+      bifrost: 'bifrost',
+      bifrosttestnet: 'bifrosttestnet',
     };
 
     const wdkChain = chainMap[chain];
@@ -156,6 +163,27 @@ export class AccountFactory implements IAccountFactory {
       })
       .registerWallet('avalanche', WalletManagerEvm, {
         provider: this.chainConfig.getEvmChainConfig('avalanche').rpcUrl,
+      })
+      .registerWallet('moonbeamtestnet', WalletManagerEvm, {
+        provider: this.chainConfig.getEvmChainConfig('moonbeamTestnet').rpcUrl,
+      })
+      .registerWallet('astarshibuya', WalletManagerEvm, {
+        provider: this.chainConfig.getEvmChainConfig('astarShibuya').rpcUrl,
+      })
+      .registerWallet('paseopassethub', WalletManagerEvm, {
+        provider: this.chainConfig.getEvmChainConfig('paseoPassetHub').rpcUrl,
+      })
+      .registerWallet('hydration', WalletManagerEvm, {
+        provider: this.chainConfig.getEvmChainConfig('hydration').rpcUrl,
+      })
+      .registerWallet('unique', WalletManagerEvm, {
+        provider: this.chainConfig.getEvmChainConfig('unique').rpcUrl,
+      })
+      .registerWallet('bifrost', WalletManagerEvm, {
+        provider: this.chainConfig.getEvmChainConfig('bifrost').rpcUrl,
+      })
+      .registerWallet('bifrosttestnet', WalletManagerEvm, {
+        provider: this.chainConfig.getEvmChainConfig('bifrostTestnet').rpcUrl,
       })
       .registerWallet(
         'tron',

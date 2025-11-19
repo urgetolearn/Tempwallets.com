@@ -1,4 +1,5 @@
 import { FaTwitter, FaTelegramPlane } from 'react-icons/fa';
+import Image from "next/image";
 
 interface TeamMember {
   name: string;
@@ -60,12 +61,15 @@ const Team = () => {
             >
               <div className="relative w-full max-w-sm">
                 <div className="bg-team-card rounded-3xl overflow-hidden shadow-lg relative">
-                  <img
-                    src={member.image}
-                    alt={`${member.name} - ${member.role}`}
-                    className="w-full h-auto object-cover"
-                    loading="lazy"
-                  />
+                  <div className="relative w-full aspect-square">
+                    <Image
+                      src={member.image}
+                      alt={`${member.name} - ${member.role}`}
+                      fill
+                      className="object-cover"
+                      loading="lazy"
+                    />
+                  </div>
                   
                   {/* Social Media Icons */}
                   <div className="absolute top-4 left-4">

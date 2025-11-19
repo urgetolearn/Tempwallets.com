@@ -1,24 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Button } from "@repo/ui/components/ui/button";
-import { Input } from "@repo/ui/components/ui/input";
 import { Play } from "lucide-react";
+import Image from "next/image";
 import { AssetProtection } from "../AssetProtection";
 
 const Footer = () => {
-  const [email, setEmail] = useState("");
   const [showPlayIcon, setShowPlayIcon] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
 
   // YouTube video ID - replace with your actual video ID
   const videoId = "USi3kH3Filw";
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("Email submitted:", email);
-    // Handle newsletter submission
-  };
 
   const handleVideoClick = () => {
     window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank');
@@ -154,10 +146,12 @@ const Footer = () => {
               {/* TempWallets Branding Section */}
               <div className="col-span-2 lg:col-span-1">
                 <div className="mb-3 md:mb-4">
-                  <img 
-                    src="/tempwallets-logo.png" 
-                    alt="TempWallets" 
-                   className="h-[60px] w-[180px] md:h-[60px] md:w-[220px] lg:h-[65px] lg:w-[260px] xl:h-[80px] xl:w-[300px] object-contain"
+                  <Image
+                    src="/tempwallets-logo.png"
+                    alt="TempWallets"
+                    width={300}
+                    height={80}
+                    className="h-[60px] w-[180px] md:h-[60px] md:w-[220px] lg:h-[65px] lg:w-[260px] xl:h-[80px] xl:w-[300px] object-contain"
                     draggable="false"
                   />
                 </div>

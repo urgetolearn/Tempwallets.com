@@ -3,6 +3,8 @@
 // ============================================================================
 // Individual service card with glassmorphism effect and three-sided border
 
+import Image from "next/image";
+
 interface ServiceCardProps {
   iconSrc: string;
   title: string;
@@ -24,9 +26,11 @@ const ServiceCard = ({ iconSrc, title, description }: ServiceCardProps) => {
       <div className="relative z-10">
         {/* Icon container with custom image */}
         <div className="mb-6 flex h-16 w-16 md:h-20 md:w-20 items-center justify-center rounded-full bg-white/10 backdrop-blur-sm mx-auto overflow-hidden">
-          <img
+          <Image
             src={iconSrc}
             alt={title}
+            width={48}
+            height={48}
             className="h-10 w-10 md:h-12 md:w-12 object-contain"
           />
         </div>

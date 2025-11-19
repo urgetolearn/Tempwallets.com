@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import {
   IAddressManager,
   WalletAddresses,
@@ -10,6 +10,7 @@ import { AllChainTypes } from '../types/chain.types.js';
 import { SeedManager } from './seed.manager.js';
 import { AccountFactory } from '../factories/account.factory.js';
 import { PimlicoAccountFactory } from '../factories/pimlico-account.factory.js';
+import { SubstrateManager } from '../substrate/managers/substrate.manager.js';
 
 /**
  * Address Manager
@@ -36,6 +37,13 @@ export class AddressManager implements IAddressManager {
     'arbitrum',
     'polygon',
     'avalanche',
+    'moonbeamTestnet',
+    'astarShibuya',
+    'paseoPassetHub',
+    'hydration',
+    'unique',
+    'bifrost',
+    'bifrostTestnet',
   ];
 
   private readonly erc4337Chains: WalletAddressKey[] = [
@@ -56,6 +64,8 @@ export class AddressManager implements IAddressManager {
     private seedManager: SeedManager,
     private accountFactory: AccountFactory,
     private pimlicoAccountFactory: PimlicoAccountFactory,
+    @Inject(forwardRef(() => SubstrateManager))
+    private substrateManager: SubstrateManager,
   ) {}
 
   /**
@@ -89,6 +99,9 @@ export class AddressManager implements IAddressManager {
       'arbitrum',
       'polygon',
       'avalanche',
+      'moonbeamTestnet',
+      'astarShibuya',
+      'paseoPassetHub',
       'tron',
       'bitcoin',
       'solana',
@@ -137,6 +150,31 @@ export class AddressManager implements IAddressManager {
         const chainKey = `${chain}Erc4337` as keyof WalletAddresses;
         addresses[chainKey] = null as any;
       }
+    }
+
+    // Get Substrate addresses (parallel with EVM addresses)
+    try {
+      const substrateAddresses = await this.substrateManager.getAddresses(userId, false);
+      
+      // Map Substrate addresses to WalletAddresses format
+      // Note: hydration, unique, bifrost exist in both EVM and Substrate - use Substrate suffix for Substrate versions
+      addresses.polkadot = substrateAddresses.polkadot ?? null;
+      addresses.hydrationSubstrate = substrateAddresses.hydration ?? null;
+      addresses.bifrostSubstrate = substrateAddresses.bifrost ?? null;
+      addresses.uniqueSubstrate = substrateAddresses.unique ?? null;
+      addresses.paseo = substrateAddresses.paseo ?? null;
+      addresses.paseoAssethub = substrateAddresses.paseoAssethub ?? null;
+    } catch (error) {
+      this.logger.error(
+        `Error getting Substrate addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      // Set defaults
+      addresses.polkadot = null;
+      addresses.hydrationSubstrate = null;
+      addresses.bifrostSubstrate = null;
+      addresses.uniqueSubstrate = null;
+      addresses.paseo = null;
+      addresses.paseoAssethub = null;
     }
 
     const result = addresses as WalletAddresses;
@@ -206,6 +244,9 @@ export class AddressManager implements IAddressManager {
       { name: 'arbitrum', chain: 'arbitrum' },
       { name: 'polygon', chain: 'polygon' },
       { name: 'avalanche', chain: 'avalanche' },
+      { name: 'moonbeamTestnet', chain: 'moonbeamTestnet' },
+      { name: 'astarShibuya', chain: 'astarShibuya' },
+      { name: 'paseoPassetHub', chain: 'paseoPassetHub' },
       { name: 'tron', chain: 'tron' },
       { name: 'bitcoin', chain: 'bitcoin' },
       { name: 'solana', chain: 'solana' },
@@ -253,6 +294,34 @@ export class AddressManager implements IAddressManager {
         this.logger.error(
           `Error streaming address for ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
+        yield { chain: name, address: null };
+      }
+    }
+
+    // Process Substrate chains
+    try {
+      const substrateAddresses = await this.substrateManager.getAddresses(userId, false);
+      
+      // Map Substrate addresses to WalletAddresses format
+      const substrateChains: { name: string; address: string | null }[] = [
+        { name: 'polkadot', address: substrateAddresses.polkadot ?? null },
+        { name: 'hydrationSubstrate', address: substrateAddresses.hydration ?? null },
+        { name: 'bifrostSubstrate', address: substrateAddresses.bifrost ?? null },
+        { name: 'uniqueSubstrate', address: substrateAddresses.unique ?? null },
+        { name: 'paseo', address: substrateAddresses.paseo ?? null },
+        { name: 'paseoAssethub', address: substrateAddresses.paseoAssethub ?? null },
+      ];
+
+      for (const { name, address } of substrateChains) {
+        yield { chain: name, address };
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error streaming Substrate addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      // Yield null addresses for all Substrate chains on error
+      const substrateChainNames = ['polkadot', 'hydrationSubstrate', 'bifrostSubstrate', 'uniqueSubstrate', 'paseo', 'paseoAssethub'];
+      for (const name of substrateChainNames) {
         yield { chain: name, address: null };
       }
     }
@@ -307,7 +376,44 @@ export class AddressManager implements IAddressManager {
       };
     };
 
-    this.eoaChains.forEach((chain) => assign(chain, 'eoa', false));
+    // Standard EOA chains (not visible by default)
+    const standardEoaChains = this.eoaChains.filter(
+      (chain) =>
+        ![
+          'moonbeamTestnet',
+          'astarShibuya',
+          'paseoPassetHub',
+          'hydration',
+          'unique',
+          'bifrost',
+          'bifrostTestnet',
+        ].includes(chain),
+    );
+    standardEoaChains.forEach((chain) => assign(chain, 'eoa', false));
+    
+    // Polkadot EVM chains (visible)
+    const polkadotEvmChains: WalletAddressKey[] = [
+      'moonbeamTestnet',
+      'astarShibuya',
+      'paseoPassetHub',
+      'hydration',
+      'unique',
+      'bifrost',
+      'bifrostTestnet',
+    ];
+    polkadotEvmChains.forEach((chain) => assign(chain, 'eoa', true));
+    
+    // Substrate chains (visible)
+    const substrateChains: WalletAddressKey[] = [
+      'polkadot',
+      'hydrationSubstrate',
+      'bifrostSubstrate',
+      'uniqueSubstrate',
+      'paseo',
+      'paseoAssethub',
+    ];
+    substrateChains.forEach((chain) => assign(chain, 'substrate', true));
+    
     this.erc4337Chains.forEach((chain) => assign(chain, 'erc4337', true));
     this.nonEvmChains.forEach((chain) => assign(chain, 'nonEvm', true));
 
@@ -327,11 +433,25 @@ export class AddressManager implements IAddressManager {
       tron: 'Tron',
       bitcoin: 'Bitcoin',
       solana: 'Solana',
+      moonbeamTestnet: 'Moonbeam Testnet',
+      astarShibuya: 'Astar Shibuya',
+      paseoPassetHub: 'Paseo PassetHub',
+      hydration: 'Hydration',
+      unique: 'Unique',
+      bifrost: 'Bifrost Mainnet',
+      bifrostTestnet: 'Bifrost Testnet',
       ethereumErc4337: 'Ethereum Smart Account',
       baseErc4337: 'Base Smart Account',
       arbitrumErc4337: 'Arbitrum Smart Account',
       polygonErc4337: 'Polygon Smart Account',
       avalancheErc4337: 'Avalanche Smart Account',
+      // Substrate chains
+      polkadot: 'Polkadot',
+      hydrationSubstrate: 'Hydration (Substrate)',
+      bifrostSubstrate: 'Bifrost (Substrate)',
+      uniqueSubstrate: 'Unique (Substrate)',
+      paseo: 'Paseo',
+      paseoAssethub: 'Paseo AssetHub',
     };
 
     const label = baseLabels[chain];

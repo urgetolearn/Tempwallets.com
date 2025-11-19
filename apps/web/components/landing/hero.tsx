@@ -4,7 +4,7 @@ import "@repo/ui/globals.css";
 import Navbar from "../layout/navbar";
 import { useEffect, useState } from "react";
 import { Button } from "@repo/ui/components/ui/button";
-import { ArrowRight } from "lucide-react";
+import Image from "next/image";
 import { AssetProtection } from "../AssetProtection";
 import Link from "next/link";
 
@@ -164,12 +164,14 @@ export default function Hero() {
            
            <div className="absolute inset-0 bg-white/10 rounded-full blur-3xl scale-300"></div>
            
-           <img 
+           <Image
              style={{
                 filter: 'brightness(1.1) contrast(1.2)'
               }}
-             src="/3D Black Chrome Shape (3).png" 
-             alt="3D Chrome Shape" 
+             src="/3D Black Chrome Shape (3).png"
+             alt="3D Chrome Shape"
+             width={700}
+             height={700}
              className="relative w-[400px] h-[400px] md:w-[500px] md:h-[500px] lg:w-[700px] lg:h-[700px] object-contain md:animate-none animate-float protected-image"
              draggable="false"
            />

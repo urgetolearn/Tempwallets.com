@@ -16,6 +16,7 @@ export interface UiWalletEntry {
   label: string;
   chain: string;
   address: string | null;
+  category?: string;
 }
 
 export interface UiWalletPayload {
@@ -95,19 +96,24 @@ class ApiError extends Error {
   }
 }
 
-async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+async function fetchApi<T>(
+  endpoint: string,
+  options?: RequestInit & { timeout?: number },
+): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const timeout = options?.timeout ?? 30000; // Default 30 seconds, can be overridden
   
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+    const { timeout: _, ...fetchOptions } = options || {};
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
-        ...options?.headers,
+        ...fetchOptions?.headers,
       },
-      ...options,
+      ...fetchOptions,
       signal: controller.signal,
     });
 
@@ -240,6 +246,225 @@ export const walletApi = {
     nonce?: string;
   }): Promise<{ txHash: string }> {
     return fetchApi<{ txHash: string }>('/wallet/walletconnect/sign', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Substrate/Polkadot API methods
+   */
+
+  /**
+   * Get Substrate addresses for a user
+   */
+  async getSubstrateAddresses(userId: string, useTestnet: boolean = false): Promise<Record<string, string | null>> {
+    const response = await fetchApi<{
+      userId: string;
+      useTestnet: boolean;
+      addresses: Record<string, string | null>;
+    }>(`/wallet/substrate/addresses?userId=${encodeURIComponent(userId)}&useTestnet=${useTestnet}`);
+    return response.addresses;
+  },
+
+  /**
+   * Get Substrate balances for all chains
+   */
+  async getSubstrateBalances(userId: string, useTestnet: boolean = false): Promise<Record<string, {
+    balance: string;
+    address: string | null;
+    token: string;
+    decimals: number;
+  }>> {
+    // Use longer timeout for Substrate balance calls (60 seconds) as RPC connections can be slow
+    const url = `${API_BASE_URL}/wallet/substrate/balances?userId=${encodeURIComponent(userId)}&useTestnet=${useTestnet}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for Substrate
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        let errorMessage = 'API request failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch {
+          const errorText = await response.text();
+          errorMessage = errorText || errorMessage;
+        }
+        throw new ApiError(response.status, errorMessage);
+      }
+
+      const data = await response.json();
+      return data.balances;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new ApiError(408, 'Request timeout (Substrate RPC connections may be slow)');
+      }
+      if (error instanceof Error && error.message.includes('fetch')) {
+        throw new ApiError(503, 'Network error. Please check your connection.');
+      }
+      throw new ApiError(500, error instanceof Error ? error.message : 'Unknown error');
+    }
+  },
+
+  /**
+   * Get Substrate transaction history
+   */
+  async getSubstrateTransactions(
+    userId: string,
+    chain: string,
+    useTestnet: boolean = false,
+    limit: number = 10,
+    cursor?: string
+  ): Promise<{
+    transactions: Array<{
+      txHash: string;
+      blockNumber?: number;
+      blockHash?: string;
+      timestamp?: number;
+      from: string;
+      to?: string;
+      amount?: string;
+      fee?: string;
+      status: 'pending' | 'inBlock' | 'finalized' | 'failed' | 'error';
+      method?: string;
+    }>;
+    total: number;
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+    nextCursor?: string;
+  }> {
+    const params = new URLSearchParams({
+      userId,
+      chain,
+      useTestnet: useTestnet.toString(),
+      limit: limit.toString(),
+    });
+    if (cursor) {
+      params.append('cursor', cursor);
+    }
+    // Use longer timeout (60 seconds) for transaction history as it may need to scan many blocks
+    const response = await fetchApi<{
+      userId: string;
+      chain: string;
+      useTestnet: boolean;
+      history: {
+        transactions: Array<{
+          txHash: string;
+          blockNumber?: number;
+          blockHash?: string;
+          timestamp?: number;
+          from: string;
+          to?: string;
+          amount?: string;
+          fee?: string;
+          status: 'pending' | 'inBlock' | 'finalized' | 'failed' | 'error';
+          method?: string;
+        }>;
+        total: number;
+        page: number;
+        pageSize: number;
+        hasMore: boolean;
+        nextCursor?: string;
+      };
+    }>(`/wallet/substrate/transactions?${params.toString()}`, { timeout: 60000 });
+    return response.history;
+  },
+
+  /**
+   * Send Substrate transfer
+   */
+  async sendSubstrateTransfer(data: {
+    userId: string;
+    chain: string;
+    to: string;
+    amount: string;
+    useTestnet?: boolean;
+    transferMethod?: 'transferAllowDeath' | 'transferKeepAlive';
+  }): Promise<{
+    success: boolean;
+    txHash: string;
+    status: string;
+    blockHash?: string;
+    error?: string;
+  }> {
+    return fetchApi<{
+      success: boolean;
+      txHash: string;
+      status: string;
+      blockHash?: string;
+      error?: string;
+    }>('/wallet/substrate/send', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Get Substrate WalletConnect accounts (CAIP-10 formatted)
+   */
+  async getSubstrateWalletConnectAccounts(
+    userId: string,
+    useTestnet: boolean = false,
+  ): Promise<{
+    userId: string;
+    useTestnet: boolean;
+    accounts: Array<{
+      accountId: string; // CAIP-10 format: polkadot:<genesis_hash>:<address>
+      chain: string;
+      address: string;
+    }>;
+  }> {
+    return fetchApi<{
+      userId: string;
+      useTestnet: boolean;
+      accounts: Array<{
+        accountId: string;
+        chain: string;
+        address: string;
+      }>;
+    }>(`/wallet/substrate/walletconnect/accounts?userId=${encodeURIComponent(userId)}&useTestnet=${useTestnet}`);
+  },
+
+  /**
+   * Sign a Substrate transaction for WalletConnect
+   */
+  async signSubstrateWalletConnectTransaction(data: {
+    userId: string;
+    accountId: string; // CAIP-10 format
+    transactionPayload: string; // Hex-encoded transaction
+    useTestnet?: boolean;
+  }): Promise<{ signature: string }> {
+    return fetchApi<{ signature: string }>('/wallet/substrate/walletconnect/sign-transaction', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Sign a Substrate message for WalletConnect
+   */
+  async signSubstrateWalletConnectMessage(data: {
+    userId: string;
+    accountId: string; // CAIP-10 format
+    message: string;
+    useTestnet?: boolean;
+  }): Promise<{ signature: string }> {
+    return fetchApi<{ signature: string }>('/wallet/substrate/walletconnect/sign-message', {
       method: 'POST',
       body: JSON.stringify(data),
     });

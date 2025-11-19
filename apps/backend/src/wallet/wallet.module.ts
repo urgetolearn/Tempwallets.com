@@ -14,9 +14,15 @@ import { AccountFactory } from './factories/account.factory.js';
 import { PimlicoAccountFactory } from './factories/pimlico-account.factory.js';
 // Import Pimlico service for bundler/paymaster operations
 import { PimlicoService } from './services/pimlico.service.js';
+// Import Polkadot EVM RPC service
+import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
+// Import Token List service
+import { TokenListService } from './services/token-list.service.js';
+// Import Substrate module
+import { SubstrateModule } from './substrate/substrate.module.js';
 
 @Module({
-  imports: [PrismaModule, CryptoModule],
+  imports: [PrismaModule, CryptoModule, SubstrateModule],
   controllers: [WalletController],
   providers: [
     WalletService,
@@ -33,6 +39,10 @@ import { PimlicoService } from './services/pimlico.service.js';
     PimlicoAccountFactory,
     // Pimlico bundler/paymaster service
     PimlicoService,
+    // Polkadot EVM RPC service
+    PolkadotEvmRpcService,
+    // Token List service
+    TokenListService,
   ],
   exports: [
     WalletService,
@@ -45,6 +55,10 @@ import { PimlicoService } from './services/pimlico.service.js';
     PimlicoAccountFactory,
     // Export Pimlico service
     PimlicoService,
+    // Export Polkadot EVM RPC service
+    PolkadotEvmRpcService,
+    // Export Token List service
+    TokenListService,
   ],
 })
 export class WalletModule {}

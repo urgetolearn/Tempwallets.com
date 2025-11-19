@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, ArrowUpRight, ArrowDownLeft, ExternalLink, Clock } from "lucide-react";
 import { walletApi, Transaction, ApiError } from "@/lib/api";
@@ -24,22 +25,127 @@ const CHAIN_NAMES: Record<string, string> = {
   baseErc4337: "Base (ERC-4337)",
   arbitrumErc4337: "Arbitrum (ERC-4337)",
   polygonErc4337: "Polygon (ERC-4337)",
+  // Substrate/Polkadot chains
+  polkadot: "Polkadot",
+  hydrationSubstrate: "Hydration (Substrate)",
+  bifrostSubstrate: "Bifrost (Substrate)",
+  uniqueSubstrate: "Unique (Substrate)",
+  paseo: "Paseo",
+  paseoAssethub: "Paseo AssetHub",
 };
 
+/**
+ * Format transaction hash for block explorer
+ * Substrate chains need hash without 0x prefix for Subscan
+ */
+const formatTxHash = (hash: string, isSubstrate: boolean = false): string => {
+  if (!hash) return '';
+  // Remove 0x prefix for Substrate chains (Subscan expects it without prefix)
+  if (isSubstrate && hash.startsWith('0x')) {
+    return hash.slice(2);
+  }
+  return hash;
+};
+
+/**
+ * Get block explorer URL for a transaction
+ * Supports both testnet and mainnet explorers
+ */
+const getExplorerUrl = (txHash: string, chain: string, isTestnet: boolean = false): string => {
+  if (!txHash) return '#';
+
+  // EVM chains (testnet support)
+  const evmExplorers: Record<string, { mainnet: string; testnet?: string }> = {
+    ethereum: { mainnet: 'https://etherscan.io', testnet: 'https://sepolia.etherscan.io' },
+    base: { mainnet: 'https://basescan.org', testnet: 'https://sepolia.basescan.org' },
+    arbitrum: { mainnet: 'https://arbiscan.io', testnet: 'https://sepolia.arbiscan.io' },
+    polygon: { mainnet: 'https://polygonscan.com', testnet: 'https://mumbai.polygonscan.com' },
+    avalanche: { mainnet: 'https://snowtrace.io', testnet: 'https://testnet.snowtrace.io' },
+    moonbeamTestnet: { mainnet: 'https://moonscan.io', testnet: 'https://moonbase.moonscan.io' },
+    astarShibuya: { mainnet: 'https://astar.subscan.io', testnet: 'https://shibuya.subscan.io' },
+    paseoPassetHub: { mainnet: 'https://assethub-polkadot.subscan.io', testnet: 'https://assethub-paseo.subscan.io' },
+  };
+
+  // Check if it's an EVM chain
+  const evmChain = chain.replace('Erc4337', '');
+  if (evmExplorers[evmChain]) {
+    const explorer = isTestnet && evmExplorers[evmChain].testnet 
+      ? evmExplorers[evmChain].testnet 
+      : evmExplorers[evmChain].mainnet;
+    return `${explorer}/tx/${txHash}`;
+  }
+
+  // Non-EVM chains
+  const nonEvmExplorers: Record<string, string> = {
+    tron: `https://tronscan.org/#/transaction/${txHash}`,
+    bitcoin: `https://blockstream.info/tx/${txHash}`,
+    solana: `https://solscan.io/tx/${txHash}`,
+  };
+
+  if (nonEvmExplorers[chain]) {
+    return nonEvmExplorers[chain];
+  }
+
+  // Substrate/Polkadot chains - use Subscan (more reliable than Polkascan)
+  const substrateExplorers: Record<string, { mainnet: string; testnet: string }> = {
+    polkadot: { 
+      mainnet: 'https://polkadot.subscan.io', 
+      testnet: 'https://paseo.subscan.io' // Paseo is Polkadot testnet
+    },
+    hydrationSubstrate: { 
+      mainnet: 'https://hydradx.subscan.io', 
+      testnet: 'https://hydradx-testnet.subscan.io' 
+    },
+    bifrostSubstrate: { 
+      mainnet: 'https://bifrost.subscan.io', 
+      testnet: 'https://bifrost-testnet.subscan.io' 
+    },
+    uniqueSubstrate: { 
+      mainnet: 'https://unique.subscan.io', 
+      testnet: 'https://unique-testnet.subscan.io' 
+    },
+    paseo: { 
+      mainnet: 'https://paseo.subscan.io', 
+      testnet: 'https://paseo.subscan.io' // Paseo is always testnet
+    },
+    paseoAssethub: { 
+      mainnet: 'https://assethub-polkadot.subscan.io', 
+      testnet: 'https://assethub-paseo.subscan.io' 
+    },
+  };
+
+  if (substrateExplorers[chain]) {
+    const explorer = isTestnet ? substrateExplorers[chain].testnet : substrateExplorers[chain].mainnet;
+    const formattedHash = formatTxHash(txHash, true);
+    return `${explorer}/extrinsic/${formattedHash}`;
+  }
+
+  return '#';
+};
+
+// Legacy function for backward compatibility (kept for potential future use)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const CHAIN_EXPLORER_URLS: Record<string, (txHash: string) => string> = {
   // Zerion canonical chain ids
-  ethereum: (hash) => `https://etherscan.io/tx/${hash}`,
-  base: (hash) => `https://basescan.org/tx/${hash}`,
-  arbitrum: (hash) => `https://arbiscan.io/tx/${hash}`,
-  polygon: (hash) => `https://polygonscan.com/tx/${hash}`,
-  solana: (hash) => `https://solscan.io/tx/${hash}`,
+  ethereum: (hash) => getExplorerUrl(hash, 'ethereum', false),
+  base: (hash) => getExplorerUrl(hash, 'base', false),
+  arbitrum: (hash) => getExplorerUrl(hash, 'arbitrum', false),
+  polygon: (hash) => getExplorerUrl(hash, 'polygon', false),
+  solana: (hash) => getExplorerUrl(hash, 'solana', false),
   // Legacy/other
-  tron: (hash) => `https://tronscan.org/#/transaction/${hash}`,
-  bitcoin: (hash) => `https://blockstream.info/tx/${hash}`,
-  ethereumErc4337: (hash) => `https://etherscan.io/tx/${hash}`,
-  baseErc4337: (hash) => `https://basescan.org/tx/${hash}`,
-  arbitrumErc4337: (hash) => `https://arbiscan.io/tx/${hash}`,
-  polygonErc4337: (hash) => `https://polygonscan.com/tx/${hash}`,
+  tron: (hash) => getExplorerUrl(hash, 'tron', false),
+  bitcoin: (hash) => getExplorerUrl(hash, 'bitcoin', false),
+  ethereumErc4337: (hash) => getExplorerUrl(hash, 'ethereum', false),
+  baseErc4337: (hash) => getExplorerUrl(hash, 'base', false),
+  arbitrumErc4337: (hash) => getExplorerUrl(hash, 'arbitrum', false),
+  polygonErc4337: (hash) => getExplorerUrl(hash, 'polygon', false),
+  // Substrate/Polkadot chains
+  polkadot: (hash) => getExplorerUrl(hash, 'polkadot', false),
+  hydrationSubstrate: (hash) => getExplorerUrl(hash, 'hydrationSubstrate', false),
+  bifrostSubstrate: (hash) => getExplorerUrl(hash, 'bifrostSubstrate', false),
+  uniqueSubstrate: (hash) => getExplorerUrl(hash, 'uniqueSubstrate', false),
+  paseo: (hash) => getExplorerUrl(hash, 'paseo', true), // Paseo is testnet
+  paseoAssethub: (hash) => getExplorerUrl(hash, 'paseoAssethub', true), // Paseo AssetHub is testnet
 };
 
 const formatValue = (value: string, decimals: number = 18, tokenSymbol?: string): string => {
@@ -121,8 +227,51 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
       // Fetch aggregated any-chain transactions in one call
       const allTransactions = await walletApi.getTransactionsAny(fingerprint, showAll ? 100 : 20);
       
+      // Load Substrate transactions for all Substrate chains
+      const SUBSTRATE_CHAINS = ["polkadot", "hydrationSubstrate", "bifrostSubstrate", "uniqueSubstrate", "paseo", "paseoAssethub"];
+      const substrateTransactions: Transaction[] = [];
+      
+      // Fetch Substrate transactions in parallel with proper error handling
+      const substratePromises = SUBSTRATE_CHAINS.map(async (chain) => {
+        try {
+          const history = await walletApi.getSubstrateTransactions(fingerprint, chain, false, 10);
+          // Transform Substrate transactions to Transaction format
+          return history.transactions.map(tx => ({
+            txHash: tx.txHash,
+            from: tx.from,
+            to: tx.to || null,
+            value: tx.amount || '0',
+            timestamp: tx.timestamp ? Math.floor(tx.timestamp / 1000) : null, // Convert ms to seconds if needed
+            blockNumber: tx.blockNumber || null,
+            status: tx.status === 'finalized' || tx.status === 'inBlock' ? 'success' : 
+                    tx.status === 'failed' || tx.status === 'error' ? 'failed' : 'pending',
+            chain: chain,
+            tokenSymbol: undefined, // Substrate native token symbol would need to be fetched separately
+          } as Transaction));
+        } catch (chainErr) {
+          console.warn(`Failed to load transactions for ${chain}:`, chainErr);
+          return []; // Return empty array on error
+        }
+      });
+      
+      try {
+        // Wait for all Substrate chain queries to complete (or fail)
+        const substrateResults = await Promise.allSettled(substratePromises);
+        substrateResults.forEach(result => {
+          if (result.status === 'fulfilled' && result.value) {
+            substrateTransactions.push(...result.value);
+          }
+        });
+      } catch (substrateErr) {
+        console.warn('Failed to load Substrate transactions:', substrateErr);
+        // Don't fail the whole load if Substrate fails
+      }
+      
+      // Combine EVM and Substrate transactions
+      const combinedTransactions = [...allTransactions, ...substrateTransactions];
+      
       // Filter out transactions with invalid/missing data
-      const validTransactions = allTransactions.filter(tx => 
+      const validTransactions = combinedTransactions.filter(tx => 
         tx.txHash && 
         tx.txHash.length > 0 &&
         (tx.value !== undefined || tx.tokenSymbol !== undefined)
@@ -144,14 +293,20 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
         setCachedTransactions(fingerprint, limited);
       }
     } catch (err) {
+      // Only show error if it's a critical error from the main EVM transaction fetch
+      // Substrate transaction errors are handled gracefully above
+      console.error('Failed to load transactions:', err);
       const errorMessage = err instanceof ApiError 
         ? err.message 
         : "Failed to load transactions";
-      setError(errorMessage);
+      // Only set error if we have no transactions at all to show
+      if (transactions.length === 0) {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
-  }, [fingerprint, showAll]);
+  }, [fingerprint, showAll, transactions.length]);
 
   useEffect(() => {
     if (fingerprint) {
@@ -175,11 +330,17 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
     }
   }, [fingerprint, loadTransactions]);
 
-  const getExplorerUrl = (tx: Transaction): string => {
-    const explorerFn = CHAIN_EXPLORER_URLS[tx.chain];
-    return explorerFn ? explorerFn(tx.txHash) : "#";
+  const getTransactionExplorerUrl = (tx: Transaction): string => {
+    // Determine if this is a testnet chain
+    const isTestnet = tx.chain === 'paseo' || tx.chain === 'paseoAssethub' || 
+                      tx.chain === 'moonbeamTestnet' || tx.chain === 'astarShibuya' ||
+                      tx.chain === 'paseoPassetHub';
+    
+    return getExplorerUrl(tx.txHash, tx.chain, isTestnet);
   };
 
+  // Helper function to determine if transaction is outgoing (kept for potential future use)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isOutgoing = (tx: Transaction, userAddress: string): boolean => {
     return tx.from.toLowerCase() === userAddress.toLowerCase();
   };
@@ -235,10 +396,12 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
           <div className="flex flex-col items-center justify-center py-16 md:py-20">
             {/* Empty Mailbox GIF */}
             <div className="-mt-32">
-              <img
+              <Image
                 src="/empty-mailbox-illustration-with-spiderweb-and-flie-2025-10-20-04-28-09-utc.gif"
                 alt="Empty mailbox illustration"
-                className="w-80 h-80 md:w-90 md:h-90 object-contain mix-blend-multiply"
+                width={320}
+                height={320}
+                className="object-contain mix-blend-multiply"
               />
             </div>
             <p className="text-gray-600 text-lg md:text-xl font-medium z-10 -mt-16">
@@ -250,7 +413,7 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
             {transactions.map((tx) => (
               <a
                 key={`${tx.chain}-${tx.txHash}`}
-                href={getExplorerUrl(tx)}
+                href={getTransactionExplorerUrl(tx)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block p-4 rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all"

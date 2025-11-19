@@ -1,3 +1,4 @@
+import "@repo/ui/globals.css";
 import DashboardNavbar from "@/components/dashboard/navbar";
 
 export default function TransactionsLayout({
@@ -6,9 +7,11 @@ export default function TransactionsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <>
-      {children}
+    <div className="min-h-screen bg-black text-white">
       <DashboardNavbar />
-    </>
+      <main className="mx-auto max-w-7xl py-8">
+        {children}
+      </main>
+    </div>
   );
 }

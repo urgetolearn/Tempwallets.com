@@ -1,4 +1,3 @@
-import { Card } from "@repo/ui/components/ui/card";
 import { Progress } from "@repo/ui/components/ui/progress";
 import { AssetProtection } from "../AssetProtection";
 import { NetworkEthereum, NetworkBinanceSmartChain, TokenBTC } from '@web3icons/react';

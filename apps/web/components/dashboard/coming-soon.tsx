@@ -24,7 +24,7 @@ export function ComingSoonSection({
     "Security-first controls",
     "Tailored recommendations",
   ],
-  ctaHref = "/dashboard",
+  ctaHref = "/",
   ctaLabel = "Back to dashboard",
 }: ComingSoonProps) {
   return (

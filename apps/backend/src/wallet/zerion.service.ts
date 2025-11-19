@@ -489,6 +489,12 @@ export class ZerionService {
    * Returns null if chain is not supported by Zerion API
    */
   private getZerionChain(chain: string): string | null {
+    // Skip Polkadot EVM chains - they use RPC instead of Zerion
+    const polkadotEvmChains = ['moonbeamTestnet', 'astarShibuya', 'paseoPassetHub'];
+    if (polkadotEvmChains.includes(chain)) {
+      return null;
+    }
+
     const mappedChain = this.chainMap[chain];
     if (!mappedChain) {
       return null;

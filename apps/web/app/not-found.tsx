@@ -20,7 +20,7 @@ export default function NotFoundPage() {
           </p>
         </div>
         <Button asChild className="gap-2 rounded-full px-6 py-5 text-base font-semibold">
-          <Link href="/dashboard">
+          <Link href="/">
             <ArrowLeftCircle className="h-5 w-5" />
             Back to dashboard
           </Link>

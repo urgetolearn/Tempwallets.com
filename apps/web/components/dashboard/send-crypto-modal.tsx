@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +44,17 @@ const CHAIN_NAMES: Record<string, string> = {
   polygon: "Polygon",
   avalancheErc4337: "Avalanche (ERC-4337)",
   avalanche: "Avalanche",
+  // Polkadot EVM Compatible chains
+  moonbeamTestnet: "Moonbeam Testnet",
+  astarShibuya: "Astar Shibuya",
+  paseoPassetHub: "Paseo PassetHub",
+  // Substrate/Polkadot chains
+  polkadot: "Polkadot",
+  hydrationSubstrate: "Hydration (Substrate)",
+  bifrostSubstrate: "Bifrost (Substrate)",
+  uniqueSubstrate: "Unique (Substrate)",
+  paseo: "Paseo",
+  paseoAssethub: "Paseo AssetHub",
 };
 
 // Address validation per chain type
@@ -82,26 +93,107 @@ const validateAddress = (address: string, chain: string): string | null => {
     }
   }
 
+  // Substrate/Polkadot chains (SS58 format)
+  const SUBSTRATE_CHAINS = ["polkadot", "hydrationSubstrate", "bifrostSubstrate", "uniqueSubstrate", "paseo", "paseoAssethub"];
+  if (SUBSTRATE_CHAINS.includes(chain)) {
+    // SS58 addresses are typically 48 characters, but can vary
+    // Basic validation: should be alphanumeric and reasonable length
+    if (trimmed.length < 32 || trimmed.length > 50 || !/^[1-9A-HJ-NP-Za-km-z]+$/.test(trimmed)) {
+      return "Invalid Substrate address format (SS58 encoded, typically 32-50 characters)";
+    }
+  }
+
   return null;
 };
 
+/**
+ * Format transaction hash for block explorer
+ * Substrate chains need hash without 0x prefix for Subscan
+ */
+const formatTxHashForExplorer = (hash: string, isSubstrate: boolean = false): string => {
+  if (!hash) return '';
+  // Remove 0x prefix for Substrate chains (Subscan expects it without prefix)
+  if (isSubstrate && hash.startsWith('0x')) {
+    return hash.slice(2);
+  }
+  return hash;
+};
+
 const getExplorerUrl = (txHash: string, chain: string): string => {
-  const urls: Record<string, string> = {
-    ethereum: `https://etherscan.io/tx/${txHash}`,
-    ethereumErc4337: `https://etherscan.io/tx/${txHash}`,
-    baseErc4337: `https://basescan.org/tx/${txHash}`,
-    base: `https://basescan.org/tx/${txHash}`,
-    arbitrumErc4337: `https://arbiscan.io/tx/${txHash}`,
-    arbitrum: `https://arbiscan.io/tx/${txHash}`,
-    polygonErc4337: `https://polygonscan.com/tx/${txHash}`,
-    polygon: `https://polygonscan.com/tx/${txHash}`,
-    avalancheErc4337: `https://snowtrace.io/tx/${txHash}`,
-    avalanche: `https://snowtrace.io/tx/${txHash}`,
+  if (!txHash) return '#';
+
+  // Determine if this is a testnet chain
+  const isTestnet = chain === 'paseo' || chain === 'paseoAssethub' || 
+                    chain === 'moonbeamTestnet' || chain === 'astarShibuya' ||
+                    chain === 'paseoPassetHub';
+
+  // EVM chains (testnet support)
+  const evmExplorers: Record<string, { mainnet: string; testnet?: string }> = {
+    ethereum: { mainnet: 'https://etherscan.io', testnet: 'https://sepolia.etherscan.io' },
+    base: { mainnet: 'https://basescan.org', testnet: 'https://sepolia.basescan.org' },
+    arbitrum: { mainnet: 'https://arbiscan.io', testnet: 'https://sepolia.arbiscan.io' },
+    polygon: { mainnet: 'https://polygonscan.com', testnet: 'https://mumbai.polygonscan.com' },
+    avalanche: { mainnet: 'https://snowtrace.io', testnet: 'https://testnet.snowtrace.io' },
+    moonbeamTestnet: { mainnet: 'https://moonscan.io', testnet: 'https://moonbase.moonscan.io' },
+    astarShibuya: { mainnet: 'https://astar.subscan.io', testnet: 'https://shibuya.subscan.io' },
+    paseoPassetHub: { mainnet: 'https://assethub-polkadot.subscan.io', testnet: 'https://assethub-paseo.subscan.io' },
+  };
+
+  // Check if it's an EVM chain
+  const evmChain = chain.replace('Erc4337', '');
+  if (evmExplorers[evmChain]) {
+    const explorer = isTestnet && evmExplorers[evmChain].testnet 
+      ? evmExplorers[evmChain].testnet 
+      : evmExplorers[evmChain].mainnet;
+    return `${explorer}/tx/${txHash}`;
+  }
+
+  // Non-EVM chains
+  const nonEvmExplorers: Record<string, string> = {
     tron: `https://tronscan.org/#/transaction/${txHash}`,
     bitcoin: `https://blockstream.info/tx/${txHash}`,
     solana: `https://solscan.io/tx/${txHash}`,
   };
-  return urls[chain] || `#`;
+
+  if (nonEvmExplorers[chain]) {
+    return nonEvmExplorers[chain];
+  }
+
+  // Substrate/Polkadot chains - use Subscan
+  const substrateExplorers: Record<string, { mainnet: string; testnet: string }> = {
+    polkadot: { 
+      mainnet: 'https://polkadot.subscan.io', 
+      testnet: 'https://paseo.subscan.io' 
+    },
+    hydrationSubstrate: { 
+      mainnet: 'https://hydradx.subscan.io', 
+      testnet: 'https://hydradx-testnet.subscan.io' 
+    },
+    bifrostSubstrate: { 
+      mainnet: 'https://bifrost.subscan.io', 
+      testnet: 'https://bifrost-testnet.subscan.io' 
+    },
+    uniqueSubstrate: { 
+      mainnet: 'https://unique.subscan.io', 
+      testnet: 'https://unique-testnet.subscan.io' 
+    },
+    paseo: { 
+      mainnet: 'https://paseo.subscan.io', 
+      testnet: 'https://paseo.subscan.io' 
+    },
+    paseoAssethub: { 
+      mainnet: 'https://assethub-polkadot.subscan.io', 
+      testnet: 'https://assethub-paseo.subscan.io' 
+    },
+  };
+
+  if (substrateExplorers[chain]) {
+    const explorer = isTestnet ? substrateExplorers[chain].testnet : substrateExplorers[chain].mainnet;
+    const formattedHash = formatTxHashForExplorer(txHash, true);
+    return `${explorer}/extrinsic/${formattedHash}`;
+  }
+
+  return '#';
 };
 
 // Map internal chain identifiers to Zerion canonical chain ids used by assets-any
@@ -134,6 +226,68 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
   const [txHash, setTxHash] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  const loadTokens = useCallback(async () => {
+    setLoadingTokens(true);
+    setError(null);
+    try {
+      // Check if this is a Substrate chain
+      const SUBSTRATE_CHAINS = ["polkadot", "hydrationSubstrate", "bifrostSubstrate", "uniqueSubstrate", "paseo", "paseoAssethub"];
+      const isSubstrate = SUBSTRATE_CHAINS.includes(chain);
+
+      if (isSubstrate) {
+        // Load Substrate balances
+        const balances = await walletApi.getSubstrateBalances(userId, false);
+        const chainBalance = balances[chain];
+        
+        if (chainBalance && chainBalance.address) {
+          // Create a single token entry for native Substrate token
+          const tokenList: TokenBalance[] = [{
+            address: null, // Native token
+            symbol: chainBalance.token,
+            balance: chainBalance.balance,
+            decimals: chainBalance.decimals,
+          }];
+          setTokens(tokenList);
+          setSelectedToken(tokenList[0] ?? null);
+        } else {
+          setTokens([]);
+          setError("No address found for this Substrate chain");
+        }
+      } else {
+        // Load aggregated assets once and filter for the selected chain
+        const allAssets: AnyChainAsset[] = await walletApi.getAssetsAny(userId);
+        const zChain = mapToZerionChain(chain);
+        const filtered = allAssets.filter(a => a.chain === zChain);
+        // Transform to TokenBalance shape with actual decimals from Zerion
+        const tokenList: TokenBalance[] = filtered.map(a => ({
+          address: a.address,
+          symbol: a.symbol,
+          balance: a.balance, // smallest units (wei, satoshi, etc.)
+          decimals: a.decimals, // actual token decimals (6 for USDC, 18 for ETH, etc.)
+        }));
+
+        // Keep native first, then others; native has address === null
+        tokenList.sort((a, b) => (a.address === null ? -1 : b.address === null ? 1 : 0));
+
+        setTokens(tokenList);
+        if (tokenList.length > 0) {
+          // Select first token (native token) by default
+          const firstToken = tokenList[0];
+          if (firstToken) {
+            setSelectedToken(firstToken);
+          }
+        }
+      }
+    } catch (err) {
+      const errorMessage = err instanceof ApiError 
+        ? err.message 
+        : "Failed to load tokens. Please try again.";
+      setError(errorMessage);
+    } finally {
+      setLoadingTokens(false);
+    }
+  }, [userId, chain]);
+
   // Load tokens when modal opens
   useEffect(() => {
     if (open && userId && chain) {
@@ -149,44 +303,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
       setTxHash(null);
       setSuccess(false);
     }
-  }, [open, userId, chain]);
-
-  const loadTokens = async () => {
-    setLoadingTokens(true);
-    setError(null);
-    try {
-      // Load aggregated assets once and filter for the selected chain
-      const allAssets: AnyChainAsset[] = await walletApi.getAssetsAny(userId);
-      const zChain = mapToZerionChain(chain);
-      const filtered = allAssets.filter(a => a.chain === zChain);
-      // Transform to TokenBalance shape with actual decimals from Zerion
-      const tokenList: TokenBalance[] = filtered.map(a => ({
-        address: a.address,
-        symbol: a.symbol,
-        balance: a.balance, // smallest units (wei, satoshi, etc.)
-        decimals: a.decimals, // actual token decimals (6 for USDC, 18 for ETH, etc.)
-      }));
-
-      // Keep native first, then others; native has address === null
-      tokenList.sort((a, b) => (a.address === null ? -1 : b.address === null ? 1 : 0));
-
-      setTokens(tokenList);
-      if (tokenList.length > 0) {
-        // Select first token (native token) by default
-        const firstToken = tokenList[0];
-        if (firstToken) {
-          setSelectedToken(firstToken);
-        }
-      }
-    } catch (err) {
-      const errorMessage = err instanceof ApiError 
-        ? err.message 
-        : "Failed to load tokens. Please try again.";
-      setError(errorMessage);
-    } finally {
-      setLoadingTokens(false);
-    }
-  };
+  }, [open, userId, chain, loadTokens]);
 
   const validateForm = (): boolean => {
     const errors: { amount?: string; address?: string } = {};
@@ -233,16 +350,38 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
     setError(null);
 
     try {
-  // Server now converts human amount to smallest units using authoritative decimals
+      // Check if this is a Substrate chain
+      const SUBSTRATE_CHAINS = ["polkadot", "hydrationSubstrate", "bifrostSubstrate", "uniqueSubstrate", "paseo", "paseoAssethub"];
+      const isSubstrate = SUBSTRATE_CHAINS.includes(chain);
 
-      const result = await walletApi.sendCrypto({
-        userId,
-        chain,
-        tokenAddress: selectedToken.address || undefined,
-        tokenDecimals: selectedToken.decimals,
-        amount: amount, // human-readable amount; server converts using ERC-20 decimals / Zerion
-        recipientAddress: recipientAddress.trim(),
-      });
+      let result: { txHash: string };
+
+      if (isSubstrate) {
+        // Convert human-readable amount to smallest units for Substrate
+        const amountInSmallestUnits = (parseFloat(amount) * Math.pow(10, selectedToken.decimals)).toString();
+        
+        // Use Substrate send endpoint
+        const substrateResult = await walletApi.sendSubstrateTransfer({
+          userId,
+          chain,
+          to: recipientAddress.trim(),
+          amount: amountInSmallestUnits, // Amount in smallest units
+          useTestnet: false, // TODO: Add testnet toggle if needed
+          transferMethod: 'transferAllowDeath', // Default transfer method
+        });
+
+        result = { txHash: substrateResult.txHash };
+      } else {
+        // Use regular EVM/other chain send endpoint
+        result = await walletApi.sendCrypto({
+          userId,
+          chain,
+          tokenAddress: selectedToken.address || undefined,
+          tokenDecimals: selectedToken.decimals,
+          amount: amount, // human-readable amount; server converts using ERC-20 decimals / Zerion
+          recipientAddress: recipientAddress.trim(),
+        });
+      }
 
       setTxHash(result.txHash);
       setSuccess(true);
@@ -300,25 +439,25 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Send {chainName}</DialogTitle>
-          <DialogDescription>
-            Send crypto to a recipient address on {chainName} network
+      <DialogContent className="border-white/10 bg-black/90 text-white shadow-2xl backdrop-blur sm:max-w-[300px] p-0 rounded-2xl">
+        <DialogHeader className="px-6 pt-6 pb-4">
+          <DialogTitle className="text-xl font-semibold">Send {chainName}</DialogTitle>
+          <DialogDescription className="text-sm text-white/60">
+            Transfer to recipient address
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 px-6 pb-6">
           {/* Token Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="token">Token</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="token" className="text-xs font-medium text-white/80">Token</Label>
             {loadingTokens ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading tokens...
+              <div className="flex items-center gap-2 text-xs text-white/60 py-2">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading...
               </div>
             ) : tokens.length === 0 ? (
-              <div className="text-sm text-destructive">No tokens available</div>
+              <div className="text-xs text-red-400 py-2">No tokens available</div>
             ) : (
               <Select
                 value={selectedToken?.address || "native"}
@@ -327,12 +466,16 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
                   setSelectedToken(token ?? null);
                 }}
               >
-                <SelectTrigger id="token">
-                  <SelectValue placeholder="Select a token" />
+                <SelectTrigger id="token" className="h-9 rounded-xl border-white/20 bg-white/5 text-sm text-white hover:bg-white/10">
+                  <SelectValue placeholder="Select token" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="rounded-xl border-white/20 bg-black/95 text-white">
                   {tokens.map((token) => (
-                    <SelectItem key={token.address || "native"} value={token.address || "native"}>
+                    <SelectItem 
+                      key={token.address || "native"} 
+                      value={token.address || "native"}
+                      className="text-sm focus:bg-white/10 focus:text-white"
+                    >
                       {token.symbol} - {formatBalance(token.balance, token.decimals)}
                     </SelectItem>
                   ))}
@@ -342,8 +485,8 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
           </div>
 
           {/* Amount Input */}
-          <div className="space-y-2">
-            <Label htmlFor="amount">Amount</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="amount" className="text-xs font-medium text-white/80">Amount</Label>
             <Input
               id="amount"
               type="number"
@@ -357,26 +500,26 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
                 }
               }}
               disabled={loading || !selectedToken}
+              className="h-9 rounded-xl border-white/20 bg-white/5 text-sm text-white placeholder:text-white/40 focus:border-white/40 focus:ring-white/20"
             />
-            {fieldErrors.amount && (
-              <p className="text-sm text-destructive flex items-center gap-1">
+            {fieldErrors.amount ? (
+              <p className="text-xs text-red-400 flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
                 {fieldErrors.amount}
               </p>
-            )}
-            {selectedToken && !fieldErrors.amount && (
-              <p className="text-xs text-muted-foreground">
+            ) : selectedToken && (
+              <p className="text-xs text-white/40">
                 Available: {formatBalance(selectedToken.balance, selectedToken.decimals)} {selectedToken.symbol}
               </p>
             )}
           </div>
 
           {/* Recipient Address Input */}
-          <div className="space-y-2">
-            <Label htmlFor="recipient">Recipient Address</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="recipient" className="text-xs font-medium text-white/80">Recipient</Label>
             <Input
               id="recipient"
-              placeholder="Enter recipient address"
+              placeholder="Enter address"
               value={recipientAddress}
               onChange={(e) => {
                 setRecipientAddress(e.target.value);
@@ -385,9 +528,10 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
                 }
               }}
               disabled={loading}
+              className="h-9 rounded-xl border-white/20 bg-white/5 text-sm text-white placeholder:text-white/40 focus:border-white/40 focus:ring-white/20"
             />
             {fieldErrors.address && (
-              <p className="text-sm text-destructive flex items-center gap-1">
+              <p className="text-xs text-red-400 flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
                 {fieldErrors.address}
               </p>
@@ -396,9 +540,9 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
 
           {/* Error Display */}
           {error && (
-            <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
-              <p className="text-sm text-destructive flex items-center gap-2">
-                <AlertCircle className="h-4 w-4" />
+            <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-2.5">
+              <p className="text-xs text-red-400 flex items-center gap-1.5">
+                <AlertCircle className="h-3 w-3" />
                 {error}
               </p>
             </div>
@@ -406,40 +550,50 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
 
           {/* Success Display */}
           {success && txHash && (
-            <div className="rounded-md bg-green-500/10 border border-green-500/20 p-3">
-              <p className="text-sm text-green-600 dark:text-green-400 flex items-center gap-2 mb-2">
-                <CheckCircle2 className="h-4 w-4" />
-                Transaction sent successfully!
+            <div className="rounded-lg bg-green-500/10 border border-green-500/30 p-2.5">
+              <p className="text-xs text-green-400 flex items-center gap-1.5 mb-1.5">
+                <CheckCircle2 className="h-3 w-3" />
+                Transaction sent!
               </p>
               <a
                 href={getExplorerUrl(txHash, chain)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-primary hover:underline flex items-center gap-1"
+                className="text-xs text-white/70 hover:text-white hover:underline flex items-center gap-1"
               >
-                View on explorer <ExternalLink className="h-3 w-3" />
+                View explorer <ExternalLink className="h-3 w-3" />
               </a>
             </div>
           )}
-        </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-            {success ? "Close" : "Cancel"}
-          </Button>
-          {!success && (
-            <Button onClick={handleSend} disabled={loading || loadingTokens || !selectedToken}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                "Send"
-              )}
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-2">
+            <Button 
+              variant="outline" 
+              onClick={() => onOpenChange(false)} 
+              disabled={loading}
+              className="flex-1 h-9 text-sm rounded-full border-white/20 text-white hover:bg-white/10"
+            >
+              {success ? "Close" : "Cancel"}
             </Button>
-          )}
-        </DialogFooter>
+            {!success && (
+              <Button 
+                onClick={handleSend} 
+                disabled={loading || loadingTokens || !selectedToken}
+                className="flex-1 h-9 text-sm rounded-full bg-white text-black hover:bg-white/90"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                    Sending
+                  </>
+                ) : (
+                  "Send"
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -1,16 +1,18 @@
-import { Smartphone, Wallet, FileText, Copy, Check, Loader2, AlertCircle, RefreshCw, QrCode, Send } from "lucide-react";
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, CarouselApi } from "@repo/ui/components/ui/carousel";
+import { Copy, Check, Loader2, RefreshCw, QrCode, Send } from "lucide-react";
+import { Carousel, CarouselContent, CarouselItem, CarouselApi } from "@repo/ui/components/ui/carousel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@repo/ui/components/ui/tooltip";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useWallet } from "@/hooks/useWallet";
 import { walletStorage } from "@/lib/walletStorage";
 import { useBrowserFingerprint } from "@/hooks/useBrowserFingerprint";
+import { WalletConnectModal } from "./walletconnect-modal";
 
 const WalletInfo = () => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
-  const { wallets, loading, error, loadWallets, changeWallets } = useWallet();
+  const [walletConnectOpen, setWalletConnectOpen] = useState(false);
+  const { wallets, loading, error, loadWallets } = useWallet();
   
   // Use browser fingerprint as unique user ID
   const { fingerprint, loading: fingerprintLoading, generateNewWallet } = useBrowserFingerprint();
@@ -18,16 +20,19 @@ const WalletInfo = () => {
   // Load wallets when fingerprint is ready
   useEffect(() => {
     if (fingerprint) {
-      // First, try to load from localStorage immediately
+      // Clear cache if it doesn't have Substrate addresses (one-time migration)
       const cachedAddresses = walletStorage.getAddresses(fingerprint);
       if (cachedAddresses) {
-        // This will trigger processWallets inside the hook if wallets are empty
-        // But we need to load from cache immediately
-        loadWallets(fingerprint);
-      } else {
-        // No cache, load from API (first time)
-        loadWallets(fingerprint);
+        const hasSubstrate = cachedAddresses.auxiliary?.some(
+          (e) => e.category === 'substrate' && e.address
+        );
+        if (!hasSubstrate) {
+          console.log('🧹 Clearing cache - missing Substrate addresses');
+          walletStorage.clearAddresses();
+        }
       }
+      // Always load wallets (will fetch fresh if cache was cleared)
+      loadWallets(fingerprint);
     }
   }, [loadWallets, fingerprint]);
 
@@ -66,12 +71,14 @@ const WalletInfo = () => {
         // The useEffect will automatically call loadWallets when fingerprint changes
       }
     } else if (action === 'copy' && currentWallet) {
-      await copyToClipboard(currentWallet.address, currentSlide);
+      await copyToClipboard(currentWallet.address);
+    } else if (action === 'connect') {
+      setWalletConnectOpen(true);
     }
     // Add other action handlers as needed
   };
 
-  const copyToClipboard = async (address: string, index: number) => {
+  const copyToClipboard = async (address: string) => {
     try {
       await navigator.clipboard.writeText(address);
       setCopiedIndex(currentSlide);
@@ -184,12 +191,20 @@ const WalletInfo = () => {
                     </span>
                   </button>
                 </TooltipTrigger>
-                {(action.action === 'send' || action.action === 'connect') && (
+                {action.action === 'send' && (
                   <TooltipContent 
                     side="top" 
                     className="bg-black/20 backdrop-blur-sm text-white text-xs px-3 rounded-lg border border-white/20 max-w-xs"
                   >
                     <p>Coming Soon</p>
+                  </TooltipContent>
+                )}
+                {action.action === 'connect' && (
+                  <TooltipContent 
+                    side="top" 
+                    className="bg-black/20 backdrop-blur-sm text-white text-xs px-3 rounded-lg border border-white/20 max-w-xs"
+                  >
+                    <p>Connect to DApp</p>
                   </TooltipContent>
                 )}
               </Tooltip>
@@ -229,7 +244,7 @@ const WalletInfo = () => {
                     </span>
                   </button>
                 </TooltipTrigger>
-                {(action.action === 'send' || action.action === 'connect') && (
+                {action.action === 'send' && (
                   <TooltipContent 
                     side="top" 
                     className="bg-black/80 backdrop-blur-sm text-white text-xs px-3 py-2 rounded-lg border border-white/20 max-w-xs shadow-lg"
@@ -237,11 +252,22 @@ const WalletInfo = () => {
                     <p>Coming Soon</p>
                   </TooltipContent>
                 )}
+                {action.action === 'connect' && (
+                  <TooltipContent 
+                    side="top" 
+                    className="bg-black/80 backdrop-blur-sm text-white text-xs px-3 py-2 rounded-lg border border-white/20 max-w-xs shadow-lg"
+                  >
+                    <p>Connect to DApp</p>
+                  </TooltipContent>
+                )}
               </Tooltip>
             ))}
           </div>
         </TooltipProvider>
       </div>
+
+      {/* WalletConnect Modal */}
+      <WalletConnectModal open={walletConnectOpen} onOpenChange={setWalletConnectOpen} />
     </div>
   );
 };

@@ -3,6 +3,7 @@
 import "@repo/ui/globals.css";
 import { Search, Menu, X, ChevronDown, ChevronRight } from "lucide-react";
 import { Input } from "@repo/ui/components/ui/input";
+import Image from "next/image";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -115,10 +116,11 @@ const Navbar = () => {
                         {/* Left side - Single image */}
                         <div className="flex items-center justify-center">
                           <div className="w-full max-w-[140px] aspect-square rounded-lg overflow-hidden">
-                            <img
+                            <Image
                               src={menu.image}
                               alt={menu.title}
-                              className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                              fill
+                              className="object-cover hover:scale-105 transition-transform duration-200"
                               onError={(e) => {
                                 // Fallback to a placeholder if image fails to load
                                 const target = e.target as HTMLImageElement;
@@ -162,9 +164,11 @@ const Navbar = () => {
         <div className={`flex items-center lg:absolute lg:left-1/2 lg:transform lg:-translate-x-1/2 transition-opacity duration-300 ${
           isMobileMenuOpen ? 'lg:opacity-100 opacity-0' : 'opacity-100'
         }`}>
-          <img 
-            src="/tempwallets-logo.png" 
-            alt="TempWallets" 
+          <Image
+            src="/tempwallets-logo.png"
+            alt="TempWallets"
+            width={300}
+            height={80}
             className="h-[60px] w-[180px] md:h-[60px] md:w-[220px] lg:h-[65px] lg:w-[260px] xl:h-[80px] xl:w-[300px] object-contain"
           />
         </div>
@@ -201,9 +205,11 @@ const Navbar = () => {
           >
             {/* Sidebar Header */}
             <div className="flex items-center justify-between pt-12 pb-6 px-6 border-b border-white/10">
-              <img 
-                src="/tempwallets-logo.png" 
-                alt="TempWallets" 
+              <Image
+                src="/tempwallets-logo.png"
+                alt="TempWallets"
+                width={200}
+                height={60}
                 className="h-[60px] w-[200px] object-contain"
               />
               <button

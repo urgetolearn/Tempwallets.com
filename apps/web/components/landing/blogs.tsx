@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@repo/ui/components/ui/button";
 import { Badge } from "@repo/ui/components/ui/badge";
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import { AssetProtection } from "../AssetProtection";
 
 const cardData = [
@@ -13,7 +14,7 @@ const cardData = [
     title: "How Tempwallets is Shaping a Trustless Economy",
     description: "Blockchain is no longer just a buzzword. It's the backbone of a new era of digital innovation. . .",
     label: "Tempwallets",
-    image: "3D Black Chrome Shape (16).png",
+    image: "/3D Black Chrome Shape (16).png",
     tags: ["Smart", "Contract", "Creation"]
   },
   {
@@ -22,7 +23,7 @@ const cardData = [
     title: "Decentralized Finance: The Future of Banking",
     description: "Traditional banking systems are being revolutionized by DeFi protocols that offer transparency and accessibility. . .",
     label: "Protocol",
-    image: "3D Black Chrome Shape (17).png",
+    image: "/3D Black Chrome Shape (17).png",
     tags: ["Finance", "Banking", "Revolution"]
   },
   {
@@ -31,7 +32,7 @@ const cardData = [
     title: "Web3 Integration: Building Tomorrow's Internet",
     description: "The next generation of the internet is here, powered by decentralized technologies and user ownership. . .",
     label: "Web3 Stack",
-    image: "3D Black Chrome Shape (21).png",
+    image: "/3D Black Chrome Shape (21).png",
     tags: ["Web3", "Internet", "Future"]
   }
 ];
@@ -116,17 +117,20 @@ const Blogs = () => {
           <div className="relative" ref={imageRef}>
             <div className="bg-card rounded-3xl h-[400px] md:h-[500px] lg:h-[600px] relative overflow-hidden">
                {/* Background Image */}
-              <img
-                src={currentCard.image}
-                alt={currentCard.title}
-                className={`absolute inset-0 w-full h-full md:w-[600px] md:h-[600px] object-contain rounded-3xl transition-transform duration-300 ease-out protected-image ${
-                  isMobile ? 'animate-wiggle' : ''
-                }`}
-                style={{
-                  transform: getTransform(),
-                }}
-                draggable="false"
-              />
+              <div className="absolute inset-0">
+                <Image
+                  src={currentCard.image}
+                  alt={currentCard.title}
+                  fill
+                  className={`object-contain rounded-3xl transition-transform duration-300 ease-out protected-image ${
+                    isMobile ? 'animate-wiggle' : ''
+                  }`}
+                  style={{
+                    transform: getTransform(),
+                  }}
+                  draggable="false"
+                />
+              </div>
               {/* Vertical Label - Hidden on mobile, visible on desktop */}
               <div className="hidden lg:flex absolute -left-10 top-48 h-full items-center">
                 <div className="bg-transparent px-4 py-8">
