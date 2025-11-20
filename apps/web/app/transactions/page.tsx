@@ -307,9 +307,9 @@ export default function TransactionsPage() {
 
   return (
     <div className="min-h-screen px-4 py-12 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-4xl">
         {/* Header Section */}
-        <div className="mb-8 space-y-4">
+        <div className="mb-8 space-y-4 lg:my-10">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-semibold text-white sm:text-4xl">

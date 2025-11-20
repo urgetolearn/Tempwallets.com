@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect, useCallback } from "react";
 import { Loader2, ArrowUpRight, ArrowDownLeft, ExternalLink, Clock } from "lucide-react";
-import { walletApi, Transaction, ApiError } from "@/lib/api";
+import { walletApi, Transaction } from "@/lib/api";
 import { useBrowserFingerprint } from "@/hooks/useBrowserFingerprint";
 
 interface RecentTransactionsProps {
@@ -296,13 +296,7 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
       // Only show error if it's a critical error from the main EVM transaction fetch
       // Substrate transaction errors are handled gracefully above
       console.error('Failed to load transactions:', err);
-      const errorMessage = err instanceof ApiError 
-        ? err.message 
-        : "Failed to load transactions";
-      // Only set error if we have no transactions at all to show
-      if (transactions.length === 0) {
-        setError(errorMessage);
-      }
+      // Suppress error UI to show empty state instead
     } finally {
       setLoading(false);
     }
@@ -361,18 +355,20 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
         <h2 className="text-gray-900 text-lg md:text-2xl">
           {showAll ? "All Transactions" : "Recent Transactions"}
         </h2>
-        {!showAll && (
-          <Link href="/transactions" className="text-gray-500 text-sm md:text-base hover:opacity-70 transition-opacity">
-            See all
-          </Link>
-        )}
-        <button
-          onClick={loadTransactions}
-          disabled={loading}
-          className="text-gray-500 text-sm hover:opacity-70 transition-opacity disabled:opacity-50"
-        >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
-        </button>
+        <div className="flex items-center gap-4">
+          {!showAll && (
+            <Link href="/transactions" className="text-gray-500 text-sm md:text-base hover:opacity-70 transition-opacity">
+              See all
+            </Link>
+          )}
+          <button
+            onClick={loadTransactions}
+            disabled={loading}
+            className="text-gray-500 text-sm hover:opacity-70 transition-opacity disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Transactions List */}

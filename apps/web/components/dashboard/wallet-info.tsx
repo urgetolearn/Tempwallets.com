@@ -2,12 +2,14 @@ import { Copy, Check, Loader2, RefreshCw, QrCode, Send } from "lucide-react";
 import { Carousel, CarouselContent, CarouselItem, CarouselApi } from "@repo/ui/components/ui/carousel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@repo/ui/components/ui/tooltip";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
 import { walletStorage } from "@/lib/walletStorage";
 import { useBrowserFingerprint } from "@/hooks/useBrowserFingerprint";
 import { WalletConnectModal } from "./walletconnect-modal";
 
 const WalletInfo = () => {
+  const router = useRouter();
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [carouselApi, setCarouselApi] = useState<CarouselApi>();
@@ -72,6 +74,8 @@ const WalletInfo = () => {
       }
     } else if (action === 'copy' && currentWallet) {
       await copyToClipboard(currentWallet.address);
+    } else if (action === 'send') {
+      router.push('/transactions');
     } else if (action === 'connect') {
       setWalletConnectOpen(true);
     }
@@ -191,14 +195,6 @@ const WalletInfo = () => {
                     </span>
                   </button>
                 </TooltipTrigger>
-                {action.action === 'send' && (
-                  <TooltipContent 
-                    side="top" 
-                    className="bg-black/20 backdrop-blur-sm text-white text-xs px-3 rounded-lg border border-white/20 max-w-xs"
-                  >
-                    <p>Coming Soon</p>
-                  </TooltipContent>
-                )}
                 {action.action === 'connect' && (
                   <TooltipContent 
                     side="top" 
@@ -244,14 +240,6 @@ const WalletInfo = () => {
                     </span>
                   </button>
                 </TooltipTrigger>
-                {action.action === 'send' && (
-                  <TooltipContent 
-                    side="top" 
-                    className="bg-black/80 backdrop-blur-sm text-white text-xs px-3 py-2 rounded-lg border border-white/20 max-w-xs shadow-lg"
-                  >
-                    <p>Coming Soon</p>
-                  </TooltipContent>
-                )}
                 {action.action === 'connect' && (
                   <TooltipContent 
                     side="top" 
