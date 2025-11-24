@@ -50,7 +50,7 @@ export default function DashboardNavbar() {
           "bg-black/60 text-white",
           "rounded-full",
           "shadow-lg hover:shadow-xl",
-          "px-6 py-3 lg:px-12 lg:py-3",
+          "px-6 py-2 lg:px-12 lg:py-3",
           "flex items-center justify-around lg:justify-center gap-2 lg:gap-12",
           "border border-white/20",
           "backdrop-blur-md",

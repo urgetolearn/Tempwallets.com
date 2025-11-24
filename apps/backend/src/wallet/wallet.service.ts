@@ -765,12 +765,24 @@ export class WalletService {
     // Polkadot EVM chains use the same EOA address as ethereum
     const polkadotEvmAddress = addresses.ethereum;
 
-    // Fetch transactions from Zerion
+    // Fetch transactions from Zerion with timeout protection
     const zerionPerAddr = targetAddresses.length > 0
-      ? await Promise.all(
+      ? await Promise.allSettled(
           targetAddresses.map((addr) =>
-            this.zerionService.getTransactionsAnyChain(addr, limit),
+            Promise.race([
+              this.zerionService.getTransactionsAnyChain(addr, limit),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Transaction fetch timeout for ${addr} after 30s`)), 30000)
+              ),
+            ]).catch((error) => {
+              this.logger.warn(
+                `Failed to fetch transactions for ${addr}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              );
+              return []; // Return empty array on error/timeout
+            }),
           ),
+        ).then((results) =>
+          results.map((result) => (result.status === 'fulfilled' ? result.value : [])),
         )
       : [];
 
@@ -790,15 +802,20 @@ export class WalletService {
     }> = [];
 
     if (polkadotEvmAddress) {
-      // Use Promise.allSettled to ensure RPC errors don't block Zerion results
+      // Use Promise.allSettled with timeout to ensure RPC errors don't block Zerion results
       const polkadotResults = await Promise.allSettled(
         polkadotEvmChains.map(async (chain) => {
           try {
-            const txs = await this.polkadotEvmRpcService.getTransactions(
-              polkadotEvmAddress,
-              chain,
-              limit,
-            );
+            const txs = await Promise.race([
+              this.polkadotEvmRpcService.getTransactions(
+                polkadotEvmAddress,
+                chain,
+                limit,
+              ),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`RPC timeout for ${chain} after 20s`)), 20000)
+              ),
+            ]);
             return txs.map((tx) => ({
               txHash: tx.txHash,
               from: tx.from,
@@ -810,7 +827,7 @@ export class WalletService {
               chain: tx.chain,
             }));
           } catch (error) {
-            this.logger.error(
+            this.logger.warn(
               `Error fetching transactions for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
             );
             return []; // Return empty array on error
@@ -932,7 +949,17 @@ export class WalletService {
       }
     }
 
-    return Array.from(byKey.values());
+    const sorted = Array.from(byKey.values()).sort((a, b) => {
+      const timeA = a.timestamp || 0;
+      const timeB = b.timestamp || 0;
+      return timeB - timeA; // Most recent first
+    });
+
+    this.logger.log(
+      `Returning ${Math.min(sorted.length, limit)} transactions (from ${sorted.length} total) for user ${userId}`,
+    );
+
+    return sorted.slice(0, limit);
   }
 
   /**

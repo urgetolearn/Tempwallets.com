@@ -1,4 +1,5 @@
-import { Bell, User } from "lucide-react";
+import { Home, User } from "lucide-react";
+import Link from "next/link";
 
 const UpperBar = () => {
   return (
@@ -15,10 +16,10 @@ const UpperBar = () => {
           <p className="text-gray-500 text-xs -mt-1 font-light">Welcome back</p>
         </div>
 
-        {/* Notification Icon - Right */}
-        <button className="flex items-center justify-center w-10 h-10 rounded-full bg-gray-500/20 hover:bg-gray-500/30 transition-colors">
-          <Bell className="h-5 w-5 text-white" />
-        </button>
+        {/* Home Icon - Right */}
+        <Link href="/about" className="flex items-center justify-center w-10 h-10 rounded-full bg-gray-500/20 hover:bg-gray-500/30 transition-colors">
+          <Home className="h-5 w-5 text-white" />
+        </Link>
       </div>
     </div>
   );

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@repo/ui/components/ui/button";
 import { Card, CardContent } from "@repo/ui/components/ui/card";
 import { Loader2, Send, RefreshCw, AlertCircle, Wallet } from "lucide-react";
 import { walletApi, TokenBalance, ApiError } from "@/lib/api";
 import { useBrowserFingerprint } from "@/hooks/useBrowserFingerprint";
+import { useWalletData } from "@/hooks/useWalletData";
 import { SendCryptoModal } from "@/components/dashboard/send-crypto-modal";
 import RecentTransactions from "@/components/dashboard/recent-transactions";
 
@@ -106,158 +107,91 @@ const getChainCategory = (chain: string): string | undefined => {
 
 export default function TransactionsPage() {
   const { fingerprint } = useBrowserFingerprint();
-  const [chainBalances, setChainBalances] = useState<ChainBalance[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { balances: providerBalances, loading: providerLoading, errors: providerErrors, refresh: providerRefresh } = useWalletData();
   const [selectedChain, setSelectedChain] = useState<string | null>(null);
   const [sendModalOpen, setSendModalOpen] = useState(false);
-  // No per-chain error tracking needed with any-chain fetch
 
-  useEffect(() => {
-    if (fingerprint) {
-      loadBalances();
+  // Convert provider balances to ChainBalance format for compatibility with existing UI
+  // Provider automatically fetches on mount and when fingerprint changes
+  const chainBalances = useMemo(() => {
+    const map = new Map<string, ChainBalance>();
+    
+    for (const balance of providerBalances) {
+      const existing = map.get(balance.chain) || {
+        chain: balance.chain,
+        nativeBalance: '0',
+        nativeDecimals: 18,
+        nativeBalanceHuman: undefined,
+        tokens: [],
+        category: getChainCategory(balance.chain),
+      };
+      
+      if (balance.isNative) {
+        existing.nativeBalance = balance.balance;
+        existing.nativeDecimals = balance.decimals;
+        existing.nativeBalanceHuman = balance.balanceHuman;
+      } else {
+        existing.tokens.push({
+          address: balance.address || null,
+          symbol: balance.symbol,
+          balance: balance.balance,
+          decimals: balance.decimals,
+          balanceHuman: balance.balanceHuman,
+        });
+      }
+      
+      map.set(balance.chain, existing);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fingerprint]);
-
-  const loadBalances = async () => {
-    if (!fingerprint) {
-      console.log('⏸️ No fingerprint available, skipping balance load');
-      return;
-    }
-
-    console.log('🚀 Starting loadBalances for user:', fingerprint);
-    setLoading(true);
-    setError(null);
-    setChainBalances([]);
-
-    try {
-      // Load EVM and other chain assets
-      const assets = await walletApi.getAssetsAny(fingerprint);
-
-      // Group assets by chain and split native vs tokens
-      const map = new Map<string, ChainBalance>();
-      for (const a of assets) {
-        const existing = map.get(a.chain) || { 
-          chain: a.chain, 
-          nativeBalance: '0', 
+    
+    const balances = Array.from(map.values());
+    
+    // Ensure Polkadot EVM chains are always present
+    const existingPolkadotChains = balances.filter(cb => cb.category === 'polkadot-evm').map(cb => cb.chain);
+    POLKADOT_EVM_CHAINS.forEach(chain => {
+      if (!existingPolkadotChains.includes(chain)) {
+        balances.push({
+          chain,
+          nativeBalance: '0',
           nativeDecimals: 18,
           nativeBalanceHuman: undefined,
           tokens: [],
-          category: getChainCategory(a.chain)
-        };
-        if (a.address === null) {
-          // Native token - use actual decimals from API
-          existing.nativeBalance = a.balance;
-          existing.nativeDecimals = a.decimals;
-          existing.nativeBalanceHuman = a.balanceHuman;
-        } else {
-          // ERC-20 or other tokens - preserve decimals and balanceHuman
-          existing.tokens.push({ 
-            address: a.address, 
-            symbol: a.symbol, 
-            balance: a.balance, 
-            decimals: a.decimals,
-            balanceHuman: a.balanceHuman
-          });
-        }
-        map.set(a.chain, existing);
+          category: 'polkadot-evm'
+        });
       }
-
-      // Load Substrate balances
-      try {
-        console.log('🔄 Fetching Substrate balances for user:', fingerprint);
-        const substrateBalances = await walletApi.getSubstrateBalances(fingerprint, false);
-        console.log('✅ Substrate balances received:', substrateBalances);
-        
-        // Map backend chain keys to frontend chain keys
-        const chainKeyMap: Record<string, string> = {
-          polkadot: 'polkadot',
-          hydration: 'hydrationSubstrate',
-          bifrost: 'bifrostSubstrate',
-          unique: 'uniqueSubstrate',
-          paseo: 'paseo',
-          paseoAssethub: 'paseoAssethub',
+    });
+    
+    // Ensure Substrate chains are always present
+    const existingSubstrateChains = balances.filter(cb => cb.category === 'substrate').map(cb => cb.chain);
+    SUBSTRATE_CHAINS.forEach(chain => {
+      if (!existingSubstrateChains.includes(chain)) {
+        const defaultDecimals: Record<string, number> = {
+          polkadot: 10,
+          hydrationSubstrate: 12,
+          bifrostSubstrate: 12,
+          uniqueSubstrate: 18,
+          paseo: 10,
+          paseoAssethub: 10,
         };
-        
-        let substrateCount = 0;
-        for (const [backendChain, balanceData] of Object.entries(substrateBalances)) {
-          if (!balanceData.address) {
-            console.log(`⏭️ Skipping ${backendChain}: no address`);
-            continue; // Skip if no address
-          }
-          
-          // Map backend chain key to frontend chain key
-          const frontendChain = chainKeyMap[backendChain] || backendChain;
-          
-          // Always add Substrate chains, even with zero balance (like Polkadot EVM chains)
-          const balance = parseFloat(balanceData.balance);
-          map.set(frontendChain, {
-            chain: frontendChain,
-            nativeBalance: balanceData.balance,
-            nativeDecimals: balanceData.decimals,
-            nativeBalanceHuman: balance > 0 ? formatBalance(balanceData.balance, balanceData.decimals) : undefined,
-            tokens: [],
-            category: 'substrate'
-          });
-          substrateCount++;
-          console.log(`✅ Added Substrate chain ${frontendChain} (${backendChain}): ${balanceData.balance} ${balanceData.token}`);
-        }
-        console.log(`📊 Total Substrate chains added: ${substrateCount}`);
-      } catch (substrateErr) {
-        console.error('❌ Failed to load Substrate balances:', substrateErr);
-        console.error('Error details:', substrateErr instanceof Error ? substrateErr.message : String(substrateErr));
-        // Don't fail the whole load if Substrate fails
+        balances.push({
+          chain,
+          nativeBalance: '0',
+          nativeDecimals: defaultDecimals[chain] || 10,
+          nativeBalanceHuman: undefined,
+          tokens: [],
+          category: 'substrate'
+        });
       }
+    });
+    
+    return balances;
+  }, [providerBalances]);
 
-      const balances = Array.from(map.values());
-      
-      // Ensure Polkadot EVM chains are always present, even with zero balance
-      const existingPolkadotChains = balances.filter(cb => cb.category === 'polkadot-evm').map(cb => cb.chain);
-      POLKADOT_EVM_CHAINS.forEach(chain => {
-        if (!existingPolkadotChains.includes(chain)) {
-          balances.push({
-            chain,
-            nativeBalance: '0',
-            nativeDecimals: 18,
-            nativeBalanceHuman: undefined,
-            tokens: [],
-            category: 'polkadot-evm'
-          });
-        }
-      });
-      
-      // Ensure Substrate chains are always present, even with zero balance
-      const existingSubstrateChains = balances.filter(cb => cb.category === 'substrate').map(cb => cb.chain);
-      SUBSTRATE_CHAINS.forEach(chain => {
-        if (!existingSubstrateChains.includes(chain)) {
-          // Get default decimals for Substrate chains
-          const defaultDecimals: Record<string, number> = {
-            polkadot: 10,
-            hydrationSubstrate: 12,
-            bifrostSubstrate: 12,
-            uniqueSubstrate: 18,
-            paseo: 10,
-            paseoAssethub: 10,
-          };
-          balances.push({
-            chain,
-            nativeBalance: '0',
-            nativeDecimals: defaultDecimals[chain] || 10,
-            nativeBalanceHuman: undefined,
-            tokens: [],
-            category: 'substrate'
-          });
-        }
-      });
-      
-      setChainBalances(balances);
-    } catch (err) {
-      const errorMessage = err instanceof ApiError ? err.message : 'Failed to load balances. Please try again.';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
+  const loading = providerLoading.balances;
+  const error = providerErrors.balances;
+
+  // Use provider's refresh function instead of local loadBalances
+  const loadBalances = async () => {
+    await providerRefresh();
   };
 
   // Map Zerion chain ids to backend internal chain identifiers for sending
@@ -296,11 +230,9 @@ export default function TransactionsPage() {
     setSendModalOpen(true);
   };
 
-  const handleSendSuccess = () => {
-    // Reload balances after successful send
-    if (fingerprint) {
-      loadBalances();
-    }
+  const handleSendSuccess = async () => {
+    // Reload balances after successful send using provider refresh
+    await providerRefresh();
   };
 
   // No per-chain retry now; full reload is enough

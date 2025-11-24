@@ -1,12 +1,14 @@
 import { useState, useCallback, useRef } from 'react';
 import { walletApi, UiWalletPayload, ApiError, subscribeToSSE } from '@/lib/api';
 import { walletStorage } from '@/lib/walletStorage';
+import { ChainType, mapWalletCategoryToChainType } from '@/lib/chains';
 
 export interface WalletData {
   name: string;
   address: string;
   chain: string;
   category?: string;
+  chainType?: ChainType;
 }
 
 export interface UseWalletReturn {
@@ -15,6 +17,7 @@ export interface UseWalletReturn {
   error: string | null;
   loadWallets: (userId: string) => Promise<void>;
   changeWallets: (userId: string) => Promise<void>;
+  getWalletByChainType: (type: ChainType) => WalletData | null;
 }
 
 const SMART_ACCOUNT_FALLBACK_NAME = 'EVM Smart Account';
@@ -45,18 +48,23 @@ export function useWallet(): UseWalletReturn {
         name: payload.smartAccount.label || SMART_ACCOUNT_FALLBACK_NAME,
         address: payload.smartAccount.address,
         chain: SMART_ACCOUNT_CHAIN_KEY,
+        chainType: 'evm',
       });
     }
 
     // Process all auxiliary entries (including Substrate chains)
     payload.auxiliary?.forEach((entry) => {
       if (!entry.address) return;
-      walletData.push({
-        name: entry.label || entry.chain,
-        address: entry.address,
-        chain: entry.chain,
-        category: entry.category,
-      });
+      const chainType = mapWalletCategoryToChainType(entry.category);
+      if (chainType) {
+        walletData.push({
+          name: entry.label || entry.chain,
+          address: entry.address,
+          chain: entry.chain,
+          category: entry.category,
+          chainType,
+        });
+      }
     });
 
     setWallets(walletData);
@@ -246,11 +254,18 @@ export function useWallet(): UseWalletReturn {
     await loadWallets(userId, true); // Force refresh
   }, [loadWallets]);
 
+  const getWalletByChainType = useCallback((type: ChainType): WalletData | null => {
+    // Find the first wallet matching the chain type
+    const wallet = wallets.find((w) => w.chainType === type);
+    return wallet || null;
+  }, [wallets]);
+
   return {
     wallets,
     loading,
     error,
     loadWallets,
     changeWallets,
+    getWalletByChainType,
   };
 }

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+// Rubik font is provided by the shared UI package via CSS import; no client-side import here.
 import "./globals.css";
+import { Providers } from "@/components/providers";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -10,6 +12,7 @@ const geistMono = localFont({
   src: "./fonts/GeistMonoVF.woff",
   variable: "--font-geist-mono",
 });
+
 
 export const metadata: Metadata = {
   title: "Tempwallets.com",
@@ -26,8 +29,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {children}
+  <body className={`${geistSans.variable} ${geistMono.variable}`}>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );

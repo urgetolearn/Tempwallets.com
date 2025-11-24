@@ -2,6 +2,7 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Helvetica:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -144,4 +145,23 @@ video {
 
   /* Header text color */
   --header-text: #ffffff;
+}
+
+/* Rubik font utilities - expose reusable classes to consumers (web app imports this) */
+.font-rubik { font-family: 'Rubik', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'Liberation Sans', sans-serif; }
+.font-rubik-light { font-family: 'Rubik', sans-serif; font-weight: 300; }
+.font-rubik-normal { font-family: 'Rubik', sans-serif; font-weight: 400; }
+.font-rubik-medium { font-family: 'Rubik', sans-serif; font-weight: 500; }
+.font-rubik-semibold { font-family: 'Rubik', sans-serif; font-weight: 600; }
+.font-rubik-bold { font-family: 'Rubik', sans-serif; font-weight: 700; }
+.font-rubik-heavy { font-family: 'Rubik', sans-serif; font-weight: 800; }
+.font-rubik-black { font-family: 'Rubik', sans-serif; font-weight: 900; }
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none; /* Internet Explorer and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, and Opera */
 }

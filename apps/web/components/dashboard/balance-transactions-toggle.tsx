@@ -1,0 +1,96 @@
+'use client';
+
+import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import { BalanceView } from './balance-view';
+import RecentTransactions from './recent-transactions';
+import { useWalletData } from '@/hooks/useWalletData';
+
+type ViewType = 'balance' | 'transactions';
+
+/**
+ * Component with two text buttons: "BALANCE" and "Transactions"
+ * Renders BalanceView when balance is active, RecentTransactions when transactions is active
+ * Default to "BALANCE" view on mount
+ */
+export function BalanceTransactionsToggle() {
+  const [activeView, setActiveView] = useState<ViewType>('balance');
+  const { loading, refreshBalances, refreshTransactions } = useWalletData();
+  const isLoading = loading.balances || loading.transactions;
+
+  const handleRefresh = () => {
+    if (activeView === 'balance') {
+      refreshBalances();
+    } else {
+      refreshTransactions();
+    }
+  };
+
+  return (
+    <div className="w-full bg-white rounded-3xl pt-4 border-t border-gray-200 shadow-sm md:max-w-2xl md:mx-auto mt-4 mb-4 flex-1 flex flex-col">
+      {/* Top Divider */}
+      <div className="flex justify-center mb-2 mx-4 md:mx-6">
+        <div className="w-10 h-1 bg-gray-200 rounded-full"></div>
+      </div>
+
+      {/* Header with Toggle Buttons and Refresh */}
+      <div className="flex items-center justify-between mb-6 mx-4 md:mx-6 relative z-10">
+        {/* Toggle Buttons on Left */}
+        <div className="flex items-center gap-6">
+          <button
+            onClick={() => setActiveView('balance')}
+            type="button"
+            className={`font-rubik-medium transition-all cursor-pointer select-none py-2 px-3 -mx-3 rounded-lg relative z-10 ${
+              activeView === 'balance'
+                ? 'text-gray-800 font-semibold'
+                : 'text-gray-300 hover:text-gray-400'
+            }`}
+            style={{ touchAction: 'manipulation' }}
+          >
+            Balance
+          </button>
+          <button
+            onClick={() => setActiveView('transactions')}
+            type="button"
+            className={`font-rubik-medium transition-all cursor-pointer select-none py-2 px-3 -mx-3 rounded-lg relative z-10 ${
+              activeView === 'transactions'
+                ? 'text-gray-800 font-semibold'
+                : 'text-gray-300 hover:text-gray-400'
+            }`}
+            style={{ touchAction: 'manipulation' }}
+          >
+            Transactions
+          </button>
+        </div>
+
+        {/* Refresh Button on Right */}
+        <button
+          onClick={handleRefresh}
+          disabled={isLoading}
+          type="button"
+          className="text-gray-500 text-sm hover:opacity-70 transition-opacity disabled:opacity-50 flex items-center gap-2 py-2 px-2 -mx-2 rounded-lg relative z-10 select-none"
+          style={{ touchAction: 'manipulation' }}
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Refresh</span>
+            </>
+          ) : (
+            'Refresh'
+          )}
+        </button>
+      </div>
+
+      {/* Content Area */}
+      <div className="mx-4 md:mx-6 mb-4 flex-1">
+        {activeView === 'balance' ? (
+          <BalanceView />
+        ) : (
+          <RecentTransactions showAll={false} hideHeader />
+        )}
+      </div>
+    </div>
+  );
+}
+

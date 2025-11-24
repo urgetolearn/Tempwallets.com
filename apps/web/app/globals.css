@@ -1,3 +1,7 @@
 @import "@repo/ui/globals.css";
 
+/* Font utilities are included via @repo/ui/globals.css */
+
+/* Additional helper: use the class alongside existing Tailwind classes. */
+
 /* Add any app-specific styles below */

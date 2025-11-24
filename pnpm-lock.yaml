@@ -180,6 +180,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.90.9
         version: 5.90.9(react@19.2.0)
+      '@thirdweb-dev/chain-icons':
+        specifier: ^1.0.5
+        version: 1.0.5(react@19.2.0)
       '@walletconnect/sign-client':
         specifier: ^2.15.0
         version: 2.23.0(bufferutil@4.0.9)(typescript@5.9.2)(utf-8-validate@5.0.10)(zod@4.1.12)
@@ -2669,6 +2672,11 @@ packages:
 
   '@tetherto/wdk@1.0.0-beta.3':
     resolution: {integrity: sha512-9T3eOVp3spNBW9mKm2ggweCPC2/cS020VzoopbupKlVnvazbRSPpk6Q/Tbh8I9Ii+MQhC8cShmLbRo6pHBfyoQ==}
+
+  '@thirdweb-dev/chain-icons@1.0.5':
+    resolution: {integrity: sha512-NsDboaLji7IOOjgoz/A/qf7A5EDfZN3qgyqt+GOxr5/YXzzyH2Obk8grwv2gDwP2mF5T5RjNex0I8kwA+tyKrw==}
+    peerDependencies:
+      react: '*'
 
   '@tokenizer/inflate@0.2.7':
     resolution: {integrity: sha512-MADQgmZT1eKjp06jpI2yozxaU9uVs4GzzgSL+uEq7bVcJ9V1ZXQkeGNql1fsSI0gMy1vhvNTNbUqrx+pZfJVmg==}
@@ -9819,6 +9827,10 @@ snapshots:
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
+
+  '@thirdweb-dev/chain-icons@1.0.5(react@19.2.0)':
+    dependencies:
+      react: 19.2.0
 
   '@tokenizer/inflate@0.2.7':
     dependencies:

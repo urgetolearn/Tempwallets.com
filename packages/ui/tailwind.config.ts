@@ -12,6 +12,9 @@ const config = {
   ],
   prefix: "",
   theme: {
+		fontFamily: {
+			rubik: ['Rubik', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'Liberation Sans', 'sans-serif'],
+		},
   	container: {
   		center: true,
   		padding: '2rem',

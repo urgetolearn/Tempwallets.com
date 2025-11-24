@@ -36,3 +36,13 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# IDE and Editor files
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db

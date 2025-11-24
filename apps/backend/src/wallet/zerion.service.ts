@@ -422,7 +422,7 @@ export class ZerionService {
   /**
    * Make request to Zerion API with retry logic
    */
-  private async makeRequest<T>(url: string, retries = 3): Promise<T> {
+  private async makeRequest<T>(url: string, retries = 3, timeoutMs = 30000): Promise<T> {
     if (!this.apiKey) {
       throw new Error('Zerion API key not configured');
     }
@@ -444,26 +444,46 @@ export class ZerionService {
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const response = await fetch(url, { headers });
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-        if (!response.ok) {
-          if (response.status === 429) {
-            // Rate limited - wait and retry
-            const waitTime = attempt * 1000;
-            this.logger.warn(
-              `Rate limited by Zerion API. Waiting ${waitTime}ms before retry ${attempt}/${retries}`,
+        try {
+          const response = await fetch(url, { 
+            headers,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            if (response.status === 429) {
+              // Rate limited - wait and retry
+              const waitTime = attempt * 1000;
+              this.logger.warn(
+                `Rate limited by Zerion API. Waiting ${waitTime}ms before retry ${attempt}/${retries}`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, waitTime));
+              continue;
+            }
+
+            const errorText = await response.text();
+            throw new Error(
+              `Zerion API error: ${response.status} - ${errorText}`,
             );
-            await new Promise((resolve) => setTimeout(resolve, waitTime));
-            continue;
           }
 
-          const errorText = await response.text();
-          throw new Error(
-            `Zerion API error: ${response.status} - ${errorText}`,
-          );
+          return (await response.json()) as T;
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          
+          // Check if it's a timeout/abort error
+          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms`);
+          }
+          
+          throw fetchError;
         }
-
-        return (await response.json()) as T;
       } catch (error) {
         if (attempt === retries) {
           this.logger.error(

@@ -1,23 +1,34 @@
 import { Copy, Check, Loader2, RefreshCw, QrCode, Send } from "lucide-react";
-import { Carousel, CarouselContent, CarouselItem, CarouselApi } from "@repo/ui/components/ui/carousel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@repo/ui/components/ui/tooltip";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useWallet } from "@/hooks/useWallet";
+import { useWalletV2 } from "@/hooks/useWalletV2";
 import { walletStorage } from "@/lib/walletStorage";
 import { useBrowserFingerprint } from "@/hooks/useBrowserFingerprint";
 import { WalletConnectModal } from "./walletconnect-modal";
+import { WalletCard } from "./wallet-card";
+import { ChainSelector } from "./chain-selector";
+import { DEFAULT_CHAIN, getChainById } from "@/lib/chains";
+import { useWalletConfig } from "@/hooks/useWalletConfig";
 
 const WalletInfo = () => {
   const router = useRouter();
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [carouselApi, setCarouselApi] = useState<CarouselApi>();
+  const [copied, setCopied] = useState(false);
+  const [selectedChainId, setSelectedChainId] = useState(DEFAULT_CHAIN.id);
   const [walletConnectOpen, setWalletConnectOpen] = useState(false);
-  const { wallets, loading, error, loadWallets } = useWallet();
+  const { wallets, loading, error, loadWallets, getWalletByChainType } = useWalletV2();
+  const walletConfig = useWalletConfig();
   
   // Use browser fingerprint as unique user ID
   const { fingerprint, loading: fingerprintLoading, generateNewWallet } = useBrowserFingerprint();
+
+  // Get selected chain from new config (fallback to old chains.ts for backward compatibility)
+  const selectedChainConfig = walletConfig.getById(selectedChainId);
+  const selectedChain = selectedChainConfig 
+    ? { ...selectedChainConfig, hasWalletConnect: selectedChainConfig.capabilities.walletConnect }
+    : (getChainById(selectedChainId) ?? DEFAULT_CHAIN);
+  
+  const currentWallet = getWalletByChainType(selectedChain.type);
 
   // Load wallets when fingerprint is ready
   useEffect(() => {
@@ -38,25 +49,27 @@ const WalletInfo = () => {
     }
   }, [loadWallets, fingerprint]);
 
-  // Set up carousel API
-  useEffect(() => {
-    if (!carouselApi) {
-      return;
-    }
-
-    setCurrentSlide(carouselApi.selectedScrollSnap());
-
-    carouselApi.on("select", () => {
-      setCurrentSlide(carouselApi.selectedScrollSnap());
-    });
-  }, [carouselApi]);
-
   const actions = [
-    { icon: RefreshCw, label: "Change", action: "change" },
-    { icon: Copy, label: "Copy", action: "copy" },
-    { icon: Send, label: "Send", action: "send" },
     { icon: QrCode, label: "Connect", action: "connect" },
+    { icon: Send, label: "Send", action: "send" },
+    { icon: Copy, label: "Copy", action: "copy" },
+    { icon: RefreshCw, label: "Change", action: "change" },
   ];
+
+  const getIconContainerStyles = (action: string) => {
+    const baseStyles = "w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-colors";
+    switch (action) {
+      case 'connect':
+        return `${baseStyles} bg-[#4C856F]`;
+      case 'send':
+      case 'copy':
+        return `${baseStyles} bg-[#292929]`;
+      case 'change':
+        return `${baseStyles} bg-transparent`;
+      default:
+        return baseStyles;
+    }
+  };
 
   const truncateAddress = (address: string) => {
     if (address.length <= 15) return address;
@@ -64,195 +77,113 @@ const WalletInfo = () => {
   };
 
   const handleActionClick = async (action: string) => {
-    const currentWallet = wallets[currentSlide];
-    
     if (action === 'change') {
       if (fingerprint) {
+        console.log('🔄 Change button clicked - Current fingerprint:', fingerprint);
+        
+        // Clear the cache for current user first
+        walletStorage.clearAddresses();
+        console.log('🧹 Cleared wallet cache');
+        
         // Generate new wallet ID (this updates fingerprint and triggers useEffect)
-        generateNewWallet();
-        // The useEffect will automatically call loadWallets when fingerprint changes
+        const newWalletId = generateNewWallet();
+        console.log('✨ Generated new wallet ID:', newWalletId);
+        
+        // Force refresh to fetch new wallets immediately
+        // The useEffect will also trigger, but this ensures immediate update
+        console.log('📡 Fetching new wallets from backend...');
+        await loadWallets(newWalletId, true);
+        console.log('✅ New wallets loaded successfully');
       }
     } else if (action === 'copy' && currentWallet) {
       await copyToClipboard(currentWallet.address);
     } else if (action === 'send') {
       router.push('/transactions');
     } else if (action === 'connect') {
-      setWalletConnectOpen(true);
+      // Only allow WalletConnect for EVM chains
+      if (selectedChain.hasWalletConnect) {
+        setWalletConnectOpen(true);
+      }
     }
-    // Add other action handlers as needed
   };
 
   const copyToClipboard = async (address: string) => {
     try {
       await navigator.clipboard.writeText(address);
-      setCopiedIndex(currentSlide);
-      setTimeout(() => setCopiedIndex(null), 2000);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy: ', err);
     }
   };
 
-
   return (
     <div className="w-full max-w-2xl mx-auto">
-      {/* Wallet Cards - Always show structure */}
-      {(fingerprintLoading || loading || error || wallets.length > 0) && (
-        <Carousel opts={{ loop: wallets.length > 1 }} className="w-full" setApi={setCarouselApi}>
-          <CarouselContent>
-            {(((fingerprintLoading || loading) && wallets.length === 0) || error) ? (
-              // Show loading state in carousel structure
-              <CarouselItem>
-                <div className="rounded-t-3xl p-6 md:p-8 shadow-lg" style={{ backgroundImage: 'url("/04.-Purplies-Gradient-Texture-Background.png")', backgroundSize: 'cover', backgroundPosition: 'center' }}>
-                  <div className="text-center space-y-1 md:space-y-0">
-                    <p className="text-white text-sm md:text-base">
-                      Wallet
-                    </p>
+      {/* Wallet Card - Fixed (no carousel) */}
+      <WalletCard
+        wallet={currentWallet}
+        chain={selectedChain}
+        loading={fingerprintLoading || loading}
+        error={error}
+      />
 
-                    {/* Loading Address */}
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="rounded-lg px-4 py-2 flex items-center gap-2">
-                        <Loader2 className="h-6 w-6 md:h-5 md:w-5 animate-spin text-white" />
-                        <span className="text-white font-semibold text-3xl md:text-2xl">
-                          {fingerprintLoading ? 'Initializing...' : 'Loading...'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CarouselItem>
-            ) : (
-              // Show actual wallets
-              wallets.map((wallet, index) => (
-                <CarouselItem key={index}>
-                  <div className="rounded-t-3xl p-6 md:p-8 shadow-lg" style={{ backgroundImage: 'url("/04.-Purplies-Gradient-Texture-Background.png")', backgroundSize: 'cover', backgroundPosition: 'center' }}>
-                    <div className="text-center space-y-1 md:space-y-0">
-                      <p className="text-white text-sm md:text-base">
-                        {wallet.name}
-                      </p>
-
-                      {/* Wallet Address with Copy Button */}
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="rounded-lg px-4 py-2 flex items-center gap-2">
-                          <span className="text-white font-semibold text-3xl md:text-2xl">
-                            {truncateAddress(wallet.address)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CarouselItem>
-              ))
-            )}
-          </CarouselContent>
-          {!loading && !error && wallets.length > 1 && (
-            <>
-              <button 
-                onClick={() => carouselApi?.scrollPrev()}
-                className="absolute left-2 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 transition-opacity z-10"
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M8 12L14 6V18L8 12Z" fill="white"/>
-                </svg>
-              </button>
-              <button 
-                onClick={() => carouselApi?.scrollNext()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 transition-opacity z-10"
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M16 12L10 18V6L16 12Z" fill="white"/>
-                </svg>
-              </button>
-            </>
-          )}
-        </Carousel>
-      )}
-
-      {/* Action Buttons */}
-      <div className="rounded-b-3xl p-4 md:p-6 -mt-4 pt-8 md:pt-10" style={{ backgroundColor: '#292828' }}>
+  {/* Action Buttons */}
+  <div className="rounded-3xl p-4 md:p-6 mt-0 pt-6 md:pt-8" style={{ backgroundColor: '#161616' }}>
         <TooltipProvider>
           <div className="grid grid-cols-4 gap-2 md:gap-4">
-            {actions.map((action) => (
-              <Tooltip key={action.label} delayDuration={300}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => handleActionClick(action.action)}
-                    disabled={loading && action.action === 'change'}
-                    className="flex flex-col items-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div className="w-10 h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-full border-2 border-gray-500/30 flex items-center justify-center group-hover:border-gray-500/50 transition-colors">
-                      {loading && action.action === 'change' ? (
-                        <Loader2 className="h-5 w-5 md:h-5 md:w-5 lg:h-6 lg:w-6 text-white animate-spin" />
-                      ) : action.action === 'copy' && copiedIndex === currentSlide ? (
-                        <Check className="h-6 w-6 md:h-5 md:w-5 lg:h-6 lg:w-6 text-white" />
-                      ) : (
-                        <action.icon className="h-6 w-6 md:h-5 md:w-5 lg:h-6 lg:w-6 text-white" />
-                      )}
-                    </div>
-                    <span className="text-[11px] md:text-[11px] lg:text-xs font-medium text-white/50">
-                      {loading && action.action === 'change' ? 'Changing...' : 
-                       action.action === 'copy' && copiedIndex === currentSlide ? 'Copied!' : 
-                       action.label}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                {action.action === 'connect' && (
-                  <TooltipContent 
-                    side="top" 
-                    className="bg-black/20 backdrop-blur-sm text-white text-xs px-3 rounded-lg border border-white/20 max-w-xs"
-                  >
-                    <p>Connect to DApp</p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            ))}
+            {actions.map((action) => {
+              const isDisabled = 
+                (loading && action.action === 'change') || 
+                (!selectedChain.hasWalletConnect && action.action === 'connect');
+              
+              return (
+                <Tooltip key={action.label} delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => handleActionClick(action.action)}
+                      disabled={isDisabled}
+                      className="flex flex-col items-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className={getIconContainerStyles(action.action)}>
+                        {loading && action.action === 'change' ? (
+                          <Loader2 className="h-6 w-6 md:h-8 md:w-8 text-white animate-spin" />
+                        ) : action.action === 'copy' && copied ? (
+                          <Check className="h-6 w-6 md:h-8 md:w-8 text-white" />
+                        ) : (
+                          <action.icon className="h-6 w-6 md:h-8 md:w-8 text-white" />
+                        )}
+                      </div>
+                      <span className="text-xs md:text-sm lg:text-sm font-rubik-normal text-white">
+                        {loading && action.action === 'change' ? 'Changing...' : 
+                         action.action === 'copy' && copied ? 'Copied!' : 
+                         action.label}
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  {action.action === 'connect' && (
+                    <TooltipContent 
+                      side="top" 
+                      className="bg-black/20 backdrop-blur-sm text-white text-xs px-3 rounded-lg border border-white/20 max-w-xs"
+                    >
+                      <p>
+                        {selectedChain.hasWalletConnect 
+                          ? 'Connect to DApp' 
+                          : `WalletConnect not available for ${selectedChain.name}`}
+                      </p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              );
+            })}
           </div>
         </TooltipProvider>
       </div>
 
-      {/* Additional Features Section */}
-      <div className="rounded-t-3xl md:rounded-b-3xl pt-4 md:pt-6 pb-4 md:pb-6 mt-4 mb-2 -mx-4 md:mx-0" style={{ backgroundColor: '#292828' }}>
-        <TooltipProvider>
-          <div className="flex items-center justify-between mb-4 px-4 md:px-6">
-            <h3 className="text-white text-sm md:text-base font-regular">Quick Actions</h3>
-          </div>
-          <div className="grid grid-cols-4 gap-2 md:gap-4 px-4 md:px-6">
-            {actions.map((action) => (
-              <Tooltip key={`quick-${action.label}`} delayDuration={300}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => handleActionClick(action.action)}
-                    disabled={loading && action.action === 'change'}
-                    className="flex flex-col items-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div className="w-10 h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-full border-2 border-gray-500/30 flex items-center justify-center group-hover:border-gray-500/50 transition-colors">
-                      {loading && action.action === 'change' ? (
-                        <Loader2 className="h-5 w-5 md:h-5 md:w-5 lg:h-6 lg:w-6 text-white animate-spin" />
-                      ) : action.action === 'copy' && copiedIndex === currentSlide ? (
-                        <Check className="h-6 w-6 md:h-5 md:w-5 lg:h-6 lg:w-6 text-white" />
-                      ) : (
-                        <action.icon className="h-6 w-6 md:h-5 md:w-5 lg:h-6 lg:w-6 text-white" />
-                      )}
-                    </div>
-                    <span className="text-[11px] md:text-[11px] lg:text-xs font-medium text-white/50">
-                      {loading && action.action === 'change' ? 'Changing...' : 
-                       action.action === 'copy' && copiedIndex === currentSlide ? 'Copied!' : 
-                       action.label}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                {action.action === 'connect' && (
-                  <TooltipContent 
-                    side="top" 
-                    className="bg-black/80 backdrop-blur-sm text-white text-xs px-3 py-2 rounded-lg border border-white/20 max-w-xs shadow-lg"
-                  >
-                    <p>Connect to DApp</p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            ))}
-          </div>
-        </TooltipProvider>
-      </div>
+      {/* Chain Selector - Replaces Quick Actions */}
+      <ChainSelector
+        selectedChainId={selectedChainId}
+        onChainChange={setSelectedChainId}
+      />
 
       {/* WalletConnect Modal */}
       <WalletConnectModal open={walletConnectOpen} onOpenChange={setWalletConnectOpen} />

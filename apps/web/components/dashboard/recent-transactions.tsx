@@ -6,9 +6,12 @@ import { useState, useEffect, useCallback } from "react";
 import { Loader2, ArrowUpRight, ArrowDownLeft, ExternalLink, Clock } from "lucide-react";
 import { walletApi, Transaction } from "@/lib/api";
 import { useBrowserFingerprint } from "@/hooks/useBrowserFingerprint";
+import { useWalletData } from "@/hooks/useWalletData";
 
 interface RecentTransactionsProps {
   showAll?: boolean;
+  transactions?: Transaction[]; // Optional transactions from provider
+  hideHeader?: boolean; // Hide header when used in toggle component
 }
 
 const CHAIN_NAMES: Record<string, string> = {
@@ -211,11 +214,23 @@ const setCachedTransactions = (fingerprint: string, transactions: Transaction[])
   }
 };
 
-const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
+const RecentTransactions = ({ showAll = false, transactions: propTransactions, hideHeader = false }: RecentTransactionsProps) => {
   const { fingerprint } = useBrowserFingerprint();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  
+  // Use provider data (provider is always available since we wrap app with Providers)
+  const { transactions: providerTransactions, loading: providerLoading, errors: providerErrors, refresh: providerRefresh } = useWalletData();
+  
+  // Use prop transactions if provided, otherwise use provider transactions, otherwise use local state
+  const useProviderData = propTransactions === undefined;
+  const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Determine which data source to use
+  const finalTransactions = propTransactions ?? (useProviderData ? providerTransactions : localTransactions);
+  const finalLoading = useProviderData ? providerLoading.transactions : loading;
+  const finalError = useProviderData ? providerErrors.transactions : error;
+  const refreshFn = useProviderData ? providerRefresh : undefined;
 
   const loadTransactions = useCallback(async () => {
     if (!fingerprint) return;
@@ -286,7 +301,7 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
 
       // Limit to 20 for recent, all for full view
       const limited = showAll ? validTransactions : validTransactions.slice(0, 10);
-      setTransactions(limited);
+      setLocalTransactions(limited);
       
       // Cache transactions for instant loading on tab switch
       if (fingerprint) {
@@ -300,14 +315,15 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
     } finally {
       setLoading(false);
     }
-  }, [fingerprint, showAll, transactions.length]);
+  }, [fingerprint, showAll]);
 
   useEffect(() => {
-    if (fingerprint) {
+    // Only use local fetching if not using provider data
+    if (!useProviderData && fingerprint) {
       // Try to load from cache first for instant display
       const cached = getCachedTransactions(fingerprint);
       if (cached && cached.length > 0) {
-        setTransactions(cached);
+        setLocalTransactions(cached);
         setLoading(false);
       } else {
         setLoading(true);
@@ -322,7 +338,7 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
       }, 30000);
       return () => clearInterval(interval);
     }
-  }, [fingerprint, loadTransactions]);
+  }, [fingerprint, loadTransactions, useProviderData]);
 
   const getTransactionExplorerUrl = (tx: Transaction): string => {
     // Determine if this is a testnet chain
@@ -339,56 +355,21 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
     return tx.from.toLowerCase() === userAddress.toLowerCase();
   };
 
-  return (
-    <div className={`w-full bg-white rounded-t-3xl pt-4 pb-20 border-t border-gray-200 shadow-sm ${
-      showAll
-        ? "md:max-w-4xl md:rounded-3xl md:mx-auto"
-        : "md:max-w-2xl md:mx-auto -mt-12 md:mt-4 overflow-y-auto max-h-[calc(100vh-350px)]"
-    }`}>
-      {/* Top Divider */}
-      <div className="flex justify-center mb-2 px-4 md:px-6">
-        <div className="w-10 h-1 bg-gray-200 rounded-full"></div>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 px-4 md:px-6">
-        <h2 className="text-gray-900 text-lg md:text-2xl">
-          {showAll ? "All Transactions" : "Recent Transactions"}
-        </h2>
-        <div className="flex items-center gap-4">
-          {!showAll && (
-            <Link href="/transactions" className="text-gray-500 text-sm md:text-base hover:opacity-70 transition-opacity">
-              See all
-            </Link>
-          )}
-          <button
-            onClick={loadTransactions}
-            disabled={loading}
-            className="text-gray-500 text-sm hover:opacity-70 transition-opacity disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
-          </button>
-        </div>
-      </div>
-
-      {/* Transactions List */}
-      <div className="px-4 md:px-6">
-        {loading && transactions.length === 0 ? (
+  // If hideHeader is true, render without container/wrapper (for toggle component)
+  if (hideHeader) {
+    return (
+      <div className="w-full">
+        {finalError && finalTransactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400 mb-4" />
-            <p className="text-gray-500">Loading transactions...</p>
-          </div>
-        ) : error && transactions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16">
-            <p className="text-red-500 mb-4">{error}</p>
+            <p className="text-red-500 mb-4 font-rubik-normal">{finalError}</p>
             <button
-              onClick={loadTransactions}
+              onClick={refreshFn || loadTransactions}
               className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
             >
               Retry
             </button>
           </div>
-        ) : transactions.length === 0 ? (
+        ) : finalTransactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 md:py-20">
             {/* Empty Mailbox GIF */}
             <div className="-mt-32">
@@ -400,13 +381,13 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
                 className="object-contain mix-blend-multiply"
               />
             </div>
-            <p className="text-gray-600 text-lg md:text-xl font-medium z-10 -mt-16">
+            <p className="text-gray-600 text-lg md:text-xl font-rubik-medium z-10 -mt-16">
               No transactions yet
             </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {transactions.map((tx) => (
+            {(showAll ? finalTransactions : finalTransactions.slice(0, 10)).map((tx) => (
               <a
                 key={`${tx.chain}-${tx.txHash}`}
                 href={getTransactionExplorerUrl(tx)}
@@ -452,13 +433,151 @@ const RecentTransactions = ({ showAll = false }: RecentTransactionsProps) => {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 truncate">
+                      <p className="text-sm text-gray-600 truncate font-rubik-normal">
                         {tx.tokenSymbol 
                           ? formatValue(tx.value, 18, tx.tokenSymbol)
                           : formatValue(tx.value, 18)
                         }
                       </p>
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className="text-xs text-gray-400 mt-1 font-rubik-normal">
+                        {formatDate(tx.timestamp)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* External Link Icon */}
+                  <ExternalLink className="h-5 w-5 text-gray-400 flex-shrink-0 ml-2" />
+                </div>
+
+                {/* Transaction Hash (truncated) */}
+                <div className="mt-2 pt-2 border-t border-gray-100">
+                  <p className="text-xs text-gray-500 font-mono">
+                    {truncateAddress(tx.txHash)}
+                  </p>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`w-full bg-white rounded-3xl pt-4 pb-20 border-t border-gray-200 shadow-sm ${
+      showAll
+        ? "md:max-w-4xl md:rounded-3xl md:mx-auto min-h-[calc(100vh-450px)]"
+        : "md:max-w-2xl md:mx-auto mt-4 overflow-y-auto max-h-[calc(100vh-450px)]"
+    }`}>
+      {/* Top Divider */}
+      <div className="flex justify-center mb-2 px-4 md:px-6">
+        <div className="w-10 h-1 bg-gray-200 rounded-full"></div>
+      </div>
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6 px-4 md:px-6">
+        <h2 className="text-gray-900 text-lg md:text-2xl font-rubik-bold">
+          {showAll ? "All Transactions" : "Recent Transactions"}
+        </h2>
+        <div className="flex items-center gap-4">
+          {!showAll && (
+            <Link href="/transactions" className="text-gray-500 text-sm md:text-base hover:opacity-70 transition-opacity">
+              See all
+            </Link>
+          )}
+          <button
+            onClick={refreshFn || loadTransactions}
+            disabled={finalLoading}
+            className="text-gray-500 text-sm hover:opacity-70 transition-opacity disabled:opacity-50"
+          >
+            {finalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {/* Transactions List */}
+      <div className="px-4 md:px-6">
+        {finalError && finalTransactions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <p className="text-red-500 mb-4 font-rubik-normal">{finalError}</p>
+            <button
+              onClick={refreshFn || loadTransactions}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            >
+              Retry
+            </button>
+          </div>
+        ) : finalTransactions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 md:py-20">
+            {/* Empty Mailbox GIF */}
+            <div className="-mt-32">
+              <Image
+                src="/empty-mailbox-illustration-with-spiderweb-and-flie-2025-10-20-04-28-09-utc.gif"
+                alt="Empty mailbox illustration"
+                width={320}
+                height={320}
+                className="object-contain mix-blend-multiply"
+              />
+            </div>
+            <p className="text-gray-600 text-lg md:text-xl font-rubik-medium z-10 -mt-16">
+              No transactions yet
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {(showAll ? finalTransactions : finalTransactions.slice(0, 10)).map((tx) => (
+              <a
+                key={`${tx.chain}-${tx.txHash}`}
+                href={getTransactionExplorerUrl(tx)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block p-4 rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-1">
+                    {/* Transaction Icon */}
+                    <div className={`p-2 rounded-full ${
+                      tx.status === 'success' 
+                        ? 'bg-green-100 text-green-600' 
+                        : tx.status === 'failed'
+                        ? 'bg-red-100 text-red-600'
+                        : 'bg-yellow-100 text-yellow-600'
+                    }`}>
+                      {tx.status === 'pending' ? (
+                        <Clock className="h-5 w-5" />
+                      ) : (
+                        tx.from && tx.to ? (
+                          <ArrowUpRight className="h-5 w-5" />
+                        ) : (
+                          <ArrowDownLeft className="h-5 w-5" />
+                        )
+                      )}
+                    </div>
+
+                    {/* Transaction Details */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-semibold text-gray-900 truncate">
+                          {CHAIN_NAMES[tx.chain] || tx.chain}
+                        </p>
+                        {tx.status === 'pending' && (
+                          <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
+                            Pending
+                          </span>
+                        )}
+                        {tx.status === 'failed' && (
+                          <span className="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded">
+                            Failed
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600 truncate font-rubik-normal">
+                        {tx.tokenSymbol 
+                          ? formatValue(tx.value, 18, tx.tokenSymbol)
+                          : formatValue(tx.value, 18)
+                        }
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1 font-rubik-normal">
                         {formatDate(tx.timestamp)}
                       </p>
                     </div>
