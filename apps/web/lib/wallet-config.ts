@@ -32,7 +32,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
   // ========================================
   {
     id: 'ethereumErc4337',
-    name: 'Ethereum Gasless',
+    name: 'Ethereum',
     symbol: 'ETH',
     description: 'Ethereum Smart Account (ERC-4337)',
     type: 'evm',
@@ -66,7 +66,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
   },
   {
     id: 'baseErc4337',
-    name: 'Base Gasless',
+    name: 'Base',
     symbol: 'ETH',
     description: 'Base Smart Account (ERC-4337)',
     type: 'evm',
@@ -101,7 +101,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
   },
   {
     id: 'arbitrumErc4337',
-    name: 'Arbitrum Gasless',
+    name: 'Arbitrum',
     symbol: 'ARB',
     description: 'Arbitrum Smart Account (ERC-4337)',
     type: 'evm',
@@ -136,7 +136,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
   },
   {
     id: 'polygonErc4337',
-    name: 'Polygon Gasless',
+    name: 'Polygon',
     symbol: 'MATIC',
     description: 'Polygon Smart Account (ERC-4337)',
     type: 'evm',
@@ -170,7 +170,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
   },
   {
     id: 'avalancheErc4337',
-    name: 'Avalanche Gasless',
+    name: 'Avalanche',
     symbol: 'AVAX',
     description: 'Avalanche Smart Account (ERC-4337)',
     type: 'evm',
