@@ -39,7 +39,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Ethereum,
-    priority: 2,
+    priority: 1,
     color: '#627EEA',
     capabilities: {
       walletConnect: true,
@@ -73,7 +73,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer2',
     visible: true,
     icon: Base,
-    priority: 5,
+    priority: 2,
     color: '#0052FF',
     capabilities: {
       walletConnect: true,
@@ -143,7 +143,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'sidechain',
     visible: true,
     icon: Polygon,
-    priority: 7,
+    priority: 4,
     color: '#8247E5',
     capabilities: {
       walletConnect: true,
@@ -177,7 +177,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Avalanche,
-    priority: 8,
+    priority: 5,
     color: '#E84142',
     capabilities: {
       walletConnect: true,
@@ -214,7 +214,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Bitcoin,
-    priority: 1,
+    priority: 21,
     color: '#F7931A',
     capabilities: {
       walletConnect: false,
@@ -245,7 +245,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Polkadot,
-    priority: 4,
+    priority: 3,
     color: '#E6007A',
     capabilities: {
       walletConnect: true,
@@ -276,7 +276,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Solana,
-    priority: 3,
+    priority: 22,
     color: '#14F195',
     capabilities: {
       walletConnect: false,
@@ -307,7 +307,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Tron,
-    priority: 9,
+    priority: 23,
     color: '#FF0013',
     capabilities: {
       walletConnect: false,
@@ -444,7 +444,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Ethereum,
-    priority: 100,
+    priority: 11,
     color: '#627EEA',
     capabilities: {
       walletConnect: true,
@@ -478,7 +478,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer2',
     visible: true,
     icon: Base,
-    priority: 101,
+    priority: 12,
     color: '#0052FF',
     capabilities: {
       walletConnect: true,
@@ -513,7 +513,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer2',
     visible: true,
     icon: Arbitrum,
-    priority: 102,
+    priority: 13,
     color: '#28A0F0',
     capabilities: {
       walletConnect: true,
@@ -548,7 +548,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'sidechain',
     visible: true,
     icon: Polygon,
-    priority: 103,
+    priority: 14,
     color: '#8247E5',
     capabilities: {
       walletConnect: true,
@@ -582,7 +582,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     category: 'layer1',
     visible: true,
     icon: Avalanche,
-    priority: 104,
+    priority: 15,
     color: '#E84142',
     capabilities: {
       walletConnect: true,
@@ -848,8 +848,26 @@ export const getWalletConfigs = (filter?: WalletConfigFilter): WalletConfig[] =>
     configs = configs.filter((c) => !c.isSmartAccount);
   }
 
-  // Sort by priority
-  configs.sort((a, b) => a.priority - b.priority);
+  // Sort by enabled status first, then priority, then name
+  // Note: This assumes we're in production context. For dev, use getVisibleWalletConfigs
+  configs.sort((a, b) => {
+    // First, sort by enabled status (enabled chains first)
+    // Default to production environment for this generic function
+    const aEnabled = a.features.enabledInProd;
+    const bEnabled = b.features.enabledInProd;
+    
+    if (aEnabled !== bEnabled) {
+      return aEnabled ? -1 : 1; // enabled (true) comes before disabled (false)
+    }
+    
+    // Then by priority
+    if (a.priority !== b.priority) {
+      return a.priority - b.priority;
+    }
+    
+    // Finally by name
+    return a.name.localeCompare(b.name);
+  });
 
   return configs;
 };
@@ -890,7 +908,23 @@ export const getVisibleWalletConfigs = (environment: 'development' | 'production
     }
     
     return true;
-  }).sort((a, b) => a.priority - b.priority);
+  }).sort((a, b) => {
+    // First, sort by enabled status (enabled chains first)
+    const aEnabled = isDev ? a.features.enabledInDev : a.features.enabledInProd;
+    const bEnabled = isDev ? b.features.enabledInDev : b.features.enabledInProd;
+    
+    if (aEnabled !== bEnabled) {
+      return aEnabled ? -1 : 1; // enabled (true) comes before disabled (false)
+    }
+    
+    // Then by priority
+    if (a.priority !== b.priority) {
+      return a.priority - b.priority;
+    }
+    
+    // Finally by name
+    return a.name.localeCompare(b.name);
+  });
 };
 
 /**

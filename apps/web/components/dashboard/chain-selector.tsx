@@ -22,11 +22,22 @@ export function ChainSelector({
 
   // Get all mainnet chains for the list view
   const allChains = useMemo(() => {
+    const isDev = walletConfig.isDev;
     return walletConfig.getMainnet().sort((a, b) => {
-      // Sort by priority first, then by name
+      // First, sort by enabled status (enabled chains first)
+      const aEnabled = isDev ? a.features.enabledInDev : a.features.enabledInProd;
+      const bEnabled = isDev ? b.features.enabledInDev : b.features.enabledInProd;
+      
+      if (aEnabled !== bEnabled) {
+        return aEnabled ? -1 : 1; // enabled (true) comes before disabled (false)
+      }
+      
+      // Then by priority
       if (a.priority !== b.priority) {
         return a.priority - b.priority;
       }
+      
+      // Finally by name
       return a.name.localeCompare(b.name);
     });
   }, [walletConfig]);
@@ -108,22 +119,30 @@ export function ChainSelector({
                   )}
                 </div>
                 <div className="flex flex-col items-center gap-0.5 min-h-[36px]">
-                  <span
-                    className={cn(
+                <span
+                  className={cn(
                       'text-[11px] md:text-xs font-rubik-medium whitespace-nowrap',
-                      isSelected ? 'text-white' : 'text-white/70'
-                    )}
-                  >
-                    {chain.name}
-                  </span>
-                  {/* Always reserve space for tag to maintain consistent height */}
-                  {chain.isSmartAccount ? (
-                    <span className="px-1 py-0 text-[9px] bg-blue-500/20 text-blue-400 rounded-full font-rubik-medium leading-tight">
-                      Gasless
-                    </span>
-                  ) : (
-                    <span className="h-[14px]" />
+                    isSelected ? 'text-white' : 'text-white/70'
                   )}
+                >
+                  {chain.name}
+                </span>
+                  {/* Tags: Gasless and Coming Soon */}
+                  <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
+                    {chain.isSmartAccount && (
+                      <span className="px-1 py-0 text-[9px] bg-blue-500/20 text-blue-400 rounded-full font-rubik-medium leading-tight">
+                        Gasless
+                      </span>
+                    )}
+                    {(!chain.capabilities?.walletConnect) && (
+                      <span className="px-1 py-0 text-[8px] bg-orange-500/20 text-orange-400 rounded-full font-rubik-medium leading-tight border border-orange-500/30">
+                        Coming Soon
+                      </span>
+                    )}
+                    {!chain.isSmartAccount && chain.capabilities?.walletConnect && (
+                      <span className="h-[14px]" />
+                    )}
+                  </div>
                 </div>
               </button>
             );
@@ -206,7 +225,7 @@ export function ChainSelector({
 
                         {/* Chain Info */}
                         <div className="flex-1 text-left min-w-0">
-                          <div className="flex items-center gap-2 mb-1 min-h-[24px]">
+                          <div className="flex items-center gap-2 mb-1 min-h-[24px] flex-wrap">
                             <h4 className="text-white font-rubik-bold text-base truncate">
                               {chain.name}
                             </h4>
@@ -218,6 +237,11 @@ export function ChainSelector({
                             {chain.isSmartAccount && (
                               <span className="px-2 py-0.5 text-[10px] bg-blue-500/20 text-blue-400 rounded-full font-rubik-medium leading-tight whitespace-nowrap">
                                 Gasless
+                              </span>
+                            )}
+                            {(!chain.capabilities?.walletConnect) && (
+                              <span className="px-2 py-0.5 text-[8px] bg-orange-500/20 text-orange-400 rounded-full font-rubik-medium leading-tight whitespace-nowrap border border-orange-500/30">
+                                Coming Soon
                               </span>
                             )}
                           </div>

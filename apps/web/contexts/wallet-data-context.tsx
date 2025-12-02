@@ -77,7 +77,7 @@ export function WalletDataProvider({
   const transactionsRequestRef = useRef<Promise<void> | null>(null);
 
   // Fetch balances
-  const fetchBalances = useCallback(async (): Promise<void> => {
+  const fetchBalances = useCallback(async (showLoading: boolean = false): Promise<void> => {
     if (!fingerprint) {
       setBalances([]);
       setLoading((prev) => ({ ...prev, balances: false }));
@@ -132,7 +132,11 @@ export function WalletDataProvider({
       return balancesRequestRef.current;
     }
 
-    setLoading((prev) => ({ ...prev, balances: true }));
+    // Only show loading spinner if explicitly requested (e.g., manual refresh)
+    // For initial load with no cache, we show empty state instead
+    if (showLoading) {
+      setLoading((prev) => ({ ...prev, balances: true }));
+    }
     setErrors((prev) => ({ ...prev, balances: null }));
 
     const fetchPromise = (async () => {
@@ -180,7 +184,7 @@ export function WalletDataProvider({
   }, [fingerprint]);
 
   // Fetch transactions
-  const fetchTransactions = useCallback(async (): Promise<void> => {
+  const fetchTransactions = useCallback(async (showLoading: boolean = false): Promise<void> => {
     if (!fingerprint) {
       setTransactions([]);
       setLoading((prev) => ({ ...prev, transactions: false }));
@@ -235,7 +239,11 @@ export function WalletDataProvider({
       return transactionsRequestRef.current;
     }
 
-    setLoading((prev) => ({ ...prev, transactions: true }));
+    // Only show loading spinner if explicitly requested (e.g., manual refresh)
+    // For initial load with no cache, we show empty state instead
+    if (showLoading) {
+      setLoading((prev) => ({ ...prev, transactions: true }));
+    }
     setErrors((prev) => ({ ...prev, transactions: null }));
 
     const fetchPromise = (async () => {
@@ -348,8 +356,8 @@ export function WalletDataProvider({
     // Clear cache to force refresh
     clearAllCache(fingerprint);
 
-    // Fetch both in parallel
-    await Promise.all([fetchBalances(), fetchTransactions()]);
+    // Fetch both in parallel with loading indicators (manual refresh)
+    await Promise.all([fetchBalances(true), fetchTransactions(true)]);
   }, [fingerprint, fetchBalances, fetchTransactions]);
 
   // Refresh balances only
@@ -361,8 +369,8 @@ export function WalletDataProvider({
     localStorage.removeItem(balanceCacheKey);
     localStorage.removeItem(`${balanceCacheKey}_timestamp`);
 
-    // Fetch balances only
-    await fetchBalances();
+    // Fetch balances with loading indicator (manual refresh)
+    await fetchBalances(true);
   }, [fingerprint, fetchBalances]);
 
   // Refresh transactions only
@@ -374,9 +382,23 @@ export function WalletDataProvider({
     localStorage.removeItem(transactionCacheKey);
     localStorage.removeItem(`${transactionCacheKey}_timestamp`);
 
-    // Fetch transactions only
-    await fetchTransactions();
+    // Fetch transactions with loading indicator (manual refresh)
+    await fetchTransactions(true);
   }, [fingerprint, fetchTransactions]);
+
+  // Helper to get cache timestamp
+  const getCacheTimestamp = useCallback((cacheKey: string): number | null => {
+    try {
+      const entry = localStorage.getItem(cacheKey);
+      if (entry) {
+        const parsed = JSON.parse(entry);
+        return parsed.timestamp || null;
+      }
+    } catch {
+      // Ignore cache read errors
+    }
+    return null;
+  }, []);
 
   // Initial fetch and fingerprint change handling
   useEffect(() => {
@@ -389,16 +411,56 @@ export function WalletDataProvider({
       return;
     }
 
-    // Reset state when fingerprint changes
-    setBalances([]);
-    setTransactions([]);
-    setLoading({ balances: true, transactions: true });
+    // Check cache synchronously BEFORE setting loading state
+    const balanceCacheKey = getCacheKey(fingerprint, 'balances');
+    const transactionCacheKey = getCacheKey(fingerprint, 'transactions');
+    
+    const cachedBalances = getCache<NormalizedBalance[]>(balanceCacheKey);
+    const cachedTransactions = getCache<Transaction[]>(transactionCacheKey);
+    
+    const hasFreshBalanceCache = cachedBalances && isCacheFresh(balanceCacheKey, BALANCE_TTL);
+    const hasFreshTransactionCache = cachedTransactions && isCacheFresh(transactionCacheKey, TRANSACTION_TTL);
+
+    // Initialize state based on cache availability
+    if (hasFreshBalanceCache) {
+      // Cache exists and is fresh - show cached data immediately
+      setBalances(cachedBalances);
+      const balanceTimestamp = getCacheTimestamp(balanceCacheKey);
+      if (balanceTimestamp) {
+        setLastFetched((prev) => ({ ...prev, balances: balanceTimestamp }));
+      }
+    } else {
+      // No cache or stale - show empty state immediately (not loading)
+      setBalances([]);
+      setLastFetched((prev) => ({ ...prev, balances: null }));
+    }
+
+    if (hasFreshTransactionCache) {
+      // Cache exists and is fresh - show cached data immediately
+      setTransactions(cachedTransactions);
+      const transactionTimestamp = getCacheTimestamp(transactionCacheKey);
+      if (transactionTimestamp) {
+        setLastFetched((prev) => ({ ...prev, transactions: transactionTimestamp }));
+      }
+    } else {
+      // No cache or stale - show empty state immediately (not loading)
+      setTransactions([]);
+      setLastFetched((prev) => ({ ...prev, transactions: null }));
+    }
+
+    // Set loading to false initially (we'll show empty state if no cache)
+    // Only set loading to true if we're actually going to fetch
+    setLoading({ 
+      balances: false, // Start with false - will be set to true in fetchBalances if needed
+      transactions: false // Start with false - will be set to true in fetchTransactions if needed
+    });
     setErrors({ balances: null, transactions: null });
 
-    // Fetch both balances and transactions
+    // Fetch in background to update the data
+    // fetchBalances and fetchTransactions will handle setting loading state appropriately
     fetchBalances();
     fetchTransactions();
-  }, [fingerprint, fetchBalances, fetchTransactions]);
+  }, [fingerprint, fetchBalances, fetchTransactions, getCacheTimestamp]);
 
   const value: WalletDataContextValue = {
     balances,
