@@ -51,6 +51,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: true,
     },
     features: {
       showInSelector: true,
@@ -85,6 +86,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: true,
     },
     features: {
       showInSelector: true,
@@ -120,6 +122,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: true,
     },
     features: {
       showInSelector: true,
@@ -155,6 +158,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: true,
     },
     features: {
       showInSelector: true,
@@ -189,6 +193,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -226,6 +231,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: false,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -257,6 +263,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -288,6 +295,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -319,6 +327,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -381,6 +390,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: false,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -416,6 +426,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,
@@ -448,6 +459,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,
@@ -480,6 +492,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,
@@ -518,6 +531,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -552,6 +566,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -587,6 +602,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -622,6 +638,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -656,6 +673,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: true,
@@ -694,6 +712,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false, // RPC timeout issues
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,
@@ -727,6 +746,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,
@@ -758,6 +778,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false, // RPC timeout issues
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,
@@ -789,6 +810,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,
@@ -819,6 +841,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: true,
+      lightningNodes: false,
     },
     features: {
       showInSelector: false,

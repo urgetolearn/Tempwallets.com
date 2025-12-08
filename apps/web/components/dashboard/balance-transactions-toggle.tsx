@@ -4,25 +4,31 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { BalanceView } from './balance-view';
 import RecentTransactions from './recent-transactions';
+import { LightningNodesView } from './lightning-nodes-view';
 import { useWalletData } from '@/hooks/useWalletData';
+import { useLightningNodes } from '@/hooks/useLightningNodes';
 
-type ViewType = 'balance' | 'transactions';
+type ViewType = 'balance' | 'transactions' | 'lightningNodes';
 
 /**
- * Component with two text buttons: "BALANCE" and "Transactions"
- * Renders BalanceView when balance is active, RecentTransactions when transactions is active
- * Default to "BALANCE" view on mount
+ * Component with three text buttons: "Balance", "Transactions", and "Lightning Nodes"
+ * Renders BalanceView when balance is active, RecentTransactions when transactions is active,
+ * and LightningNodesView when lightningNodes is active
+ * Default to "Balance" view on mount
  */
 export function BalanceTransactionsToggle() {
   const [activeView, setActiveView] = useState<ViewType>('balance');
   const { loading, refreshBalances, refreshTransactions } = useWalletData();
-  const isLoading = loading.balances || loading.transactions;
+  const { loading: lightningLoading, refreshNodes } = useLightningNodes();
+  const isLoading = loading.balances || loading.transactions || lightningLoading;
 
   const handleRefresh = () => {
     if (activeView === 'balance') {
       refreshBalances();
-    } else {
+    } else if (activeView === 'transactions') {
       refreshTransactions();
+    } else if (activeView === 'lightningNodes') {
+      refreshNodes();
     }
   };
 
@@ -61,6 +67,18 @@ export function BalanceTransactionsToggle() {
           >
             Transactions
           </button>
+          <button
+            onClick={() => setActiveView('lightningNodes')}
+            type="button"
+            className={`font-rubik-medium transition-all cursor-pointer select-none py-2 px-3 -mx-3 rounded-lg relative z-10 ${
+              activeView === 'lightningNodes'
+                ? 'text-gray-800 font-semibold'
+                : 'text-gray-300 hover:text-gray-400'
+            }`}
+            style={{ touchAction: 'manipulation' }}
+          >
+            Lightning Nodes
+          </button>
         </div>
 
         {/* Refresh Button on Right */}
@@ -86,8 +104,10 @@ export function BalanceTransactionsToggle() {
       <div className="mx-4 md:mx-6 mb-4 flex-1">
         {activeView === 'balance' ? (
           <BalanceView />
-        ) : (
+        ) : activeView === 'transactions' ? (
           <RecentTransactions showAll={false} hideHeader />
+        ) : (
+          <LightningNodesView />
         )}
       </div>
     </div>
