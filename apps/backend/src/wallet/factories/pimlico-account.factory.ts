@@ -60,7 +60,7 @@ export class PimlicoAccountFactory implements IAccountFactory {
     const config = this.pimlicoConfig.getErc4337Config(chainName);
     const viemChain = this.getViemChain(chainName);
 
-    this.logger.log(`Creating ERC-4337 account on ${chain} with Pimlico`);
+    this.logger.debug(`Creating ERC-4337 account on ${chain} with Pimlico`);
 
     // Derive EOA from mnemonic (HD path: m/44'/60'/0'/0/{accountIndex})
     const eoaAccount = mnemonicToAccount(seedPhrase, {
@@ -96,7 +96,7 @@ export class PimlicoAccountFactory implements IAccountFactory {
       },
     });
 
-    this.logger.log(`Smart account address: ${smartAccount.address}`);
+    this.logger.debug(`Smart account address: ${smartAccount.address}`);
 
     // Create smart account client
     const smartAccountClient = createSmartAccountClient({

@@ -259,7 +259,7 @@ export class ZerionService {
       const dedupedTokens = this.dedupeParsedTokens(parsedTokens);
 
       this.setCache(cacheKey, dedupedTokens, 'balance');
-      this.logger.log(
+      this.logger.debug(
         `Fetched ${dedupedTokens.length} positions for ${this.maskAddress(address)}`,
       );
       return dedupedTokens;
@@ -297,7 +297,7 @@ export class ZerionService {
       const data = Array.isArray(res?.data) ? res.data : [];
       const deduped = this.dedupeTransactions(data);
       this.setCache(cacheKey, deduped, 'transaction');
-      this.logger.log(
+      this.logger.debug(
         `Fetched ${deduped.length} transactions for ${this.maskAddress(address)}`,
       );
       return deduped;

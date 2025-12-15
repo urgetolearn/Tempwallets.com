@@ -39,13 +39,6 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
       }`}
       onClick={wallet ? copyToClipboard : undefined}
     >
-      {/* Floating tooltip */}
-      {showTooltip && (
-        <div className="absolute top-28 right-2 bg-black/20 text-white text-xs px-2 py-1 rounded-md backdrop-blur-sm opacity-60 pointer-events-none z-10">
-          Copied
-        </div>
-      )}
-
       {/* Wallet address or loading state */}
       <div className="text-center space-y-2 w-full">
         {error ? (
@@ -67,7 +60,7 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
           </div>
         ) : wallet ? (
           // Wallet loaded
-          <div className="space-y-2">
+          <div className="space-y-2 relative">
             <p className="text-gray-800 text-medium md:text-base font-rubik-light">
               {chain.name} Wallet
             </p>
@@ -78,6 +71,14 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
                 </span>
               </div>
             </div>
+            {/* Copied notification positioned below the address */}
+            {showTooltip && (
+              <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 pointer-events-none z-10">
+                <div className="bg-gray-800 text-white text-sm px-3 py-1.5 rounded-md shadow-md font-medium">
+                  Copied!
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           // No wallet

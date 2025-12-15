@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@repo/ui/lib/utils";
-import { Wallet, TrendingUp, BarChart3, User } from "lucide-react";
+import { Wallet } from "lucide-react";
+// Temporarily hidden for MVP: TrendingUp, BarChart3, User
 
 export default function DashboardNavbar() {
   const pathname = usePathname();
@@ -15,24 +16,25 @@ export default function DashboardNavbar() {
       icon: Wallet,
       id: "wallets",
     },
-    {
-      name: "Transactions",
-      href: "/transactions",
-      icon: TrendingUp,
-      id: "transactions",
-    },
-    {
-      name: "Analytics",
-      href: "/dashboard/analytics",
-      icon: BarChart3,
-      id: "analytics",
-    },
-    {
-      name: "Profile",
-      href: "/dashboard/profile",
-      icon: User,
-      id: "profile",
-    },
+    // Temporarily hidden for MVP - will be re-enabled later
+    // {
+    //   name: "Transactions",
+    //   href: "/transactions",
+    //   icon: TrendingUp,
+    //   id: "transactions",
+    // },
+    // {
+    //   name: "Analytics",
+    //   href: "/dashboard/analytics",
+    //   icon: BarChart3,
+    //   id: "analytics",
+    // },
+    // {
+    //   name: "Profile",
+    //   href: "/dashboard/profile",
+    //   icon: User,
+    //   id: "profile",
+    // },
   ];
 
   return (

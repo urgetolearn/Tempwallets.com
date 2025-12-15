@@ -14,9 +14,13 @@ model User {
   fingerprint String?  @unique
   name        String?
   picture     String?
+  xp          Int      @default(0) // Experience points
   createdAt   DateTime @default(now())
   lastLoginAt DateTime @updatedAt
   wallets     Wallet[]
+  preferences UserPreferences?
+  activities  UserActivity[]
+  sessions    UserSession[]
 
   @@index([googleId])
   @@index([fingerprint])
@@ -137,4 +141,69 @@ model Eip7702Delegation {
   @@index([address, chainId])
   @@index([walletId])
   @@map("eip7702_delegation")
+}
+
+// User preferences for notifications, display, and privacy settings
+model UserPreferences {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Notification preferences
+  emailNotifications Boolean @default(true)
+  pushNotifications  Boolean @default(true)
+  transactionAlerts  Boolean @default(true)
+  
+  // Display preferences
+  currency          String   @default("USD") // Currency code (USD, EUR, etc.)
+  dateFormat        String   @default("MM/DD/YYYY")
+  theme             String   @default("dark") // dark, light, auto
+  language          String   @default("en")
+  
+  // Privacy settings
+  analyticsEnabled  Boolean  @default(true)
+  dataSharing       Boolean  @default(false)
+  
+  // Auto-lock settings (in minutes, 0 = disabled)
+  autoLockMinutes   Int      @default(30)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@map("user_preferences")
+}
+
+// User activity log for tracking actions
+model UserActivity {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // login, wallet_created, transaction, profile_updated, etc.
+  description String
+  metadata    Json?    // Additional data about the activity
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@index([type])
+  @@map("user_activity")
+}
+
+// Active user sessions/devices
+model UserSession {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceName  String?  // e.g., "Chrome on MacOS"
+  ipAddress   String?
+  userAgent   String?
+  lastActiveAt DateTime @default(now()) @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, lastActiveAt])
+  @@map("user_session")
 }

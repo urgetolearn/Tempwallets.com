@@ -176,7 +176,10 @@ export function WalletDataProvider({
               balanceHuman: testnetBalance.balance,
             });
           } catch (testnetErr) {
-            console.warn('Failed to load Aptos testnet balance:', testnetErr);
+            // Silently fail - Aptos testnet is optional
+            if (process.env.NODE_ENV === 'development') {
+              console.debug('Aptos testnet balance unavailable');
+            }
           }
 
           // Fetch mainnet balance
@@ -193,11 +196,17 @@ export function WalletDataProvider({
               balanceHuman: mainnetBalance.balance,
             });
           } catch (mainnetErr) {
-            console.warn('Failed to load Aptos mainnet balance:', mainnetErr);
+            // Silently fail - Aptos mainnet is optional
+            if (process.env.NODE_ENV === 'development') {
+              console.debug('Aptos mainnet balance unavailable');
+            }
           }
         } catch (aptosErr) {
-          console.warn('Failed to load Aptos balances:', aptosErr);
           // Don't fail the whole fetch if Aptos fails
+          // Only log in development
+          if (process.env.NODE_ENV === 'development') {
+            console.debug('Aptos balances unavailable');
+          }
         }
 
         // Combine all assets including Aptos

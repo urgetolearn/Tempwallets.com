@@ -14,19 +14,8 @@ const nextConfig = {
       },
     ],
   },
-  async headers() {
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'Link',
-            value: '<https://fonts.reown.com/KHTeka-Medium.woff2>; rel=preload; as=font; type=font/woff2; crossorigin=anonymous',
-          },
-        ],
-      },
-    ];
-  },
+  // Removed global font preload - WalletConnect SDK loads fonts on-demand
+  // This prevents "preload not used" warnings on pages that don't use WalletConnect
 };
 
 export default nextConfig;

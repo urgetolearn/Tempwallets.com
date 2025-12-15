@@ -10,7 +10,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSubstrateWalletConnect } from '@/hooks/useSubstrateWalletConnect';
 import { useBrowserFingerprint } from '@/hooks/useBrowserFingerprint';
-import { Loader2, Link, X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -196,7 +196,7 @@ export function WalletConnectModal({ open, onOpenChange }: WalletConnectModalPro
             </div>
 
             {/* QR Scanner */}
-            <div className="relative mx-4">
+            <div className="relative mx-4 mb-4">
               {showScanner ? (
                 <>
                   <div
@@ -251,17 +251,20 @@ export function WalletConnectModal({ open, onOpenChange }: WalletConnectModalPro
                       handleConnect();
                     }
                   }}
-                  className="w-full px-4 py-3 pr-12 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  className="w-full px-4 py-3 pr-24 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 />
                 <button
                   onClick={() => handleConnect()}
-                  disabled={isPairing || !uriInput || !fingerprint}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg transition-colors"
+                  disabled={isPairing || !uriInput.trim() || !fingerprint}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium text-white"
                 >
                   {isPairing ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Connecting
+                    </span>
                   ) : (
-                    <Link className="h-4 w-4 text-white" />
+                    "Connect"
                   )}
                 </button>
               </div>

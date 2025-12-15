@@ -1,5 +1,5 @@
 import "@repo/ui/globals.css";
-import DashboardNavbar from "@/components/dashboard/navbar";
+// DashboardNavbar removed - MVP only shows Wallet section
 
 export default function TransactionsLayout({
   children,
@@ -8,7 +8,6 @@ export default function TransactionsLayout({
 }) {
   return (
     <div className="min-h-screen bg-black text-white">
-      <DashboardNavbar />
       <main className="mx-auto max-w-7xl py-8">
         {children}
       </main>

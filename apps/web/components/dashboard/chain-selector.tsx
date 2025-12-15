@@ -20,26 +20,51 @@ export function ChainSelector({
   const visibleChains = walletConfig.getVisible();
   const [showList, setShowList] = useState(false);
 
-  // Get all mainnet chains for the list view
+  // Get all mainnet chains for the list view (MVP: Filtered to Gasless EVMs, Polkadot, Aptos)
+  // Full list available in modal - horizontal selector only shows 4 chains
   const allChains = useMemo(() => {
     const isDev = walletConfig.isDev;
-    return walletConfig.getMainnet().sort((a, b) => {
-      // First, sort by enabled status (enabled chains first)
-      const aEnabled = isDev ? a.features.enabledInDev : a.features.enabledInProd;
-      const bEnabled = isDev ? b.features.enabledInDev : b.features.enabledInProd;
-      
-      if (aEnabled !== bEnabled) {
-        return aEnabled ? -1 : 1; // enabled (true) comes before disabled (false)
-      }
-      
-      // Then by priority
-      if (a.priority !== b.priority) {
-        return a.priority - b.priority;
-      }
-      
-      // Finally by name
-      return a.name.localeCompare(b.name);
-    });
+    return walletConfig.getMainnet()
+      .filter((config) => {
+        // MVP FILTERS: Only show Gasless EVMs, Polkadot, and Aptos in modal
+        
+        // Exclude testnets (getMainnet already does this, but being explicit)
+        if (config.isTestnet) {
+          return false;
+        }
+        
+        // For EVM chains: Only keep gasless (smart accounts), remove EOA wallets
+        if (config.type === 'evm') {
+          if (!config.isSmartAccount) {
+            return false; // Remove non-gasless EVM chains (EOA wallets)
+          }
+        }
+        
+        // Remove chains that show "Coming Soon" (no walletConnect AND not Aptos)
+        // Exception: Aptos doesn't have walletConnect but we want to keep it
+        if (!config.capabilities.walletConnect && config.type !== 'aptos') {
+          return false; // Remove "Coming Soon" chains
+        }
+        
+        return true;
+      })
+      .sort((a, b) => {
+        // First, sort by enabled status (enabled chains first)
+        const aEnabled = isDev ? a.features.enabledInDev : a.features.enabledInProd;
+        const bEnabled = isDev ? b.features.enabledInDev : b.features.enabledInProd;
+        
+        if (aEnabled !== bEnabled) {
+          return aEnabled ? -1 : 1; // enabled (true) comes before disabled (false)
+        }
+        
+        // Then by priority
+        if (a.priority !== b.priority) {
+          return a.priority - b.priority;
+        }
+        
+        // Finally by name
+        return a.name.localeCompare(b.name);
+      });
   }, [walletConfig]);
 
   // Group chains by type for better organization

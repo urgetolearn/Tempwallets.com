@@ -99,7 +99,7 @@ export class AccountFactory implements IAccountFactory {
     // Remove erc4337 suffix for chain lookup
     const baseChain = chain.replace(/Erc4337$/i, '').toLowerCase();
 
-    this.logger.log(`Creating EOA account on ${chain} (base: ${baseChain})`);
+    this.logger.debug(`Creating EOA account on ${chain} (base: ${baseChain})`);
 
     // Create WDK instance with chain-specific configuration
     const wdk = this.createWdkInstance(seedPhrase);

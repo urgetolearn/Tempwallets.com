@@ -515,7 +515,7 @@ export class WalletController {
       throw new BadRequestException('userId is required');
     }
 
-    this.logger.log(`Streaming addresses for user ${finalUserId}`);
+    this.logger.debug(`Streaming addresses for user ${finalUserId}`);
 
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
@@ -556,7 +556,7 @@ export class WalletController {
       throw new BadRequestException('userId is required');
     }
 
-    this.logger.log(`Streaming balances for user ${finalUserId}`);
+    this.logger.debug(`Streaming balances for user ${finalUserId}`);
 
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');

@@ -594,7 +594,7 @@ export class AddressManager implements IAddressManager {
         this.maskAddress(entry.address),
       ]),
     );
-    this.logger.log(
+    this.logger.debug(
       `Wallet addresses ready for user ${userId}: ${JSON.stringify(summary)}`,
     );
   }

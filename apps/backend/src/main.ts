@@ -1,9 +1,22 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, LogLevel } from '@nestjs/common';
+import { TraceIdInterceptor } from './common/trace-id.interceptor.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Configure logger based on environment
+  const logLevels: LogLevel[] = process.env.LOG_LEVEL
+    ? (process.env.LOG_LEVEL.split(',') as LogLevel[])
+    : process.env.NODE_ENV === 'production'
+      ? ['error', 'warn', 'log']
+      : ['error', 'warn', 'log', 'debug', 'verbose'];
+
+  const app = await NestFactory.create(AppModule, {
+    logger: logLevels,
+  });
+
+  // Add trace ID interceptor globally
+  app.useGlobalInterceptors(new TraceIdInterceptor());
 
   // Enable CORS with dynamic origins
   const allowedOrigins = [

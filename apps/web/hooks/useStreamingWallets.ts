@@ -174,6 +174,8 @@ export function useStreamingWallets(): UseStreamingWalletsReturn {
   
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const hasLoadedRef = useRef<Record<string, boolean>>({});
+  const isLoadingRef = useRef<Record<string, boolean>>({});
+  const activeConnectionRef = useRef<EventSource | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -181,25 +183,69 @@ export function useStreamingWallets(): UseStreamingWalletsReturn {
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
       }
+      if (activeConnectionRef.current) {
+        activeConnectionRef.current.close();
+      }
     };
+  }, []);
+
+  // Move loadWalletsBatch outside to fix scope and make it a useCallback
+  const loadWalletsBatch = useCallback(async (userId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/wallet/addresses?userId=${encodeURIComponent(userId)}`);
+      
+      if (!response.ok) {
+        throw new ApiError(response.status, 'Failed to load wallets');
+      }
+      
+      const data: UiWalletPayload = await response.json();
+      const processedStates = processWalletPayload(data);
+      
+      setWallets(processedStates);
+      setTotalCount(Object.keys(processedStates).length);
+      setLoading(false);
+      hasLoadedRef.current[userId] = true;
+      isLoadingRef.current[userId] = false;
+    } catch (err) {
+      const errorMessage = err instanceof ApiError 
+        ? err.message
+        : 'Failed to load wallets';
+      
+      console.error('Error loading wallets:', err);
+      setError(errorMessage);
+      setLoading(false);
+      isLoadingRef.current[userId] = false;
+    }
   }, []);
 
   const loadWallets = useCallback(async (userId: string, forceRefresh: boolean = false) => {
     if (!userId) return;
+    
+    // Prevent duplicate calls for the same userId
+    if (isLoadingRef.current[userId] && !forceRefresh) {
+      return;
+    }
     
     // Don't reload if already loaded and not forcing refresh
     if (hasLoadedRef.current[userId] && !forceRefresh) {
       return;
     }
     
-    setError(null);
-    setLoading(true);
-    
-    // Cancel any existing stream
+    // Cleanup existing connection synchronously BEFORE creating new one
     if (unsubscribeRef.current) {
       unsubscribeRef.current();
       unsubscribeRef.current = null;
     }
+    
+    // Close active EventSource connection if exists
+    if (activeConnectionRef.current) {
+      activeConnectionRef.current.close();
+      activeConnectionRef.current = null;
+    }
+    
+    setError(null);
+    setLoading(true);
+    isLoadingRef.current[userId] = true;
     
     // Try SSE streaming first
     const useSSE = typeof EventSource !== 'undefined';
@@ -227,6 +273,7 @@ export function useStreamingWallets(): UseStreamingWalletsReturn {
             console.warn('SSE streaming failed, falling back to batch loading:', error);
             if (timeoutId) clearTimeout(timeoutId);
             setIsStreaming(false);
+            isLoadingRef.current[userId] = false;
             loadWalletsBatch(userId);
           },
           // On complete
@@ -236,6 +283,7 @@ export function useStreamingWallets(): UseStreamingWalletsReturn {
             setIsStreaming(false);
             setLoading(false);
             hasLoadedRef.current[userId] = true;
+            isLoadingRef.current[userId] = false;
           }
         );
         
@@ -244,9 +292,12 @@ export function useStreamingWallets(): UseStreamingWalletsReturn {
         // Timeout after 30 seconds
         timeoutId = setTimeout(() => {
           if (!streamCompleted && cleanup) {
-            console.warn('SSE streaming timeout, falling back to batch loading');
+            if (process.env.NODE_ENV === 'development') {
+              console.debug('SSE streaming timeout, falling back to batch loading');
+            }
             cleanup();
             setIsStreaming(false);
+            isLoadingRef.current[userId] = false;
             loadWalletsBatch(userId);
           }
         }, 30000);
@@ -255,6 +306,7 @@ export function useStreamingWallets(): UseStreamingWalletsReturn {
       } catch (err) {
         console.warn('Failed to start SSE streaming, falling back to batch:', err);
         setIsStreaming(false);
+        isLoadingRef.current[userId] = false;
         await loadWalletsBatch(userId);
         return;
       }
@@ -262,34 +314,7 @@ export function useStreamingWallets(): UseStreamingWalletsReturn {
     
     // Fallback to batch loading
     await loadWalletsBatch(userId);
-  }, []);
-
-  // Batch loading fallback
-  async function loadWalletsBatch(userId: string) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/wallet/addresses?userId=${encodeURIComponent(userId)}`);
-      
-      if (!response.ok) {
-        throw new ApiError(response.status, 'Failed to load wallets');
-      }
-      
-      const data: UiWalletPayload = await response.json();
-      const processedStates = processWalletPayload(data);
-      
-      setWallets(processedStates);
-      setTotalCount(Object.keys(processedStates).length);
-      setLoading(false);
-      hasLoadedRef.current[userId] = true;
-    } catch (err) {
-      const errorMessage = err instanceof ApiError 
-        ? err.message
-        : 'Failed to load wallets';
-      
-      console.error('Error loading wallets:', err);
-      setError(errorMessage);
-      setLoading(false);
-    }
-  }
+  }, [loadWalletsBatch]);
 
   const getWallet = useCallback((configId: string): WalletStreamState | undefined => {
     return wallets[configId];

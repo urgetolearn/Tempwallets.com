@@ -2718,7 +2718,7 @@ export class WalletService {
       decimals: number;
     }>
   > {
-    this.logger.log(
+    this.logger.debug(
       `Getting token balances for user ${userId} on chain ${chain} using Zerion${forceRefresh ? ' (force refresh)' : ''}`,
     );
 
@@ -2824,7 +2824,7 @@ export class WalletService {
         }
       }
 
-      this.logger.log(
+      this.logger.debug(
         `Retrieved ${tokens.length} tokens from Zerion for ${chain}`,
       );
       return tokens;

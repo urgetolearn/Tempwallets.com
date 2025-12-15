@@ -5,6 +5,10 @@ import SignClient from '@walletconnect/sign-client';
 import { SessionTypes } from '@walletconnect/types';
 import { walletApi, ApiError } from '@/lib/api';
 import { getMainnetChainIds } from '@/lib/evm-chain-ids';
+import { createLogger, getTraceId } from '@/utils/logger';
+import { metrics } from '@/utils/metrics';
+
+const logger = createLogger('evm-walletconnect');
 
 const EVM_WALLETCONNECT_METHODS = [
   'eth_sendTransaction',
@@ -179,7 +183,10 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
       } catch (initError: any) {
         // If initialization fails due to storage conflict, wait and retry once
         if (initError?.message?.includes('restore') || initError?.message?.includes('storage')) {
-          console.warn('[EvmWalletConnect] Initialization conflict detected, retrying after delay...');
+          logger.warn('Initialization conflict detected, retrying after delay', {
+            error: initError.message,
+            traceId: getTraceId()
+          });
           await new Promise(resolve => setTimeout(resolve, 1000));
           signClient = await SignClient.init({
             projectId,
@@ -238,12 +245,21 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
           }
         }
       } catch (cleanupError) {
-        console.debug('[EvmWalletConnect] Session cleanup error (non-critical):', cleanupError);
+        logger.debug('Session cleanup error (non-critical)', { error: cleanupError });
       }
 
       // Listen for session proposals
       signClient.on('session_proposal', async (event) => {
-        console.log('[EvmWalletConnect] Session proposal received:', event);
+        const traceId = getTraceId();
+        metrics.increment('walletconnect.session.proposal', { namespace: 'eip155' });
+        
+        logger.info('Session proposal received', {
+          proposalId: event.id,
+          dappName: event.params.proposer.metadata?.name,
+          dappUrl: event.params.proposer.metadata?.url,
+          traceId
+        });
+        
         const { id, params } = event;
         pendingProposalsRef.current.set(id, params);
         
@@ -251,7 +267,14 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
         const hasEip155Namespace = params.requiredNamespaces?.eip155 || params.optionalNamespaces?.eip155;
         
         if (!hasEip155Namespace) {
-          console.warn('[EvmWalletConnect] Proposal does not include EIP-155 namespace, rejecting');
+          logger.warn('Proposal rejected - no EIP-155 namespace', {
+            proposalId: id,
+            namespaces: Object.keys(params.requiredNamespaces || {}),
+            traceId
+          });
+          metrics.increment('walletconnect.session.rejected', {
+            reason: 'no_eip155_namespace'
+          });
           await signClient.reject({
             id,
             reason: {
@@ -334,7 +357,13 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
               throw new Error('Cannot approve session: No chains specified');
             }
 
-            console.log('[EvmWalletConnect] Approving session with namespaces:', JSON.stringify(namespaces, null, 2));
+            logger.debug('Approving session with namespaces', {
+              proposalId: id,
+              accountCount: namespaces.eip155.accounts.length,
+              chainCount: namespaces.eip155.chains.length,
+              methodCount: namespaces.eip155.methods.length,
+              traceId
+            });
 
             // Approve session
             const { topic } = await signClient.approve({
@@ -345,7 +374,13 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
             // Get full session object from store
             const session = signClient.session.get(topic);
 
-            console.log('[EvmWalletConnect] Session approved:', session);
+            logger.info('Session approved successfully', {
+              topic,
+              dappName: session.peer.metadata?.name,
+              accountCount: namespaces.eip155.accounts.length,
+              traceId
+            });
+            metrics.increment('walletconnect.session.approved', { namespace: 'eip155' });
             
             // Update sessions
             setSessions(prev => [...prev, {
@@ -354,7 +389,13 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
               namespaces: session.namespaces || {},
             }]);
           } catch (err) {
-            console.error('[EvmWalletConnect] Failed to approve session:', err);
+            logger.error('Failed to approve session', err, {
+              proposalId: id,
+              traceId
+            });
+            metrics.increment('walletconnect.session.approve_failed', {
+              reason: err instanceof Error ? err.message : 'unknown'
+            });
             await signClient.reject({
               id,
               reason: {
@@ -376,7 +417,19 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
 
       // Listen for session requests (transaction/message signing)
       signClient.on('session_request', async (event) => {
-        console.log('[EvmWalletConnect] Session request received:', event);
+        const traceId = getTraceId();
+        const endTimer = metrics.startTimer('walletconnect.request.handle');
+        
+        logger.info('Session request received', {
+          topic: event.topic,
+          method: event.params.request.method,
+          chainId: event.params.chainId,
+          traceId
+        });
+        metrics.increment('walletconnect.request.count', {
+          method: event.params.request.method,
+          chainId: event.params.chainId || 'unknown'
+        });
         const { id, topic, params } = event;
         const { request, chainId } = params;
 
@@ -498,7 +551,10 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
               // Handle chain switching request
               // For now, just acknowledge - actual switching handled by dapp
               const [switchParams] = request.params as [{ chainId: string }];
-              console.log('[EvmWalletConnect] Chain switch requested:', switchParams);
+              logger.debug('Chain switch requested', {
+                chainId: switchParams.chainId,
+                traceId
+              });
               result = null;
               break;
             }
@@ -507,7 +563,11 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
               // Handle add chain request
               // For now, just acknowledge - chain already supported
               const [addChainParams] = request.params as [any];
-              console.log('[EvmWalletConnect] Add chain requested:', addChainParams);
+              logger.debug('Add chain requested', {
+                chainId: addChainParams.chainId,
+                chainName: addChainParams.chainName,
+                traceId
+              });
               result = null;
               break;
             }
@@ -526,9 +586,22 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
             },
           });
 
-          console.log('[EvmWalletConnect] Request handled successfully');
+          logger.debug('Request handled successfully', {
+            method: request.method,
+            traceId
+          });
+          endTimer({ success: true, method: request.method });
         } catch (err) {
-          console.error('[EvmWalletConnect] Request handling failed:', err);
+          logger.error('Request handling failed', err, {
+            method: event.params.request.method,
+            topic: event.topic,
+            traceId
+          });
+          metrics.increment('walletconnect.request.failed', {
+            method: event.params.request.method,
+            reason: err instanceof Error ? err.message : 'unknown'
+          });
+          endTimer({ success: false, method: event.params.request.method });
           
           // Send error response
           await signClient.respond({
@@ -547,16 +620,23 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
 
       // Listen for session delete
       signClient.on('session_delete', (event) => {
-        console.log('[EvmWalletConnect] Session deleted:', event);
+        logger.info('Session deleted', {
+          topic: event.topic,
+          traceId: getTraceId()
+        });
+        metrics.increment('walletconnect.session.deleted');
         setSessions(prev => prev.filter(s => s && s.topic && s.topic !== event.topic));
       });
 
       // Listen for errors and handle them gracefully (non-critical)
       signClient.core.relayer.on('relayer_error', (error: any) => {
-        console.debug('[EvmWalletConnect] Relayer error (non-critical):', error);
+        logger.debug('Relayer error (non-critical)', { error: error.message });
       });
     } catch (err) {
-      console.error('[EvmWalletConnect] Initialization failed:', err);
+      logger.error('Initialization failed', err, {
+        traceId: getTraceId()
+      });
+      metrics.increment('walletconnect.init.failed');
       setError(err instanceof Error ? err.message : 'Failed to initialize WalletConnect');
       setIsInitializing(false);
       isInitializingEvmGlobal = false;
@@ -604,9 +684,11 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
 
     try {
       await client.pair({ uri });
-      console.log('[EvmWalletConnect] Paired successfully');
+      logger.info('Paired successfully', { traceId: getTraceId() });
+      metrics.increment('walletconnect.pair.success');
     } catch (err) {
-      console.error('[EvmWalletConnect] Pairing failed:', err);
+      logger.error('Pairing failed', err, { traceId: getTraceId() });
+      metrics.increment('walletconnect.pair.failed');
       throw err;
     }
   }, [client]);
@@ -626,8 +708,17 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
       });
       
       setSessions(prev => prev.filter(s => s.topic !== topic));
+      logger.info('Disconnected successfully', {
+        topic,
+        traceId: getTraceId()
+      });
+      metrics.increment('walletconnect.disconnect.success');
     } catch (err) {
-      console.error('[EvmWalletConnect] Disconnect failed:', err);
+      logger.error('Disconnect failed', err, {
+        topic,
+        traceId: getTraceId()
+      });
+      metrics.increment('walletconnect.disconnect.failed');
       throw err;
     }
   }, [client]);
@@ -650,8 +741,10 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
         peer: session.peer,
         namespaces: session.namespaces,
       }]);
+      metrics.increment('walletconnect.session.approved_manual');
     } catch (err) {
-      console.error('[EvmWalletConnect] Approve session failed:', err);
+      logger.error('Approve session failed', err, { proposalId, traceId: getTraceId() });
+      metrics.increment('walletconnect.session.approve_failed_manual');
       throw err;
     }
   }, [client]);
@@ -669,8 +762,10 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
           message: 'User rejected the connection',
         },
       });
+      metrics.increment('walletconnect.session.rejected_manual');
     } catch (err) {
-      console.error('[EvmWalletConnect] Reject session failed:', err);
+      logger.error('Reject session failed', err, { proposalId, traceId: getTraceId() });
+      metrics.increment('walletconnect.session.reject_failed');
       throw err;
     }
   }, [client]);

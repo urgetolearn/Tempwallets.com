@@ -13,7 +13,7 @@
  * - Automatic cleanup on unmount
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { subscribeToSSE, walletApi, type TokenBalance as ApiTokenBalance } from '@/lib/api';
 import type { 
   BalanceStreamState, 
@@ -21,7 +21,7 @@ import type {
   NativeBalance,
   TokenBalance,
 } from '@/types/wallet.types';
-import { getWalletConfig, getWalletConfigs, WALLET_CONFIGS } from '@/lib/wallet-config';
+import { getWalletConfig, getWalletConfigs } from '@/lib/wallet-config';
 import { isBalanceCacheValid, calculateTotalUSD } from '@/lib/balance-utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5005';
@@ -140,7 +140,7 @@ function convertTokenBalance(apiToken: ApiTokenBalance): TokenBalance {
 /**
  * Process balance payload from backend
  */
-function processBalancePayload(payload: BalancePayload): BalanceData {
+function processBalancePayload(payload: BalancePayload, configId: string): BalanceData {
   const native: NativeBalance | null = payload.native
     ? {
         balance: payload.native.balance,
@@ -154,7 +154,7 @@ function processBalancePayload(payload: BalancePayload): BalanceData {
   const tokens: TokenBalance[] = payload.tokens.map(convertTokenBalance);
 
   return {
-    configId: payload.configId,
+    configId,
     native,
     tokens,
     totalUsdValue: payload.totalUsdValue || calculateTotalUSD(native, tokens),
@@ -170,6 +170,23 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
   const [balances, setBalances] = useState<Record<string, BalanceStreamState>>({});
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Track active connections and loading state
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const isLoadingRef = useRef<Record<string, boolean>>({});
+  const activeConnectionRef = useRef<EventSource | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+      if (activeConnectionRef.current) {
+        activeConnectionRef.current.close();
+      }
+    };
+  }, []);
 
   /**
    * Update a single balance state
@@ -194,85 +211,13 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
   }, []);
 
   /**
-   * Load balances via SSE streaming
-   */
-  const loadViaStreaming = useCallback(
-    (userId: string, forceRefresh: boolean = false): Promise<void> => {
-      return new Promise((resolve, reject) => {
-        console.log('📡 Streaming balances...');
-        setIsStreaming(true);
-        setError(null);
-
-        const url = `${API_BASE_URL}/wallet/balances-stream?userId=${encodeURIComponent(userId)}&forceRefresh=${forceRefresh}`;
-        
-        let hasReceivedData = false;
-        let timeoutId: NodeJS.Timeout;
-
-        const cleanup = subscribeToSSE<BalancePayload>(
-          url,
-          // onMessage
-          (payload) => {
-            hasReceivedData = true;
-            const balanceData = processBalancePayload(payload);
-
-            updateBalance(payload.configId, {
-              loading: false,
-              balanceData,
-              error: payload.error || null,
-              lastUpdated: new Date(),
-              cacheTTL: DEFAULT_CACHE_TTL,
-            });
-          },
-          // onError
-          (err) => {
-            console.error('❌ Balance streaming error:', err);
-            setError(err.message);
-            setIsStreaming(false);
-            if (timeoutId) clearTimeout(timeoutId);
-            reject(err);
-          },
-          // onComplete
-          () => {
-            console.log('✅ Balance streaming complete');
-            setIsStreaming(false);
-            if (timeoutId) clearTimeout(timeoutId);
-            resolve();
-          },
-        );
-
-        // Timeout after 30 seconds
-        timeoutId = setTimeout(() => {
-          console.warn('⏱️ Balance streaming timeout, falling back to batch...');
-          cleanup();
-          setIsStreaming(false);
-          
-          if (!hasReceivedData) {
-            // Fallback to batch loading
-            loadViaBatch(userId, forceRefresh)
-              .then(resolve)
-              .catch(reject);
-          } else {
-            // We got some data, consider it success
-            resolve();
-          }
-        }, 30000);
-
-        // Cleanup on unmount
-        return () => {
-          cleanup();
-          if (timeoutId) clearTimeout(timeoutId);
-        };
-      });
-    },
-    [updateBalance],
-  );
-
-  /**
    * Load balances via batch API
    */
   const loadViaBatch = useCallback(
     async (userId: string, forceRefresh: boolean = false): Promise<void> => {
-      console.log('📦 Loading balances via batch...');
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('📦 Loading balances via batch...');
+      }
       setError(null);
 
       try {
@@ -439,24 +384,142 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
 
         // Mark remaining as complete (for chains without balance support)
         configs.forEach((config) => {
-          const currentState = balances[config.id];
-          if (!currentState || currentState.loading) {
-            updateBalance(config.id, {
-              loading: false,
-              error: 'Balance fetching not implemented for this chain',
-            });
-          }
+          setBalances((prev) => {
+            const currentState = prev[config.id];
+            if (!currentState || currentState.loading) {
+              return {
+                ...prev,
+                [config.id]: {
+                  configId: config.id,
+                  loading: false,
+                  balanceData: null,
+                  error: 'Balance fetching not implemented for this chain',
+                },
+              };
+            }
+            return prev;
+          });
         });
 
-        console.log('✅ Batch balance loading complete');
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('✅ Batch balance loading complete');
+        }
       } catch (err) {
         console.error('❌ Batch loading error:', err);
         setError(err instanceof Error ? err.message : 'Failed to load balances');
         throw err;
       }
     },
-    [balances, updateBalance],
+    [updateBalance],
   );
+
+  /**
+   * Load balances via SSE streaming
+   */
+  const loadViaStreaming = useCallback(
+    (userId: string, forceRefresh: boolean = false): Promise<void> => {
+      return new Promise((resolve, reject) => {
+        // Prevent duplicate calls for the same userId
+        if (isLoadingRef.current[userId] && !forceRefresh) {
+          return;
+        }
+
+        // Cleanup existing connection synchronously BEFORE creating new one
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+          unsubscribeRef.current = null;
+        }
+
+        // Close active EventSource connection if exists
+        if (activeConnectionRef.current) {
+          activeConnectionRef.current.close();
+          activeConnectionRef.current = null;
+        }
+
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('📡 Streaming balances...');
+        }
+        setIsStreaming(true);
+        setError(null);
+        isLoadingRef.current[userId] = true;
+
+        const url = `${API_BASE_URL}/wallet/balances-stream?userId=${encodeURIComponent(userId)}&forceRefresh=${forceRefresh}`;
+        
+        let hasReceivedData = false;
+        let streamCompleted = false;
+        let timeoutId: NodeJS.Timeout | null = null;
+
+        const cleanup = subscribeToSSE<BalancePayload>(
+          url,
+          // onMessage
+          (payload) => {
+            hasReceivedData = true;
+            // Map chain name to configId if configId is not provided
+            const configId = payload.configId || mapChainNameToConfigId(payload.chain);
+            const balanceData = processBalancePayload(payload, configId);
+
+            updateBalance(configId, {
+              loading: false,
+              balanceData,
+              error: payload.error || null,
+              lastUpdated: new Date(),
+              cacheTTL: DEFAULT_CACHE_TTL,
+            });
+          },
+          // onError
+          (err) => {
+            console.error('❌ Balance streaming error:', err);
+            setError(err.message);
+            setIsStreaming(false);
+            isLoadingRef.current[userId] = false;
+            if (timeoutId) clearTimeout(timeoutId);
+            activeConnectionRef.current = null;
+            // Fallback to batch loading
+            loadViaBatch(userId, forceRefresh)
+              .then(resolve)
+              .catch(reject);
+          },
+          // onComplete
+          () => {
+            streamCompleted = true;
+            if (process.env.NODE_ENV === 'development') {
+              console.debug('✅ Balance streaming complete');
+            }
+            setIsStreaming(false);
+            isLoadingRef.current[userId] = false;
+            if (timeoutId) clearTimeout(timeoutId);
+            activeConnectionRef.current = null;
+            resolve();
+          },
+        );
+
+        unsubscribeRef.current = cleanup;
+
+        // Timeout after 30 seconds
+        timeoutId = setTimeout(() => {
+          if (!streamCompleted) {
+            console.warn('⏱️ Balance streaming timeout, falling back to batch...');
+            cleanup();
+            setIsStreaming(false);
+            isLoadingRef.current[userId] = false;
+            activeConnectionRef.current = null;
+            
+            if (!hasReceivedData) {
+              // Fallback to batch loading
+              loadViaBatch(userId, forceRefresh)
+                .then(resolve)
+                .catch(reject);
+            } else {
+              // We got some data, consider it success
+              resolve();
+            }
+          }
+        }, 30000);
+      });
+    },
+    [updateBalance, loadViaBatch],
+  );
+
 
   /**
    * Load balances (tries streaming first, falls back to batch)
@@ -470,7 +533,9 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
         );
         
         if (cachedBalances.length > 0) {
-          console.log(`💾 Using cached balances for ${cachedBalances.length} wallets`);
+          if (process.env.NODE_ENV === 'development') {
+            console.debug(`💾 Using cached balances for ${cachedBalances.length} wallets`);
+          }
           return;
         }
       }

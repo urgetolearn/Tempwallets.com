@@ -1,3 +1,12 @@
+/**
+ * COMMENTED OUT - REDUNDANT CODE
+ * This is the old version of useWallet hook.
+ * The codebase now uses useWalletV2 from @/hooks/useWalletV2
+ * Keeping this commented out for reference in case it's needed later.
+ * Date: 2025-12-08
+ */
+
+/*
 import { useState, useCallback, useRef } from 'react';
 import { walletApi, UiWalletPayload, ApiError, subscribeToSSE } from '@/lib/api';
 import { walletStorage } from '@/lib/walletStorage';
@@ -269,3 +278,4 @@ export function useWallet(): UseWalletReturn {
     getWalletByChainType,
   };
 }
+*/

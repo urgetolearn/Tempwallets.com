@@ -1,3 +1,10 @@
+import type {
+  UserProfile,
+  UserStats,
+  UserActivity,
+  UpdateProfileRequest,
+} from '@repo/types';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5005';
 
 export interface SmartAccountSummary {
@@ -95,6 +102,47 @@ export interface WalletHistoryEntry {
   label: string | null;
   isActive: boolean;
   createdAt: string;
+}
+
+// Lightning Node (Yellow Network Nitrolite Channel) types
+export interface LightningNode {
+  channelId: string; // Hex string
+  chain: string; // e.g., 'ethereum', 'base', 'arbitrum', 'polygon'
+  chainId: number;
+  token: string; // Token symbol (e.g., 'USDC', 'USDT')
+  tokenAddress: string | null; // Contract address or null for native
+  balance: string; // Balance in smallest units
+  balanceHuman: string; // Human-readable balance
+  status: 'open' | 'joining' | 'closing' | 'closed';
+  participants: string[]; // Array of wallet addresses
+  participantCount: number;
+  maxParticipants: number; // Max 9
+  uri: string; // Lightning Node URI (for sharing/joining)
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+}
+
+export interface CreateLightningNodeRequest {
+  userId: string;
+  chain: string; // e.g., 'ethereumErc4337', 'baseErc4337'
+  token: string; // e.g., 'USDC', 'USDT'
+  amount?: string; // Optional initial deposit amount
+  recipientAddress?: string; // Optional counterparty address
+}
+
+export interface CreateLightningNodeResponse {
+  ok: boolean;
+  node: LightningNode;
+}
+
+export interface JoinLightningNodeRequest {
+  userId: string;
+  uri: string; // Lightning Node URI to join
+}
+
+export interface JoinLightningNodeResponse {
+  ok: boolean;
+  node: LightningNode;
 }
 
 class ApiError extends Error {
@@ -916,22 +964,32 @@ export function subscribeToSSE<T>(
   let isClosed = false;
 
   eventSource.onmessage = (event) => {
+    if (isClosed) return;
     try {
       const data = JSON.parse(event.data);
       if (data.type === 'complete') {
         if (onComplete) onComplete();
-        eventSource.close();
-        isClosed = true;
+        if (!isClosed) {
+          eventSource.close();
+          isClosed = true;
+        }
         return;
       }
       onMessage(data);
     } catch (error) {
-      console.error('Error parsing SSE message:', error);
+      // Only log parsing errors in development
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error parsing SSE message:', error);
+      }
     }
   };
 
   eventSource.onerror = (error) => {
-    console.error('SSE error:', error);
+    if (isClosed) return;
+    // Only log SSE errors in development
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('SSE connection error (will retry or fallback to batch)');
+    }
     if (onError) {
       onError(new Error('SSE connection error'));
     }
@@ -941,13 +999,168 @@ export function subscribeToSSE<T>(
     }
   };
 
-  // Return cleanup function
+  // Return cleanup function that properly closes EventSource
   return () => {
     if (!isClosed) {
-      eventSource.close();
       isClosed = true;
+      eventSource.close();
     }
   };
 }
+
+export const lightningNodeApi = {
+  /**
+   * Get all Lightning Nodes (Nitrolite channels) for a user
+   */
+  async getLightningNodes(userId: string): Promise<{ nodes: LightningNode[] }> {
+    // Mock implementation - returns empty array for now
+    // TODO: Replace with actual API call when backend is ready
+    // return fetchApi<{ nodes: LightningNode[] }>(`/lightning-nodes?userId=${encodeURIComponent(userId)}`);
+    
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({ nodes: [] });
+      }, 500);
+    });
+  },
+
+  /**
+   * Create a new Lightning Node (Nitrolite channel)
+   */
+  async createLightningNode(data: CreateLightningNodeRequest): Promise<CreateLightningNodeResponse> {
+    // Mock implementation - creates a mock channel
+    // TODO: Replace with actual API call when backend is ready
+    // return fetchApi<CreateLightningNodeResponse>('/lightning-nodes/create', {
+    //   method: 'POST',
+    //   body: JSON.stringify(data),
+    // });
+    
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const mockNode: LightningNode = {
+          channelId: `0x${Math.random().toString(16).substring(2)}`,
+          chain: data.chain.replace('Erc4337', ''),
+          chainId: data.chain === 'ethereumErc4337' ? 1 : data.chain === 'baseErc4337' ? 8453 : data.chain === 'arbitrumErc4337' ? 42161 : 137,
+          token: data.token,
+          tokenAddress: data.token === 'ETH' ? null : `0x${Math.random().toString(16).substring(2)}`,
+          balance: data.amount || '0',
+          balanceHuman: data.amount ? (parseFloat(data.amount) / 1e6).toString() : '0',
+          status: 'joining',
+          participants: [data.recipientAddress || `0x${Math.random().toString(16).substring(2)}`],
+          participantCount: 1,
+          maxParticipants: 9,
+          uri: `lightning:${Math.random().toString(36).substring(2)}`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        
+        resolve({
+          ok: true,
+          node: mockNode,
+        });
+      }, 1000);
+    });
+  },
+
+  /**
+   * Join an existing Lightning Node by URI
+   */
+  async joinLightningNode(data: JoinLightningNodeRequest): Promise<JoinLightningNodeResponse> {
+    // Mock implementation
+    // TODO: Replace with actual API call when backend is ready
+    // return fetchApi<JoinLightningNodeResponse>('/lightning-nodes/join', {
+    //   method: 'POST',
+    //   body: JSON.stringify(data),
+    // });
+    
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const mockNode: LightningNode = {
+          channelId: `0x${Math.random().toString(16).substring(2)}`,
+          chain: 'ethereum',
+          chainId: 1,
+          token: 'USDC',
+          tokenAddress: `0x${Math.random().toString(16).substring(2)}`,
+          balance: '0',
+          balanceHuman: '0',
+          status: 'open',
+          participants: [
+            `0x${Math.random().toString(16).substring(2)}`,
+            `0x${Math.random().toString(16).substring(2)}`,
+          ],
+          participantCount: 2,
+          maxParticipants: 9,
+          uri: data.uri,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        
+        resolve({
+          ok: true,
+          node: mockNode,
+        });
+      }, 1000);
+    });
+  },
+};
+
+export const userApi = {
+  /**
+   * Get current user profile
+   */
+  async getProfile(): Promise<UserProfile> {
+    return fetchApi<UserProfile>('/user/profile');
+  },
+
+  /**
+   * Update user profile
+   */
+  async updateProfile(data: UpdateProfileRequest): Promise<UserProfile> {
+    return fetchApi<UserProfile>('/user/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Get user statistics
+   */
+  async getStats(): Promise<UserStats> {
+    return fetchApi<UserStats>('/user/stats');
+  },
+
+  /**
+   * Get user activity
+   */
+  async getActivity(limit: number = 50): Promise<UserActivity[]> {
+    return fetchApi<UserActivity[]>(`/user/activity?limit=${limit}`);
+  },
+
+  /**
+   * Delete user account
+   */
+  async deleteAccount(): Promise<{ success: boolean }> {
+    return fetchApi<{ success: boolean }>('/user/account', {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * Get user XP (experience points)
+   */
+  async getXP(): Promise<{ xp: number }> {
+    return fetchApi<{ xp: number }>('/user/xp');
+  },
+
+  /**
+   * Award XP to user (e.g., for creating a wallet)
+   */
+  async awardXP(amount: number, reason: string): Promise<{ xp: number; totalXP: number }> {
+    return fetchApi<{ xp: number; totalXP: number }>('/user/xp/award', {
+      method: 'POST',
+      body: JSON.stringify({ amount, reason }),
+    });
+  },
+};
 
 export { ApiError };
