@@ -38,14 +38,10 @@ const CHAIN_NAMES: Record<string, string> = {
   tron: "Tron",
   bitcoin: "Bitcoin",
   solana: "Solana",
-  ethereumErc4337: "Ethereum",
-  baseErc4337: "Base",
-  arbitrumErc4337: "Arbitrum",
-  polygonErc4337: "Polygon",
+  // EOA chains
   base: "Base",
   arbitrum: "Arbitrum",
   polygon: "Polygon",
-  avalancheErc4337: "Avalanche",
   avalanche: "Avalanche",
   // Polkadot EVM Compatible chains
   moonbeamTestnet: "Moonbeam Testnet",
@@ -73,19 +69,15 @@ const CHAIN_NAMES: Record<string, string> = {
 
 // EIP-7702 chain ID mapping
 const EIP7702_CHAIN_IDS: Record<string, number> = {
-  ethereumGasless: 1,
-  baseGasless: 8453,
-  arbitrumGasless: 42161,
-  optimismGasless: 10,
-  polygonGasless: 137,
-  sepoliaGasless: 11155111,
-  baseSepoliaGasless: 84532,
+  ethereum: 1,
+  base: 8453,
+  arbitrum: 42161,
+  optimism: 10,
+  // Only chains confirmed for EIP-7702 gasless flow
+  sepolia: 11155111,
 };
 
-// Check if chain uses EIP-7702 gasless transactions
-const isEip7702Chain = (chain: string): boolean => {
-  return chain.endsWith('Gasless') && chain in EIP7702_CHAIN_IDS;
-};
+const isEip7702Chain = (chain: string): boolean => chain in EIP7702_CHAIN_IDS;
 
 // Address validation per chain type
 const validateAddress = (address: string, chain: string): string | null => {
@@ -95,12 +87,9 @@ const validateAddress = (address: string, chain: string): string | null => {
 
   const trimmed = address.trim();
 
-  // EVM chains (Ethereum, ERC-4337 chains, Base/Arbitrum/Polygon EOAs, Gasless chains)
   const evmChains = [
-    "ethereum", "ethereumErc4337", "base", "baseErc4337", "arbitrum", "arbitrumErc4337", 
-    "polygon", "polygonErc4337", "avalanche", "avalancheErc4337",
-    "ethereumGasless", "baseGasless", "arbitrumGasless", "optimismGasless", "polygonGasless",
-    "sepoliaGasless", "baseSepoliaGasless"
+    "ethereum", "base", "arbitrum", "polygon", "avalanche",
+    "optimism", "sepolia",
   ];
   if (evmChains.includes(chain)) {
     if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
@@ -183,10 +172,10 @@ const getExplorerUrl = (txHash: string, chain: string): string => {
   };
 
   // Check if it's an EVM chain
-  const evmChain = chain.replace('Erc4337', '');
+  const evmChain = chain;
   if (evmExplorers[evmChain]) {
-    const explorer = isTestnet && evmExplorers[evmChain].testnet 
-      ? evmExplorers[evmChain].testnet 
+    const explorer = isTestnet && evmExplorers[evmChain].testnet
+      ? evmExplorers[evmChain].testnet
       : evmExplorers[evmChain].mainnet;
     return `${explorer}/tx/${txHash}`;
   }
@@ -239,31 +228,6 @@ const getExplorerUrl = (txHash: string, chain: string): string => {
   }
 
   return '#';
-};
-
-// Map internal chain identifiers to Zerion canonical chain ids used by assets-any
-const mapToZerionChain = (chain: string): string => {
-  const m: Record<string, string> = {
-    ethereum: 'ethereum',
-    ethereumErc4337: 'ethereum',
-    ethereumGasless: 'ethereum',
-    sepoliaGasless: 'ethereum', // Sepolia testnet - fallback to ethereum for now
-    base: 'base',
-    baseErc4337: 'base',
-    baseGasless: 'base',
-    baseSepoliaGasless: 'base', // Base Sepolia testnet
-    arbitrum: 'arbitrum',
-    arbitrumErc4337: 'arbitrum',
-    arbitrumGasless: 'arbitrum',
-    optimismGasless: 'optimism',
-    polygon: 'polygon',
-    polygonErc4337: 'polygon',
-    polygonGasless: 'polygon',
-    solana: 'solana',
-    avalanche: 'avalanche',
-    avalancheErc4337: 'avalanche',
-  };
-  return m[chain] || chain;
 };
 
 export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }: SendCryptoModalProps) {
@@ -326,17 +290,26 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
         setTokens(tokenList);
         setSelectedToken(tokenList[0] ?? null);
       } else {
-        // Load aggregated assets once and filter for the selected chain
-        const allAssets: AnyChainAsset[] = await walletApi.getAssetsAny(userId);
-        const zChain = mapToZerionChain(chain);
-        const filtered = allAssets.filter(a => a.chain === zChain);
-        // Transform to TokenBalance shape with actual decimals from Zerion
-        const tokenList: TokenBalance[] = filtered.map(a => ({
-          address: a.address,
-          symbol: a.symbol,
-          balance: a.balance, // smallest units (wei, satoshi, etc.)
-          decimals: a.decimals, // actual token decimals (6 for USDC, 18 for ETH, etc.)
-        }));
+        // Load aggregated assets once (any-chain). Zerion assets are the source of truth.
+        // To ensure tokens are always available in the modal, do NOT filter by UI-selected chain.
+        const allAssets: AnyChainAsset[] = await walletApi.getAssetsAny(userId, true);
+
+        // Keep all EVM/Solana assets; we'll still show chain name via explorer mapping elsewhere.
+        // Sorting: native first if address null, then alphabetically by symbol.
+        const tokenList: TokenBalance[] = allAssets
+          .filter((a) => !!a.symbol)
+          .map((a) => ({
+            address: a.address,
+            symbol: a.symbol,
+            balance: a.balance,
+            decimals: a.decimals,
+            chain: a.chain, // Preserve the token's chain from Zerion
+          }))
+          .sort((a, b) => {
+            if (a.address === null && b.address !== null) return -1;
+            if (a.address !== null && b.address === null) return 1;
+            return a.symbol.localeCompare(b.symbol);
+          });
 
         // Keep native first, then others; native has address === null
         tokenList.sort((a, b) => (a.address === null ? -1 : b.address === null ? 1 : 0));
@@ -435,6 +408,32 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
       return;
     }
 
+    // CRITICAL: Validate that Zerion provided decimals for this token
+    if (selectedToken.decimals === undefined || selectedToken.decimals === null) {
+      setError(
+        `Token data incomplete: ${selectedToken.symbol} is missing decimals information from Zerion. ` +
+        `Please try refreshing your wallet data or contact support.`
+      );
+      return;
+    }
+
+    // Validate decimals are in valid range
+    if (selectedToken.decimals < 0 || selectedToken.decimals > 36) {
+      setError(
+        `Invalid token decimals: ${selectedToken.decimals}. Decimals must be between 0 and 36.`
+      );
+      return;
+    }
+
+    // Validate that token has chain information
+    if (!selectedToken.chain) {
+      setError(
+        `Token data incomplete: ${selectedToken.symbol} is missing chain information. ` +
+        `Please try refreshing your wallet data or contact support.`
+      );
+      return;
+    }
+
     // Track send button click (already tracked in wallet-info, but track here too for modal context)
     trackTransaction.sendClicked();
 
@@ -442,24 +441,60 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
     setError(null);
 
     try {
+      // Use the selected token's chain, not the modal's chain prop
+      const tokenChain = selectedToken.chain || chain;
+
+      // Log token send details for debugging
+      console.log('[Send Debug] Sending token:', {
+        symbol: selectedToken.symbol,
+        address: selectedToken.address,
+        decimals: selectedToken.decimals,
+        amount: amount,
+        tokenChain: tokenChain,
+        modalChain: chain,
+      });
+
+      // 🔍 DETAILED CHAIN DETECTION DEBUG
+      console.log('🔍 [Chain Detection] Avalanche EIP-7702 Check:', {
+        selectedTokenChain: selectedToken.chain,
+        modalChain: chain,
+        finalTokenChain: tokenChain,
+        isInEIP7702Mapping: tokenChain in EIP7702_CHAIN_IDS,
+        chainIdFromMapping: EIP7702_CHAIN_IDS[tokenChain],
+        allEIP7702Chains: Object.keys(EIP7702_CHAIN_IDS),
+      });
+
       // Check if this is a Substrate chain
       const SUBSTRATE_CHAINS = ["polkadot", "hydrationSubstrate", "bifrostSubstrate", "uniqueSubstrate", "paseo", "paseoAssethub"];
-      const isSubstrate = SUBSTRATE_CHAINS.includes(chain);
+      const isSubstrate = SUBSTRATE_CHAINS.includes(tokenChain);
 
       // Check if this is an Aptos chain
       const APTOS_CHAINS = ["aptos", "aptosTestnet"];
-      const isAptos = APTOS_CHAINS.includes(chain);
+      const isAptos = APTOS_CHAINS.includes(tokenChain);
 
       // Check if this is an EIP-7702 gasless chain
-      const isGasless = isEip7702Chain(chain);
+      const isGasless = isEip7702Chain(tokenChain);
+
+      // 🔍 LOG WHICH ENDPOINT WILL BE USED
+      if (isGasless) {
+        console.log('✅ [Endpoint] Using EIP-7702 gasless endpoint (/wallet/eip7702/send)');
+        console.log('✅ [ChainID]', EIP7702_CHAIN_IDS[tokenChain]);
+      } else if (isSubstrate) {
+        console.log('ℹ️ [Endpoint] Using Substrate endpoint');
+      } else if (isAptos) {
+        console.log('ℹ️ [Endpoint] Using Aptos endpoint');
+      } else {
+        console.log('⚠️ [Endpoint] Using regular sendCrypto endpoint (/wallet/send)');
+        console.log('⚠️ [Reason] isGasless =', isGasless, ', tokenChain =', tokenChain);
+      }
 
       let result: { txHash: string; userOpHash?: string; explorerUrl?: string; isFirstTransaction?: boolean };
 
       if (isGasless) {
         // Use EIP-7702 gasless endpoint
-        const chainId = EIP7702_CHAIN_IDS[chain];
+        const chainId = EIP7702_CHAIN_IDS[tokenChain];
         if (!chainId) {
-          throw new Error(`Chain ID not found for ${chain}`);
+          throw new Error(`Chain ID not found for ${tokenChain}`);
         }
 
         const gaslessResult = await walletApi.sendEip7702Gasless({
@@ -468,7 +503,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
           recipientAddress: recipientAddress.trim(),
           amount: amount, // Human-readable amount
           tokenAddress: selectedToken.address || undefined,
-          tokenDecimals: selectedToken.address ? selectedToken.decimals : undefined,
+          tokenDecimals: selectedToken.decimals, // Always pass decimals from Zerion (validated above)
         });
 
         // Use transactionHash if available, otherwise use userOpHash
@@ -497,11 +532,11 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
       } else if (isSubstrate) {
         // Convert human-readable amount to smallest units for Substrate
         const amountInSmallestUnits = (parseFloat(amount) * Math.pow(10, selectedToken.decimals)).toString();
-        
+
         // Use Substrate send endpoint
         const substrateResult = await walletApi.sendSubstrateTransfer({
           userId,
-          chain,
+          chain: tokenChain, // Use token's chain
           to: recipientAddress.trim(),
           amount: amountInSmallestUnits, // Amount in smallest units
           useTestnet: false, // TODO: Add testnet toggle if needed
@@ -511,7 +546,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
         result = { txHash: substrateResult.txHash };
       } else if (isAptos) {
         // Use Aptos send endpoint
-        const network = chain === "aptosTestnet" ? "testnet" : "mainnet";
+        const network = tokenChain === "aptosTestnet" ? "testnet" : "mainnet"; // Use token's chain
         const aptosResult = await walletApi.sendAptosTransaction({
           userId,
           recipientAddress: recipientAddress.trim(),
@@ -523,7 +558,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
         // Use regular EVM/other chain send endpoint
         const sendResult = await walletApi.sendCrypto({
           userId,
-          chain,
+          chain: tokenChain, // Use token's chain, not modal's chain prop
           tokenAddress: selectedToken.address || undefined,
           tokenDecimals: selectedToken.decimals,
           amount: amount, // human-readable amount; server converts using ERC-20 decimals / Zerion
@@ -540,7 +575,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
         result.txHash,
         amount,
         selectedToken.symbol,
-        chain,
+        tokenChain, // Use token's chain for analytics
       );
 
       // Call onSuccess callback after a short delay
@@ -633,12 +668,14 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
                 Loading...
               </div>
             ) : tokens.length === 0 ? (
-              <div className="text-xs text-red-400 py-2">No tokens available</div>
+              <div className="text-xs text-red-400 py-2">
+                No tokens available for this network from Zerion assets.
+              </div>
             ) : (
               <Select
-                value={selectedToken?.address || "native"}
+                value={selectedToken ? `${selectedToken.chain || 'unknown'}:${selectedToken.address || 'native'}` : undefined}
                 onValueChange={(value) => {
-                  const token = tokens.find(t => (t.address || "native") === value);
+                  const token = tokens.find(t => `${t.chain || 'unknown'}:${t.address || 'native'}` === value);
                   setSelectedToken(token ?? null);
                 }}
               >
@@ -646,15 +683,18 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
                   <SelectValue placeholder="Select token" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border-white/20 bg-black/95 text-white">
-                  {tokens.map((token) => (
-                    <SelectItem 
-                      key={token.address || "native"} 
-                      value={token.address || "native"}
-                      className="text-sm focus:bg-white/10 focus:text-white"
-                    >
-                      {token.symbol} - {formatBalance(token.balance, token.decimals)}
-                    </SelectItem>
-                  ))}
+                  {tokens.map((token) => {
+                    const key = `${token.chain || 'unknown'}:${token.address || 'native'}`;
+                    return (
+                      <SelectItem 
+                        key={key}
+                        value={key}
+                        className="text-sm focus:bg-white/10 focus:text-white"
+                      >
+                        {token.symbol} - {formatBalance(token.balance, token.decimals)}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             )}

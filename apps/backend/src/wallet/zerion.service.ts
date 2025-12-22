@@ -187,6 +187,35 @@ export class ZerionService {
   }
 
   /**
+   * Normalize Zerion chain IDs to internal chain names
+   * Maps Zerion's chain identifiers to the backend's expected chain names
+   */
+  private normalizeZerionChainId(zerionChainId: string): string {
+    const chainMapping: Record<string, string> = {
+      'eth': 'ethereum',
+      'ethereum': 'ethereum',
+      'base': 'base',
+      'arbitrum': 'arbitrum',
+      'optimism': 'optimism',
+      'polygon': 'polygon',
+      'matic': 'polygon',
+      'avalanche': 'avalanche',
+      'avax': 'avalanche',
+      'bnb': 'bnb',
+      'bsc': 'bnb',
+      'solana': 'solana',
+      'sol': 'solana',
+      'bitcoin': 'bitcoin',
+      'btc': 'bitcoin',
+      'tron': 'tron',
+      'trx': 'tron',
+      'sepolia': 'sepolia',
+    };
+
+    return chainMapping[zerionChainId.toLowerCase()] || zerionChainId;
+  }
+
+  /**
    * Get cache key for address and chain
    */
   private getCacheKey(
@@ -229,7 +258,10 @@ export class ZerionService {
         const attributes = pos.attributes;
         const fungibleInfo = attributes?.fungible_info;
         const quantity = attributes?.quantity;
-        const chain = pos.relationships?.chain?.data?.id || 'unknown';
+        const rawChain = pos.relationships?.chain?.data?.id || 'unknown';
+
+        // Normalize Zerion chain ID to internal chain name (e.g., "eth" -> "ethereum")
+        const chain = this.normalizeZerionChainId(rawChain);
 
         // KISS parsing: Always use Zerion's decimals, never default to 18
         const decimals =

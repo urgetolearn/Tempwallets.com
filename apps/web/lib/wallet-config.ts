@@ -24,7 +24,7 @@ const SubstrateFallback = Polkadot;
  * Master wallet configuration registry
  * Single source of truth for all 26+ wallet/chain configurations
  */
-export const WALLET_CONFIGS: WalletConfig[] = [
+const RAW_WALLET_CONFIGS: WalletConfig[] = [
   // ========================================
   // EVM SMART ACCOUNTS (ERC-4337) - PRIMARY
   // These are shown as the main wallets
@@ -33,7 +33,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     id: 'ethereumErc4337',
     name: 'Ethereum',
     symbol: 'ETH',
-    description: 'Ethereum Smart Account (ERC-4337)',
+  description: 'Ethereum Smart Account (EIP-7702)',
     type: 'evm',
     chainId: 1,
     isTestnet: false,
@@ -68,7 +68,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     id: 'baseErc4337',
     name: 'Base',
     symbol: 'ETH',
-    description: 'Base Smart Account (ERC-4337)',
+  description: 'Base Smart Account (EIP-7702)',
     type: 'evm',
     chainId: 8453,
     isTestnet: false,
@@ -104,7 +104,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     id: 'arbitrumErc4337',
     name: 'Arbitrum',
     symbol: 'ARB',
-    description: 'Arbitrum Smart Account (ERC-4337)',
+  description: 'Arbitrum Smart Account (EIP-7702)',
     type: 'evm',
     chainId: 42161,
     isTestnet: false,
@@ -140,7 +140,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     id: 'polygonErc4337',
     name: 'Polygon',
     symbol: 'MATIC',
-    description: 'Polygon Smart Account (ERC-4337)',
+  description: 'Polygon Smart Account (EIP-7702)',
     type: 'evm',
     chainId: 137,
     isTestnet: false,
@@ -175,7 +175,7 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     id: 'avalancheErc4337',
     name: 'Avalanche',
     symbol: 'AVAX',
-    description: 'Avalanche Smart Account (ERC-4337)',
+  description: 'Avalanche Smart Account (EIP-7702)',
     type: 'evm',
     chainId: 43114,
     isTestnet: false,
@@ -855,6 +855,78 @@ export const WALLET_CONFIGS: WalletConfig[] = [
     parentChain: 'paseo',
   },
 ];
+
+// ========================================
+// EIP-7702 FEATURE FLAGS (frontend mirrors backend env)
+// ========================================
+const ENABLE_EIP7702 = process.env.NEXT_PUBLIC_ENABLE_EIP7702 === 'true';
+
+const parseChainIdList = (value?: string): number[] =>
+  (value || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .map((v) => Number(v))
+    .filter((n) => !Number.isNaN(n));
+
+// Prefer chain IDs; fallback to chain names mapped to IDs if provided
+const EIP7702_CHAIN_IDS = new Set<number>(
+  parseChainIdList(process.env.NEXT_PUBLIC_EIP7702_CHAIN_IDS || process.env.NEXT_PUBLIC_EIP7702_ENABLED_CHAINS),
+);
+
+const chainNameToId: Record<string, number> = {
+  ethereum: 1,
+  base: 8453,
+  arbitrum: 42161,
+  optimism: 10,
+  polygon: 137,
+  bnb: 56,
+  avalanche: 43114,
+  sepolia: 11155111,
+};
+
+if (EIP7702_CHAIN_IDS.size === 0 && process.env.NEXT_PUBLIC_EIP7702_CHAINS) {
+  process.env.NEXT_PUBLIC_EIP7702_CHAINS.split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .forEach((name) => {
+      const id = chainNameToId[name];
+      if (id) EIP7702_CHAIN_IDS.add(id);
+    });
+}
+
+const isEip7702EnabledForConfig = (config: WalletConfig): boolean => {
+  if (!ENABLE_EIP7702) return false;
+  if (!config.chainId) return false;
+  return EIP7702_CHAIN_IDS.has(config.chainId);
+};
+
+// Apply EIP-7702 naming and hide EOAs when smart-account variant is enabled
+export const WALLET_CONFIGS: WalletConfig[] = RAW_WALLET_CONFIGS.map((config) => {
+  const smartVariant = config.smartAccountVariant
+    ? RAW_WALLET_CONFIGS.find((c) => c.id === config.smartAccountVariant)
+    : undefined;
+
+  const smartVariantEnabled = smartVariant ? isEip7702EnabledForConfig(smartVariant) : false;
+  const hideEoa = !config.isSmartAccount && smartVariantEnabled;
+
+  const description =
+    config.isSmartAccount && config.description
+      ? config.description.replace('ERC-4337', 'EIP-7702')
+      : config.description;
+
+  return {
+    ...config,
+    description,
+    features: {
+      ...config.features,
+      // Keep EOAs visible in the list even if a smart-account variant is enabled;
+      // still hide them from selector to reduce clutter.
+      showInSelector: hideEoa ? false : config.features.showInSelector,
+      showInWalletList: config.features.showInWalletList,
+    },
+  } as WalletConfig;
+});
 
 // ========================================
 // HELPER FUNCTIONS

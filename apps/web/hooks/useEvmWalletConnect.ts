@@ -1,28 +1,27 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import SignClient from '@walletconnect/sign-client';
+import { WalletKit, IWalletKit } from '@reown/walletkit';
+import { Core } from '@walletconnect/core';
 import { SessionTypes } from '@walletconnect/types';
-import { walletApi, ApiError } from '@/lib/api';
-import { getMainnetChainIds } from '@/lib/evm-chain-ids';
+import { walletApi } from '@/lib/api';
 import { createLogger, getTraceId } from '@/utils/logger';
 import { metrics } from '@/utils/metrics';
+import {
+  trackWalletConnectInitialized,
+  trackWalletConnectProposalReceived,
+  trackWalletConnectSessionApproved,
+  trackWalletConnectSessionRejected,
+  trackWalletConnectRequestReceived,
+  trackWalletConnectRequestSigned,
+  trackWalletConnectRequestRejected,
+  trackWalletConnectSessionDisconnected,
+  trackWalletConnectPairingSuccess,
+  trackWalletConnectApprovalFailed,
+  trackWalletConnectSigningFailed,
+} from '@/lib/mixpanel-events';
 
 const logger = createLogger('evm-walletconnect');
-
-const EVM_WALLETCONNECT_METHODS = [
-  'eth_sendTransaction',
-  'eth_signTransaction',
-  'personal_sign',
-  'eth_sign',
-  'eth_signTypedData',
-  'eth_signTypedData_v4',
-  'wallet_getCapabilities',
-  'wallet_switchEthereumChain',
-  'wallet_addEthereumChain',
-];
-
-const EVM_WALLETCONNECT_EVENTS = ['chainChanged', 'accountsChanged'];
 
 export interface EvmWalletConnectSession {
   topic: string;
@@ -38,7 +37,7 @@ export interface EvmWalletConnectSession {
 }
 
 export interface UseEvmWalletConnectReturn {
-  client: SignClient | null;
+  client: IWalletKit | null;
   sessions: EvmWalletConnectSession[];
   isInitializing: boolean;
   error: string | null;
@@ -46,358 +45,208 @@ export interface UseEvmWalletConnectReturn {
   disconnect: (topic: string) => Promise<void>;
   approveSession: (proposalId: number, namespaces: SessionTypes.Namespaces) => Promise<void>;
   rejectSession: (proposalId: number) => Promise<void>;
-  initialize: () => Promise<void>; // Lazy initialization method
+  initialize: () => Promise<void>;
 }
 
-/**
- * Hook for EVM WalletConnect connections
- * 
- * Only handles eip155 namespace - Substrate chains are excluded
- */
-// Global client instance to prevent multiple initializations (separate from Substrate)
-let globalEvmSignClient: SignClient | null = null;
-let isInitializingEvmGlobal = false;
+// Global client instance to prevent multiple initializations
+let globalWalletKit: IWalletKit | null = null;
+let isInitializingGlobal = false;
 
 export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectReturn {
-  const [client, setClient] = useState<SignClient | null>(null);
+  const [client, setClient] = useState<IWalletKit | null>(null);
   const [sessions, setSessions] = useState<EvmWalletConnectSession[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const pendingProposalsRef = useRef<Map<number, any>>(new Map());
   const isInitializedRef = useRef(false);
 
-  // Lazy initialization function - only called when modal opens
   const initialize = useCallback(async () => {
     if (!userId) {
       setIsInitializing(false);
       return;
     }
 
-    // If already initialized with a valid client, just use it
-    if (globalEvmSignClient) {
-      if (client !== globalEvmSignClient) {
-        setClient(globalEvmSignClient);
-      }
+    // Use existing client if available
+    if (globalWalletKit) {
+      setClient(globalWalletKit);
       setIsInitializing(false);
       isInitializedRef.current = true;
-      const existingSessions = globalEvmSignClient.session.getAll();
-      setSessions(
-        existingSessions
-          .filter(s => {
-            if (!s || !s.topic) return false;
-            return s.namespaces?.eip155 !== undefined;
-          })
-          .map(s => ({
-            topic: s.topic,
-            peer: s.peer || { metadata: undefined },
-            namespaces: s.namespaces || {},
-          }))
-      );
+      const existingSessions = globalWalletKit.getActiveSessions();
+      setSessions(Object.values(existingSessions));
       return;
     }
 
-    // Prevent multiple initializations
-    if (isInitializedRef.current) {
+    if (isInitializedRef.current || isInitializingGlobal) {
       setIsInitializing(false);
       return;
     }
 
-    // Prevent concurrent initializations
-    if (isInitializingEvmGlobal) {
-      // Wait for existing initialization
-      let waitCount = 0;
-      while (isInitializingEvmGlobal && waitCount < 50) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        waitCount++;
-      }
-      const existingClient = globalEvmSignClient as SignClient | null;
-      if (existingClient) {
-        setClient(existingClient);
-        setIsInitializing(false);
-        isInitializedRef.current = true;
-        const existingSessions = existingClient.session.getAll();
-        setSessions(
-          existingSessions
-            .filter(s => {
-              if (!s || !s.topic) return false;
-              return s.namespaces?.eip155 !== undefined;
-            })
-            .map(s => ({
-              topic: s.topic,
-              peer: s.peer || { metadata: undefined },
-              namespaces: s.namespaces || {},
-            }))
-        );
-      }
-      return;
-    }
-
-    isInitializingEvmGlobal = true;
+    isInitializingGlobal = true;
     setIsInitializing(true);
 
     try {
       const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
       if (!projectId) {
-        throw new Error('NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set in environment variables');
+        throw new Error('NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set');
       }
 
-      // Check if client already exists (from another instance)
-      const existingGlobalClient = globalEvmSignClient as SignClient | null;
-      if (existingGlobalClient) {
-        setClient(existingGlobalClient);
-        setIsInitializing(false);
-        isInitializedRef.current = true;
-        isInitializingEvmGlobal = false;
-        const existingSessions = existingGlobalClient.session.getAll();
-        setSessions(
-          existingSessions
-            .filter(s => {
-              if (!s || !s.topic) return false;
-              return s.namespaces?.eip155 !== undefined;
-            })
-            .map(s => ({
-              topic: s.topic,
-              peer: s.peer || { metadata: undefined },
-              namespaces: s.namespaces || {},
-            }))
-        );
-        return;
-      }
+      // Initialize Core first
+      const core = new Core({
+        projectId,
+      });
 
-      // Wait a bit to ensure any other WalletConnect initialization has finished first
-      // This helps avoid storage conflicts
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Initialize WalletKit with Core
+      const walletKit = await WalletKit.init({
+        core,
+        metadata: {
+          name: 'Tempwallets',
+          description: 'Your Secure Multi-Chain Wallet',
+          url: typeof window !== 'undefined' ? window.location.origin : 'https://tempwallets.com',
+          icons: [`${typeof window !== 'undefined' ? window.location.origin : 'https://tempwallets.com'}/tempwallets-logo.png`],
+        },
+      });
 
-      // Initialize SignClient with error handling for storage conflicts
-      let signClient: SignClient;
-      try {
-        signClient = await SignClient.init({
-          projectId,
-          metadata: {
-            name: 'Tempwallets EVM',
-            description: 'Temporary wallet service - EVM',
-            url: typeof window !== 'undefined' ? window.location.origin : 'https://tempwallets.com',
-            icons: [`${typeof window !== 'undefined' ? window.location.origin : 'https://tempwallets.com'}/tempwallets-logo.png`],
-          },
-        });
-      } catch (initError: any) {
-        // If initialization fails due to storage conflict, wait and retry once
-        if (initError?.message?.includes('restore') || initError?.message?.includes('storage')) {
-          logger.warn('Initialization conflict detected, retrying after delay', {
-            error: initError.message,
-            traceId: getTraceId()
-          });
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          signClient = await SignClient.init({
-            projectId,
-            metadata: {
-              name: 'Tempwallets EVM',
-              description: 'Temporary wallet service - EVM',
-              url: typeof window !== 'undefined' ? window.location.origin : 'https://tempwallets.com',
-              icons: [`${typeof window !== 'undefined' ? window.location.origin : 'https://tempwallets.com'}/tempwallets-logo.png`],
-            },
-          });
-        } else {
-          throw initError;
-        }
-      }
-
-      // Store globally to prevent re-initialization
-      globalEvmSignClient = signClient;
-
-      setClient(signClient);
+      globalWalletKit = walletKit;
+      setClient(walletKit);
       setIsInitializing(false);
       isInitializedRef.current = true;
-      isInitializingEvmGlobal = false;
+      isInitializingGlobal = false;
 
-      // Load existing sessions (with null checks and filter for EVM-only)
-      const existingSessions = signClient.session.getAll();
-      const validSessions = existingSessions
-        .filter(s => {
-          // Only include sessions with eip155 namespace (EVM chains)
-          if (!s || !s.topic) return false;
-          return s.namespaces?.eip155 !== undefined;
-        })
-        .map(s => ({
-          topic: s.topic,
-          peer: s.peer || { metadata: undefined },
-          namespaces: s.namespaces || {},
-        }));
+      // Load existing sessions
+      const existingSessions = walletKit.getActiveSessions();
+      setSessions(Object.values(existingSessions));
 
-      setSessions(validSessions);
-
-      // Clean up any invalid/stale sessions
-      try {
-        const allSessions = signClient.session.getAll();
-        for (const session of allSessions) {
-          if (!session.topic || !session.namespaces) {
-            try {
-              await signClient.disconnect({
-                topic: session.topic,
-                reason: {
-                  code: 6000,
-                  message: 'Cleaning up invalid session',
-                },
-              });
-            } catch (err) {
-              // Ignore errors when cleaning up
-            }
-          }
-        }
-      } catch (cleanupError) {
-        logger.debug('Session cleanup error (non-critical)', { error: cleanupError });
-      }
+      // Track WalletConnect initialization
+      trackWalletConnectInitialized({ userId });
 
       // Listen for session proposals
-      signClient.on('session_proposal', async (event) => {
-        const traceId = getTraceId();
-        metrics.increment('walletconnect.session.proposal', { namespace: 'eip155' });
-        
-        logger.info('Session proposal received', {
-          proposalId: event.id,
-          dappName: event.params.proposer.metadata?.name,
-          dappUrl: event.params.proposer.metadata?.url,
-          traceId
+      walletKit.on('session_proposal', async (proposal) => {
+        // Session proposal received - only log errors
+
+        // Save proposal to backend
+        await walletApi.saveWcProposal(
+          userId,
+          proposal.id,
+          proposal.params.proposer,
+          proposal.params.requiredNamespaces,
+          proposal.params.optionalNamespaces,
+          new Date(proposal.params.expiryTimestamp * 1000),
+        );
+
+        // Track proposal received
+        const eip155Required = proposal.params.requiredNamespaces?.eip155;
+        const eip155Optional = proposal.params.optionalNamespaces?.eip155;
+        trackWalletConnectProposalReceived({
+          userId,
+          proposalId: proposal.id,
+          dappName: proposal.params.proposer.metadata?.name || 'Unknown',
+          dappUrl: proposal.params.proposer.metadata?.url || 'Unknown',
+          requiredChains: eip155Required?.chains || [],
+          optionalChains: eip155Optional?.chains || [],
         });
-        
-        const { id, params } = event;
-        pendingProposalsRef.current.set(id, params);
-        
-        // Check if this is an EIP-155 (EVM) namespace request
-        const hasEip155Namespace = params.requiredNamespaces?.eip155 || params.optionalNamespaces?.eip155;
-        
-        if (!hasEip155Namespace) {
-          logger.warn('Proposal rejected - no EIP-155 namespace', {
-            proposalId: id,
-            namespaces: Object.keys(params.requiredNamespaces || {}),
-            traceId
-          });
-          metrics.increment('walletconnect.session.rejected', {
-            reason: 'no_eip155_namespace'
-          });
-          await signClient.reject({
-            id,
-            reason: {
-              code: 6001,
-              message: 'This wallet only supports EVM chains',
-            },
-          });
-          return;
-        }
 
         // Show approval dialog
         const approved = window.confirm(
-          `Connect to ${params.proposer.metadata?.name || 'Unknown DApp'}?\n\n` +
-          `URL: ${params.proposer.metadata?.url || 'Unknown'}\n\n` +
-          `This will allow the DApp to request transactions and signatures from your EVM wallets.`
+          `Connect your Tempwallet to ${proposal.params.proposer.metadata?.name || 'Unknown DApp'}?\n\n` +
+          `URL: ${proposal.params.proposer.metadata?.url || 'Unknown'}\n\n` +
+          `This will allow the dApp to request transactions from your Tempwallet.`
         );
 
         if (approved) {
           try {
-            // Get EVM accounts from backend
-            const accountsData = await walletApi.getEvmWalletConnectAccounts(userId, false);
-            
-            // Build namespaces with ONLY EIP-155 accounts
-            const namespaces: SessionTypes.Namespaces = {};
-            
-            // Handle both required and optional namespaces
-            const eip155Namespace = params.requiredNamespaces?.eip155 || params.optionalNamespaces?.eip155;
-            
-            if (!eip155Namespace) {
-              throw new Error('EIP-155 namespace is required but not provided in the connection request');
+            // ✅ FIXED: Handle chains from multiple sources
+            const eip155Required = proposal.params.requiredNamespaces?.eip155;
+            const eip155Optional = proposal.params.optionalNamespaces?.eip155;
+
+            // Get chains from both required and optional
+            const requiredChains = eip155Required?.chains || [];
+            const optionalChains = eip155Optional?.chains || [];
+
+            // Combine all requested chains
+            let allChains = [...requiredChains, ...optionalChains];
+
+            // Remove duplicates
+            allChains = [...new Set(allChains)];
+
+            // Extract chain IDs (convert "eip155:1" -> 1)
+            let approvedChainIds: number[] = allChains
+              .filter((c: string) => c.startsWith('eip155:'))
+              .map((c: string) => {
+                const parts = c.split(':');
+                if (parts.length < 2 || !parts[1]) {
+                  return null;
+                }
+                const chainId = parseInt(parts[1], 10);
+                return isNaN(chainId) ? null : chainId;
+              })
+              .filter((id): id is number => id !== null);
+
+            // ✅ CRITICAL: If no chains specified, use ALL user's chains
+            if (approvedChainIds.length === 0) {
+              // Get user's EIP-7702 accounts
+              const accountsResponse = await walletApi.getWcAccounts(userId);
+
+              // Extract unique chain IDs
+              approvedChainIds = [...new Set(
+                accountsResponse.accounts.map((acc: { chainId: number }) => acc.chainId)
+              )];
             }
 
-            const chains = eip155Namespace.chains || [];
-            const methods = eip155Namespace.methods || EVM_WALLETCONNECT_METHODS;
-            const events = eip155Namespace.events || EVM_WALLETCONNECT_EVENTS;
-
-            // Ensure chains array is not empty
-            if (chains.length === 0) {
-              // If no specific chains requested, use all mainnet chains
-              const mainnetChainIds = getMainnetChainIds();
-              chains.push(...mainnetChainIds.map(id => `eip155:${id}`));
+            // Ensure we have at least one chain
+            if (approvedChainIds.length === 0) {
+              throw new Error('No chains available. Please create a wallet first.');
             }
 
-            // Ensure methods array is not empty
-            if (methods.length === 0) {
-              throw new Error('No methods specified in the connection request');
-            }
+            // Request approval from backend
+            const { namespaces, session: sessionData } = await walletApi.approveWcProposal(
+              userId,
+              proposal.id,
+              approvedChainIds,
+            );
 
-            // Filter accounts to only include chains requested by the dapp
-            const requestedChainIds = chains.map((c: string) => c.split(':')[1]); // Extract chain ID
-            const filteredAccounts = accountsData.accounts.filter(acc => {
-              const accountChainId = acc.accountId.split(':')[1];
-              return requestedChainIds.includes(accountChainId);
-            });
-
-            // If no accounts match the requested chains, use all available accounts
-            const accountsToUse = filteredAccounts.length > 0 
-              ? filteredAccounts 
-              : accountsData.accounts;
-
-            // Ensure we have at least one account
-            if (accountsToUse.length === 0) {
-              throw new Error('No EVM accounts available. Please ensure your wallet has addresses created.');
-            }
-
-            // Build the eip155 namespace with all required fields
-            namespaces.eip155 = {
-              accounts: accountsToUse.map(acc => acc.accountId),
-              methods: Array.isArray(methods) && methods.length > 0 ? methods : EVM_WALLETCONNECT_METHODS,
-              events: Array.isArray(events) && events.length > 0 ? events : EVM_WALLETCONNECT_EVENTS,
-              chains: Array.isArray(chains) && chains.length > 0 ? chains : [],
-            };
-
-            // Validate namespaces before approving
-            if (!namespaces.eip155 || !namespaces.eip155.accounts || namespaces.eip155.accounts.length === 0) {
-              throw new Error('Cannot approve session: No accounts available');
-            }
-
-            if (!namespaces.eip155.chains || namespaces.eip155.chains.length === 0) {
-              throw new Error('Cannot approve session: No chains specified');
-            }
-
-            logger.debug('Approving session with namespaces', {
-              proposalId: id,
-              accountCount: namespaces.eip155.accounts.length,
-              chainCount: namespaces.eip155.chains.length,
-              methodCount: namespaces.eip155.methods.length,
-              traceId
-            });
-
-            // Approve session
-            const { topic } = await signClient.approve({
-              id,
+            // Approve on WalletKit
+            const { topic } = await walletKit.approveSession({
+              id: proposal.id,
               namespaces,
             });
-            
-            // Get full session object from store
-            const session = signClient.session.get(topic);
 
-            logger.info('Session approved successfully', {
-              topic,
-              dappName: session.peer.metadata?.name,
-              accountCount: namespaces.eip155.accounts.length,
-              traceId
+            // Save full session to backend
+            const sessions = walletKit.getActiveSessions();
+            const session = sessions[topic];
+            if (session) {
+              await walletApi.saveWcSession(userId, session, namespaces);
+            }
+
+            // Update local sessions
+            setSessions(Object.values(walletKit.getActiveSessions()));
+
+            // Track session approval
+            const accountsResponse = await walletApi.getWcAccounts(userId);
+            const hasEip7702 = accountsResponse.accounts.some((acc: any) => acc.hasEip7702);
+            trackWalletConnectSessionApproved({
+              userId,
+              proposalId: proposal.id,
+              dappName: proposal.params.proposer.metadata?.name || 'Unknown',
+              dappUrl: proposal.params.proposer.metadata?.url || 'Unknown',
+              approvedChains: approvedChainIds,
+              accountCount: accountsResponse.accounts.length,
+              hasEip7702,
             });
+
             metrics.increment('walletconnect.session.approved', { namespace: 'eip155' });
-            
-            // Update sessions
-            setSessions(prev => [...prev, {
-              topic: session.topic,
-              peer: session.peer || { metadata: undefined },
-              namespaces: session.namespaces || {},
-            }]);
           } catch (err) {
-            logger.error('Failed to approve session', err, {
-              proposalId: id,
-              traceId
+            logger.error('Failed to approve session', err as Error);
+
+            // Track approval failure
+            trackWalletConnectApprovalFailed({
+              userId,
+              proposalId: proposal.id,
+              dappName: proposal.params.proposer.metadata?.name || 'Unknown',
+              errorMessage: err instanceof Error ? err.message : 'Failed to approve',
             });
-            metrics.increment('walletconnect.session.approve_failed', {
-              reason: err instanceof Error ? err.message : 'unknown'
-            });
-            await signClient.reject({
-              id,
+
+            await walletApi.rejectWcProposal(userId, proposal.id, err instanceof Error ? err.message : 'Failed to approve');
+            await walletKit.rejectSession({
+              id: proposal.id,
               reason: {
                 code: 5000,
                 message: err instanceof Error ? err.message : 'Failed to approve session',
@@ -405,289 +254,215 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
             });
           }
         } else {
-          await signClient.reject({
-            id,
+          // Track session rejection
+          trackWalletConnectSessionRejected({
+            userId,
+            proposalId: proposal.id,
+            dappName: proposal.params.proposer.metadata?.name || 'Unknown',
+            reason: 'User rejected',
+          });
+
+          await walletApi.rejectWcProposal(userId, proposal.id, 'User rejected');
+          await walletKit.rejectSession({
+            id: proposal.id,
             reason: {
               code: 5000,
-              message: 'User rejected the connection',
+              message: 'User rejected',
             },
           });
         }
       });
 
-      // Listen for session requests (transaction/message signing)
-      signClient.on('session_request', async (event) => {
-        const traceId = getTraceId();
-        const endTimer = metrics.startTimer('walletconnect.request.handle');
-        
-        logger.info('Session request received', {
-          topic: event.topic,
-          method: event.params.request.method,
-          chainId: event.params.chainId,
-          traceId
-        });
-        metrics.increment('walletconnect.request.count', {
-          method: event.params.request.method,
-          chainId: event.params.chainId || 'unknown'
-        });
+      // Listen for session requests
+      walletKit.on('session_request', async (event) => {
+        // Session request received - only log errors
+
         const { id, topic, params } = event;
         const { request, chainId } = params;
 
+        // Get dApp name from session
+        const sessions = walletKit.getActiveSessions();
+        const session = sessions[topic];
+        const dappName = session?.peer.metadata?.name || 'Unknown';
+
+        // Track request received
+        trackWalletConnectRequestReceived({
+          userId,
+          requestId: id,
+          dappName,
+          method: request.method,
+          chainId,
+        });
+
+        const requestStartTime = Date.now();
+
         try {
-          let result;
+          // Show confirmation dialog
+          const confirmed = window.confirm(
+            `Sign ${request.method}?\n\n` +
+            `Chain: ${chainId}\n` +
+            `Method: ${request.method}\n\n` +
+            `Review details carefully before confirming.`
+          );
 
-          switch (request.method) {
-            case 'eth_sendTransaction':
-            case 'eth_signTransaction': {
-              const [transaction] = request.params as any[];
-              
-              // Extract accountId (from address)
-              const accountId = `eip155:${chainId.split(':')[1]}:${transaction.from}`;
-              
-              // Show confirmation dialog
-              const confirmed = window.confirm(
-                `Sign transaction?\n\n` +
-                `Account: ${accountId}\n` +
-                `To: ${transaction.to || 'Contract Creation'}\n` +
-                `Value: ${transaction.value || '0'}\n\n` +
-                `⚠️ Review transaction details carefully before confirming.`
-              );
-
-              if (!confirmed) {
-                throw new Error('User rejected transaction');
-              }
-
-              const signResult = await walletApi.signEvmWalletConnectTransaction({
-                userId,
-                accountId,
-                transaction,
-                useTestnet: false, // TODO: Detect from chainId
-              });
-              
-              result = signResult.signature;
-              break;
-            }
-
-            case 'personal_sign':
-            case 'eth_sign': {
-              // personal_sign format: [message, address]
-              const [message, address] = request.params as [string, string];
-              
-              // Extract accountId
-              const accountId = `eip155:${chainId.split(':')[1]}:${address}`;
-              
-              // Show confirmation dialog
-              const confirmed = window.confirm(
-                `Sign message?\n\n` +
-                `Account: ${accountId}\n\n` +
-                `Message: ${message}\n\n` +
-                `Do you want to sign this message?`
-              );
-
-              if (!confirmed) {
-                throw new Error('User rejected message signing');
-              }
-
-              const signResult = await walletApi.signEvmWalletConnectMessage({
-                userId,
-                accountId,
-                message,
-                useTestnet: false,
-              });
-              
-              result = signResult.signature;
-              break;
-            }
-
-            case 'eth_signTypedData':
-            case 'eth_signTypedData_v4': {
-              // Format: [address, typedData]
-              const [address, typedDataStr] = request.params as [string, string];
-              const typedData = typeof typedDataStr === 'string' ? JSON.parse(typedDataStr) : typedDataStr;
-              
-              // Extract accountId
-              const accountId = `eip155:${chainId.split(':')[1]}:${address}`;
-              
-              // Show confirmation dialog
-              const confirmed = window.confirm(
-                `Sign typed data?\n\n` +
-                `Account: ${accountId}\n\n` +
-                `Primary Type: ${typedData.primaryType}\n\n` +
-                `⚠️ Review typed data carefully before confirming.`
-              );
-
-              if (!confirmed) {
-                throw new Error('User rejected typed data signing');
-              }
-
-              const signResult = await walletApi.signEvmWalletConnectTypedData({
-                userId,
-                accountId,
-                typedData,
-                useTestnet: false,
-              });
-              
-              result = signResult.signature;
-              break;
-            }
-
-            case 'wallet_getCapabilities': {
-              // Return EIP-5792 wallet capabilities
-              // Indicate support for smart accounts and EIP-1559
-              result = {
-                [chainId]: {
-                  eip1559: {
-                    supported: true,
-                  },
-                  smartAccounts: {
-                    supported: true,
-                  },
-                },
-              };
-              break;
-            }
-
-            case 'wallet_switchEthereumChain': {
-              // Handle chain switching request
-              // For now, just acknowledge - actual switching handled by dapp
-              const [switchParams] = request.params as [{ chainId: string }];
-              logger.debug('Chain switch requested', {
-                chainId: switchParams.chainId,
-                traceId
-              });
-              result = null;
-              break;
-            }
-
-            case 'wallet_addEthereumChain': {
-              // Handle add chain request
-              // For now, just acknowledge - chain already supported
-              const [addChainParams] = request.params as [any];
-              logger.debug('Add chain requested', {
-                chainId: addChainParams.chainId,
-                chainName: addChainParams.chainName,
-                traceId
-              });
-              result = null;
-              break;
-            }
-
-            default:
-              throw new Error(`Unsupported method: ${request.method}`);
+          if (!confirmed) {
+            throw new Error('User rejected request');
           }
 
-          // Send successful response
-          await signClient.respond({
+          // Request signature from backend
+          const { signature } = await walletApi.signWcRequest(
+            userId,
+            topic,
+            id,
+            request.method,
+            request.params,
+            chainId,
+          );
+
+          // Send response
+          await walletKit.respondSessionRequest({
             topic,
             response: {
               id,
               jsonrpc: '2.0',
-              result,
+              result: signature,
             },
           });
 
-          logger.debug('Request handled successfully', {
+          // Track successful signing
+          const signatureDuration = Date.now() - requestStartTime;
+          trackWalletConnectRequestSigned({
+            userId,
+            requestId: id,
+            dappName,
             method: request.method,
-            traceId
+            chainId,
+            signatureDuration,
           });
-          endTimer({ success: true, method: request.method });
+
+          // Request signed successfully
+          metrics.increment('walletconnect.request.success', { method: request.method });
         } catch (err) {
-          logger.error('Request handling failed', err, {
-            method: event.params.request.method,
-            topic: event.topic,
-            traceId
-          });
-          metrics.increment('walletconnect.request.failed', {
-            method: event.params.request.method,
-            reason: err instanceof Error ? err.message : 'unknown'
-          });
-          endTimer({ success: false, method: event.params.request.method });
-          
-          // Send error response
-          await signClient.respond({
+          logger.error('Failed to sign request', err as Error);
+
+          const errorMessage = err instanceof Error ? err.message : 'Failed to sign';
+          const isUserRejection = errorMessage.includes('rejected');
+
+          // Track signing failure
+          if (isUserRejection) {
+            trackWalletConnectRequestRejected({
+              userId,
+              requestId: id,
+              dappName,
+              method: request.method,
+              reason: errorMessage,
+            });
+          } else {
+            trackWalletConnectSigningFailed({
+              userId,
+              requestId: id,
+              dappName,
+              method: request.method,
+              errorMessage,
+            });
+          }
+
+          await walletKit.respondSessionRequest({
             topic,
             response: {
               id,
               jsonrpc: '2.0',
               error: {
                 code: 5000,
-                message: err instanceof Error ? err.message : 'Unknown error',
+                message: errorMessage,
               },
             },
+          });
+          metrics.increment('walletconnect.request.failed', {
+            method: request.method,
+            reason: errorMessage,
           });
         }
       });
 
       // Listen for session delete
-      signClient.on('session_delete', (event) => {
-        logger.info('Session deleted', {
+      walletKit.on('session_delete', async (event) => {
+        // Session deleted - only log errors
+
+        // Get dApp name before deletion
+        const sessions = walletKit.getActiveSessions();
+        const session = sessions[event.topic];
+        const dappName = session?.peer.metadata?.name || 'Unknown';
+
+        // Track session disconnection (initiated by dApp)
+        trackWalletConnectSessionDisconnected({
+          userId,
           topic: event.topic,
-          traceId: getTraceId()
+          dappName,
+          initiatedBy: 'dapp',
         });
+
+        try {
+          await walletApi.disconnectWcSession(userId, event.topic);
+        } catch (err) {
+          logger.warn('Failed to delete session from backend', {
+            error: err instanceof Error ? err.message : 'Unknown error',
+            topic: event.topic,
+          });
+        }
+
+        setSessions(Object.values(walletKit.getActiveSessions()));
         metrics.increment('walletconnect.session.deleted');
-        setSessions(prev => prev.filter(s => s && s.topic && s.topic !== event.topic));
       });
 
-      // Listen for errors and handle them gracefully (non-critical)
-      signClient.core.relayer.on('relayer_error', (error: any) => {
-        logger.debug('Relayer error (non-critical)', { error: error.message });
-      });
     } catch (err) {
-      logger.error('Initialization failed', err, {
-        traceId: getTraceId()
-      });
-      metrics.increment('walletconnect.init.failed');
+      logger.error('WalletKit initialization failed', err);
       setError(err instanceof Error ? err.message : 'Failed to initialize WalletConnect');
       setIsInitializing(false);
-      isInitializingEvmGlobal = false;
+      isInitializingGlobal = false;
+      metrics.increment('walletconnect.init.failed');
     }
   }, [userId]);
 
-  // Auto-initialize only if client is already available (from previous session)
+  // Auto-initialize if client already exists
   useEffect(() => {
     if (!userId) {
       setIsInitializing(false);
       return;
     }
 
-    // If client already exists, just set it
-    if (globalEvmSignClient) {
-      setClient(globalEvmSignClient);
+    if (globalWalletKit) {
+      setClient(globalWalletKit);
       setIsInitializing(false);
-      const existingSessions = globalEvmSignClient.session.getAll();
-      setSessions(
-        existingSessions
-          .filter(s => {
-            if (!s || !s.topic) return false;
-            return s.namespaces?.eip155 !== undefined;
-          })
-          .map(s => ({
-            topic: s.topic,
-            peer: s.peer || { metadata: undefined },
-            namespaces: s.namespaces || {},
-          }))
-      );
+      const existingSessions = globalWalletKit.getActiveSessions();
+      setSessions(Object.values(existingSessions));
     } else {
-      // Don't auto-initialize - wait for explicit initialize() call
       setIsInitializing(false);
     }
   }, [userId]);
 
   const pair = useCallback(async (uri: string) => {
     if (!client) {
-      throw new Error('WalletConnect client not initialized');
+      throw new Error('WalletKit not initialized');
     }
 
     if (!uri.startsWith('wc:')) {
-      throw new Error('Invalid WalletConnect URI. Must start with "wc:"');
+      throw new Error('Invalid WalletConnect URI');
     }
 
     try {
       await client.pair({ uri });
-      logger.info('Paired successfully', { traceId: getTraceId() });
+
+      // Track pairing success
+      trackWalletConnectPairingSuccess({
+        userId: userId || '',
+        method: 'uri',
+      });
+
+      // Paired successfully
       metrics.increment('walletconnect.pair.success');
     } catch (err) {
-      logger.error('Pairing failed', err, { traceId: getTraceId() });
+      logger.error('Pairing failed', err);
       metrics.increment('walletconnect.pair.failed');
       throw err;
     }
@@ -695,67 +470,85 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
 
   const disconnect = useCallback(async (topic: string) => {
     if (!client) {
-      throw new Error('WalletConnect client not initialized');
+      throw new Error('WalletKit not initialized');
     }
 
+    // Get dApp name before disconnection
+    const sessions = client.getActiveSessions();
+    const session = sessions[topic];
+    const dappName = session?.peer.metadata?.name || 'Unknown';
+
     try {
-      await client.disconnect({
+      await client.disconnectSession({
         topic,
         reason: {
           code: 6000,
           message: 'User disconnected',
         },
       });
-      
-      setSessions(prev => prev.filter(s => s.topic !== topic));
-      logger.info('Disconnected successfully', {
+
+      // Track user-initiated disconnection
+      trackWalletConnectSessionDisconnected({
+        userId: userId || '',
         topic,
-        traceId: getTraceId()
+        dappName,
+        initiatedBy: 'user',
       });
+
+      // Also disconnect from backend
+      try {
+        await walletApi.disconnectWcSession(userId || '', topic);
+      } catch (err) {
+        logger.warn('Failed to disconnect from backend', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+          topic,
+        });
+      }
+
+      setSessions(Object.values(client.getActiveSessions()));
+      // Disconnected successfully
       metrics.increment('walletconnect.disconnect.success');
     } catch (err) {
-      logger.error('Disconnect failed', err, {
-        topic,
-        traceId: getTraceId()
-      });
+      logger.error('Disconnect failed', err);
       metrics.increment('walletconnect.disconnect.failed');
       throw err;
     }
-  }, [client]);
+  }, [client, userId]);
 
   const approveSession = useCallback(async (proposalId: number, namespaces: SessionTypes.Namespaces) => {
     if (!client) {
-      throw new Error('WalletConnect client not initialized');
+      throw new Error('WalletKit not initialized');
     }
 
     try {
-      const { topic } = await client.approve({
+      const { topic } = await client.approveSession({
         id: proposalId,
         namespaces,
       });
-      
-      const session = client.session.get(topic);
 
-      setSessions(prev => [...prev, {
-        topic: session.topic,
-        peer: session.peer,
-        namespaces: session.namespaces,
-      }]);
+      const sessions = client.getActiveSessions();
+      const session = sessions[topic];
+      if (session) {
+        await walletApi.saveWcSession(userId || '', session, namespaces);
+      }
+
+      setSessions(Object.values(client.getActiveSessions()));
       metrics.increment('walletconnect.session.approved_manual');
     } catch (err) {
-      logger.error('Approve session failed', err, { proposalId, traceId: getTraceId() });
+      logger.error('Approve session failed', err);
       metrics.increment('walletconnect.session.approve_failed_manual');
       throw err;
     }
-  }, [client]);
+  }, [client, userId]);
 
   const rejectSession = useCallback(async (proposalId: number) => {
     if (!client) {
-      throw new Error('WalletConnect client not initialized');
+      throw new Error('WalletKit not initialized');
     }
 
     try {
-      await client.reject({
+      await walletApi.rejectWcProposal(userId || '', proposalId);
+      await client.rejectSession({
         id: proposalId,
         reason: {
           code: 5000,
@@ -764,11 +557,11 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
       });
       metrics.increment('walletconnect.session.rejected_manual');
     } catch (err) {
-      logger.error('Reject session failed', err, { proposalId, traceId: getTraceId() });
+      logger.error('Reject session failed', err);
       metrics.increment('walletconnect.session.reject_failed');
       throw err;
     }
-  }, [client]);
+  }, [client, userId]);
 
   return {
     client,
@@ -782,4 +575,3 @@ export function useEvmWalletConnect(userId: string | null): UseEvmWalletConnectR
     initialize,
   };
 }
-

@@ -10,7 +10,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useEvmWalletConnect } from '@/hooks/useEvmWalletConnect';
 import { useBrowserFingerprint } from '@/hooks/useBrowserFingerprint';
-import { Loader2, X } from 'lucide-react';
+import { Loader2, X, Plus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -159,7 +159,9 @@ export function EvmWalletConnectModal({ open, onOpenChange }: EvmWalletConnectMo
     try {
       await pair(uriToUse);
       setUriInput('');
-      onOpenChange(false);
+      setShowScanner(false);
+      stopScanner();
+      // Don't close modal - allow connecting multiple dApps
     } catch (err) {
       console.error('Pairing failed:', err);
       setPairError(err instanceof Error ? err.message : 'Connection failed');
@@ -191,7 +193,8 @@ export function EvmWalletConnectModal({ open, onOpenChange }: EvmWalletConnectMo
           <div className="flex flex-col">
             {/* Header */}
             <div className="text-center pt-6 pb-4">
-              <h2 className="text-xl font-semibold text-white">Connect DApp</h2>
+              <h2 className="text-xl font-semibold text-white">Connect Your Tempwallet</h2>
+              <p className="text-sm text-gray-400 mt-2">Scan QR code to connect to a dApp</p>
             </div>
 
             {/* QR Scanner */}
@@ -275,7 +278,7 @@ export function EvmWalletConnectModal({ open, onOpenChange }: EvmWalletConnectMo
         ) : (
           /* Connected Sessions View */
           <div className="p-6 space-y-4">
-            <h2 className="text-xl font-semibold text-white text-center">Connected DApps</h2>
+            <h2 className="text-xl font-semibold text-white text-center">Your Connected dApps</h2>
             
             <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3">
               <p className="text-green-400 font-medium text-sm text-center">
@@ -308,6 +311,95 @@ export function EvmWalletConnectModal({ open, onOpenChange }: EvmWalletConnectMo
                   </div>
                 </div>
               ))}
+
+            {/* Add New Connection Section */}
+            {!showScanner && (
+              <div className="pt-4 border-t border-gray-700">
+                <button
+                  onClick={handleStartScanner}
+                  disabled={isInitializing}
+                  className="w-full py-3 px-4 bg-gray-800/50 border border-gray-700 hover:bg-gray-800/70 disabled:bg-gray-800/20 disabled:cursor-not-allowed rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <Plus className="h-5 w-5 text-gray-400" />
+                  <span className="text-gray-400 text-sm font-medium">
+                    Connect Another dApp
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* Show scanner when adding new connection */}
+            {showScanner && (
+              <>
+                <div className="relative mx-0 mb-4">
+                  <div
+                    id="evm-walletconnect-scanner"
+                    ref={scannerContainerRef}
+                    className="w-full aspect-square rounded-2xl overflow-hidden bg-black"
+                  />
+                  {!isScanning && !cameraError && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 rounded-2xl">
+                      <Loader2 className="h-8 w-8 animate-spin text-white mb-3" />
+                      <p className="text-white text-sm">Starting camera...</p>
+                    </div>
+                  )}
+                  {cameraError && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/90 rounded-2xl p-6">
+                      <p className="text-gray-400 text-center text-sm">{cameraError}</p>
+                    </div>
+                  )}
+                </div>
+
+                {showScanner && <p className="text-center text-gray-400 text-sm py-2">Scan QR to connect</p>}
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Or paste WalletConnect URL"
+                    value={uriInput}
+                    onChange={(e) => {
+                      setUriInput(e.target.value);
+                      setPairError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && uriInput) {
+                        handleConnect();
+                      }
+                    }}
+                    className="w-full px-4 py-3 pr-24 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                  <button
+                    onClick={() => handleConnect()}
+                    disabled={isPairing || !uriInput.trim() || !fingerprint}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium text-white"
+                  >
+                    {isPairing ? (
+                      <span className="flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Connecting
+                      </span>
+                    ) : (
+                      "Connect"
+                    )}
+                  </button>
+                </div>
+                {pairError && (
+                  <p className="text-sm text-red-400 mt-2 text-center">{pairError}</p>
+                )}
+
+                <button
+                  onClick={() => {
+                    setShowScanner(false);
+                    stopScanner();
+                    setUriInput('');
+                    setPairError(null);
+                  }}
+                  className="w-full py-2 px-4 bg-gray-800/50 border border-gray-700 hover:bg-gray-800/70 rounded-xl transition-all text-gray-400 text-sm font-medium mt-2"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
           </div>
         )}
       </DialogContent>

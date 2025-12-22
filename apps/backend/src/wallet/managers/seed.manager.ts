@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import WDK from '@tetherto/wdk';
+import { english, generateMnemonic } from 'viem/accounts';
 import { ISeedManager } from '../interfaces/wallet.interfaces.js';
 import { SeedRepository } from '../seed.repository.js';
 import { validateMnemonic } from '../utils/validation.utils.js';
@@ -17,10 +17,10 @@ export class SeedManager implements ISeedManager {
 
   /**
    * Create a random seed phrase (12 words)
-   * Uses WDK's built-in BIP-39 mnemonic generation
+   * Uses viem's BIP-39 mnemonic generation
    */
   createRandomSeed(): string {
-    const seedPhrase = WDK.getRandomSeedPhrase();
+    const seedPhrase = generateMnemonic(english);
     this.logger.log('Generated random seed phrase (12 words)');
     return seedPhrase;
   }

@@ -14,7 +14,7 @@ import {
   type WalletClient,
 } from 'viem';
 import { mnemonicToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { base, mainnet, polygon, arbitrum } from 'viem/chains';
+import { base, arbitrum } from 'viem/chains';
 import {
   NitroliteClient,
   type MainWallet,
@@ -34,6 +34,7 @@ import type {
 } from './dto/index.js';
 import { SeedRepository } from '../wallet/seed.repository.js';
 import { WalletService } from '../wallet/wallet.service.js';
+import { PimlicoConfigService } from '../wallet/config/pimlico.config.js';
 
 // Note: This codebase uses WalletAddress model, not TempWallet
 // "tempwallet" refers to the wallet address concept
@@ -48,29 +49,12 @@ export class LightningNodeService {
   // Cache for user NitroliteClients (to avoid recreating for each request)
   private userClients: Map<string, NitroliteClient> = new Map();
 
-  // Normal EOA chains (have private keys, can sign)
-  private readonly EOA_CHAINS = [
-    'ethereum',
-    'base',
-    'arbitrum',
-    'polygon',
-    'avalanche',
-  ];
-
-  // ERC-4337 chains (smart contract accounts, need parent EOA for signing)
-  private readonly ERC4337_CHAINS = [
-    'ethereumErc4337',
-    'baseErc4337',
-    'arbitrumErc4337',
-    'polygonErc4337',
-    'avalancheErc4337',
-  ];
-
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
     private seedRepository: SeedRepository,
     private walletService: WalletService,
+    private pimlicoConfig: PimlicoConfigService,
   ) {
     this.wsUrl = this.configService.get<string>('YELLOW_NETWORK_WS_URL') || '';
     if (!this.wsUrl) {
@@ -93,6 +77,14 @@ export class LightningNodeService {
     // Map chain name to the base chain (e.g., 'base' -> 'base', 'baseErc4337' -> 'base')
     const baseChain = this.getBaseChainName(chainName);
 
+    // Lightning Node requires direct EOA signing. If EIP-7702 is enabled, log and proceed with the raw EOA.
+    if (this.pimlicoConfig.isEip7702Enabled(baseChain)) {
+      this.logger.warn(
+        `EIP-7702 is enabled on ${baseChain}, but Lightning Node requires direct EOA signing. ` +
+          `Proceeding with the EOA (no delegation/UserOp).`,
+      );
+    }
+
     // IMPORTANT: Use WalletService.getAddresses() which auto-creates wallet if needed
     // This works for both temp users (WalletSeed) and authenticated users (Wallet table)
     this.logger.debug(`Ensuring wallet exists for user ${userId}...`);
@@ -102,24 +94,10 @@ export class LightningNodeService {
       Object.keys(allAddresses),
     );
 
-    // Get address for the requested chain directly from the addresses object
-    // Try base chain first (e.g., 'base')
-    let walletAddress = allAddresses[baseChain as keyof typeof allAddresses];
-    let isEOA = true;
-    let chainKey = baseChain;
-
-    // If base chain not found, try ERC-4337 variant (e.g., 'baseErc4337')
-    if (!walletAddress) {
-      const erc4337Chain = `${baseChain}Erc4337`;
-      walletAddress = allAddresses[erc4337Chain as keyof typeof allAddresses];
-      if (walletAddress) {
-        isEOA = false;
-        chainKey = erc4337Chain;
-        this.logger.debug(
-          `Using ERC-4337 wallet for ${chainName}. Will use parent EOA for signing.`,
-        );
-      }
-    }
+    // Get address for the requested chain directly from the addresses object (EOA only)
+    const walletAddress = allAddresses[baseChain as keyof typeof allAddresses];
+    const isEOA = true;
+    const chainKey = baseChain;
 
     if (!walletAddress) {
       // List available chains for better error message
@@ -128,14 +106,14 @@ export class LightningNodeService {
         .join(', ');
 
       throw new NotFoundException(
-        `No wallet address found for chain "${chainName}" (tried ${baseChain} and ${baseChain}Erc4337). ` +
+        `No wallet address found for chain "${chainName}" (tried ${baseChain}). ` +
           `Available chains: ${availableChains || 'none'}. ` +
           `Please select a different chain or refresh your wallet to generate addresses for this chain.`,
       );
     }
 
     this.logger.debug(
-      `Found wallet address ${walletAddress} for user ${userId} on ${chainKey} (${isEOA ? 'EOA' : 'ERC-4337'})`,
+      `Found wallet address ${walletAddress} for user ${userId} on ${chainKey} (EOA)`,
     );
 
     return {
@@ -211,16 +189,12 @@ export class LightningNodeService {
 
   /**
    * Get viem chain from chain name
+   * Supported networks: base, arbitrum
    */
   private getChain(chainName: string) {
     switch (chainName.toLowerCase()) {
       case 'base':
         return base;
-      case 'ethereum':
-      case 'mainnet':
-        return mainnet;
-      case 'polygon':
-        return polygon;
       case 'arbitrum':
         return arbitrum;
       default:
@@ -230,16 +204,12 @@ export class LightningNodeService {
 
   /**
    * Get default RPC URL for chain
+   * Supported networks: base, arbitrum
    */
   private getDefaultRpcUrl(chainName: string): string {
     switch (chainName.toLowerCase()) {
       case 'base':
         return 'https://mainnet.base.org';
-      case 'ethereum':
-      case 'mainnet':
-        return 'https://eth.llamarpc.com';
-      case 'polygon':
-        return 'https://polygon-rpc.com';
       case 'arbitrum':
         return 'https://arb1.arbitrum.io/rpc';
       default:
@@ -375,8 +345,21 @@ export class LightningNodeService {
       // Ensure a User row exists for FK constraint (temp users don't live in User table by default)
       await this.ensureUserRecord(dto.userId);
 
+      // Validate chain is provided and supported
+      if (!dto.chain) {
+        throw new BadRequestException(
+          'Chain is required. Please select either "base" or "arbitrum".',
+        );
+      }
+
+      const chainName = dto.chain.toLowerCase();
+      if (chainName !== 'base' && chainName !== 'arbitrum') {
+        throw new BadRequestException(
+          `Unsupported chain: ${dto.chain}. Only "base" and "arbitrum" are supported.`,
+        );
+      }
+
       // Get user's wallet address for the chain
-      const chainName = dto.chain || 'base';
       const {
         address: userWalletAddress,
         isEOA,
@@ -472,6 +455,18 @@ export class LightningNodeService {
       });
 
       const appSessionId = appSession.app_session_id;
+      
+      // Validate appSessionId is present and valid
+      if (!appSessionId || typeof appSessionId !== 'string') {
+        this.logger.error(
+          `Failed to create app session: app_session_id is missing or invalid`,
+          { appSession },
+        );
+        throw new BadRequestException(
+          'Failed to create app session: Yellow Network did not return a valid session ID',
+        );
+      }
+
       this.logger.log(
         `✅ App session created on Yellow Network: ${appSessionId}`,
       );
@@ -507,7 +502,7 @@ export class LightningNodeService {
           userId: dto.userId,
           appSessionId,
           uri,
-          chain: dto.chain || 'base',
+          chain: chainName,
           token: dto.token,
           status: appSession.status,
           maxParticipants: 50,
@@ -591,7 +586,13 @@ export class LightningNodeService {
     this.logger.log(`[AUTH] Authenticating wallet for user ${dto.userId}`);
 
     try {
-      const chainName = dto.chain || 'base';
+      // Validate chain if provided, otherwise default to base
+      let chainName = dto.chain ? dto.chain.toLowerCase() : 'base';
+      if (chainName !== 'base' && chainName !== 'arbitrum') {
+        throw new BadRequestException(
+          `Unsupported chain: ${dto.chain}. Only "base" and "arbitrum" are supported.`,
+        );
+      }
 
       // Get user's wallet address for the chain
       const {
@@ -662,14 +663,14 @@ export class LightningNodeService {
       const appSessionId = this.parseSessionIdFromInput(dto.sessionId);
 
       // Try to find session in local DB first (for chain info)
-      let chainName = dto.chain || 'base';
+      let chainName = dto.chain ? dto.chain.toLowerCase() : 'base';
       const localSession = await this.prisma.lightningNode.findUnique({
         where: { appSessionId },
         include: { participants: true },
       });
 
       if (localSession) {
-        chainName = localSession.chain;
+        chainName = localSession.chain.toLowerCase();
         this.logger.log(
           `[SEARCH] Found session in local DB, using chain: ${chainName}`,
         );

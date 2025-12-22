@@ -77,7 +77,10 @@ export function WalletDataProvider({
   const transactionsRequestRef = useRef<Promise<void> | null>(null);
 
   // Fetch balances
-  const fetchBalances = useCallback(async (showLoading: boolean = false): Promise<void> => {
+  const fetchBalances = useCallback(async (
+    showLoading: boolean = false,
+    forceRefresh: boolean = false,
+  ): Promise<void> => {
     if (!fingerprint) {
       setBalances([]);
       setLoading((prev) => ({ ...prev, balances: false }));
@@ -142,7 +145,7 @@ export function WalletDataProvider({
     const fetchPromise = (async () => {
       try {
         // Fetch EVM and other chain assets
-        const assets = await walletApi.getAssetsAny(fingerprint);
+  const assets = await walletApi.getAssetsAny(fingerprint, forceRefresh);
 
         // Fetch Substrate balances
         let substrateBalances: Record<string, {
@@ -410,7 +413,7 @@ export function WalletDataProvider({
     clearAllCache(fingerprint);
 
     // Fetch both in parallel with loading indicators (manual refresh)
-    await Promise.all([fetchBalances(true), fetchTransactions(true)]);
+    await Promise.all([fetchBalances(true, true), fetchTransactions(true)]);
   }, [fingerprint, fetchBalances, fetchTransactions]);
 
   // Refresh balances only
@@ -423,7 +426,7 @@ export function WalletDataProvider({
     localStorage.removeItem(`${balanceCacheKey}_timestamp`);
 
     // Fetch balances with loading indicator (manual refresh)
-    await fetchBalances(true);
+    await fetchBalances(true, true);
   }, [fingerprint, fetchBalances]);
 
   // Refresh transactions only

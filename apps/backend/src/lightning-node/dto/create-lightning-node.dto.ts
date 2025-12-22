@@ -24,7 +24,7 @@ export class CreateLightningNodeDto {
   @ArrayMinSize(0, { message: 'Participants must be a valid array' })
   @ArrayMaxSize(50, { message: 'Maximum 50 participants allowed' })
   @IsString({ each: true })
-  participants?: string[]; // Ethereum addresses (optional - creator will be added automatically)
+  participants?: string[]; // EVM addresses (optional - creator will be added automatically)
 
   @IsArray()
   @IsOptional()
@@ -41,8 +41,8 @@ export class CreateLightningNodeDto {
   token: string; // USDC, USDT, etc.
 
   @IsString()
-  @IsOptional()
-  chain?: string; // ethereum, base, polygon (optional, defaults to user preference)
+  @IsNotEmpty()
+  chain: string; // base, arbitrum (required - user must select)
 
   @IsOptional()
   @Type(() => InitialAllocationDto)

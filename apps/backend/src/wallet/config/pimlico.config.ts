@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { entryPoint08Address } from 'viem/account-abstraction';
 import { Erc4337Config } from '../types/chain.types.js';
 
 /**
@@ -37,12 +38,12 @@ export class PimlicoConfigService {
           'ethereum',
         ),
         bundlerUrl: apiKey
-          ? `https://api.pimlico.io/v2/ethereum/rpc?apikey=${apiKey}`
-          : 'https://api.pimlico.io/v2/ethereum/rpc',
+          ? `https://api.pimlico.io/v2/1/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/1/rpc',
         paymasterUrl: apiKey
-          ? `https://api.pimlico.io/v2/ethereum/rpc?apikey=${apiKey}`
+          ? `https://api.pimlico.io/v2/1/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032', // v0.7
+  entryPointAddress: entryPoint08Address, // v0.8 for EIP-7702
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497', // Pimlico Safe factory
       },
       base: {
@@ -53,12 +54,12 @@ export class PimlicoConfigService {
           'base',
         ),
         bundlerUrl: apiKey
-          ? `https://api.pimlico.io/v2/base/rpc?apikey=${apiKey}`
-          : 'https://api.pimlico.io/v2/base/rpc',
+          ? `https://api.pimlico.io/v2/8453/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/8453/rpc',
         paymasterUrl: apiKey
-          ? `https://api.pimlico.io/v2/base/rpc?apikey=${apiKey}`
+          ? `https://api.pimlico.io/v2/8453/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+  entryPointAddress: entryPoint08Address,
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       arbitrum: {
@@ -69,12 +70,12 @@ export class PimlicoConfigService {
           'arbitrum',
         ),
         bundlerUrl: apiKey
-          ? `https://api.pimlico.io/v2/arbitrum/rpc?apikey=${apiKey}`
-          : 'https://api.pimlico.io/v2/arbitrum/rpc',
+          ? `https://api.pimlico.io/v2/42161/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/42161/rpc',
         paymasterUrl: apiKey
-          ? `https://api.pimlico.io/v2/arbitrum/rpc?apikey=${apiKey}`
+          ? `https://api.pimlico.io/v2/42161/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+  entryPointAddress: entryPoint08Address,
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       polygon: {
@@ -85,10 +86,10 @@ export class PimlicoConfigService {
           'polygon',
         ),
         bundlerUrl: apiKey
-          ? `https://api.pimlico.io/v2/polygon/rpc?apikey=${apiKey}`
-          : 'https://api.pimlico.io/v2/polygon/rpc',
+          ? `https://api.pimlico.io/v2/137/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/137/rpc',
         paymasterUrl: apiKey
-          ? `https://api.pimlico.io/v2/polygon/rpc?apikey=${apiKey}`
+          ? `https://api.pimlico.io/v2/137/rpc?apikey=${apiKey}`
           : undefined,
         entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
@@ -101,10 +102,10 @@ export class PimlicoConfigService {
           'avalanche',
         ),
         bundlerUrl: apiKey
-          ? `https://api.pimlico.io/v2/avalanche/rpc?apikey=${apiKey}`
-          : 'https://api.pimlico.io/v2/avalanche/rpc',
+          ? `https://api.pimlico.io/v2/43114/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/43114/rpc',
         paymasterUrl: apiKey
-          ? `https://api.pimlico.io/v2/avalanche/rpc?apikey=${apiKey}`
+          ? `https://api.pimlico.io/v2/43114/rpc?apikey=${apiKey}`
           : undefined,
         entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
@@ -137,6 +138,130 @@ export class PimlicoConfigService {
   hasPimlicoApiKey(): boolean {
     const apiKey = this.getPimlicoApiKey();
     return apiKey.length > 0;
+  }
+
+  /**
+   * EIP-7702 enablement guard per chain name (AllChainTypes string)
+   */
+  isEip7702Enabled(chain: string): boolean {
+    const enabled = this.configService.get<string>('ENABLE_EIP7702') === 'true';
+    if (!enabled) return false;
+    const supportedChains =
+      this.configService.get<string>('EIP7702_CHAINS')?.split(',') || [];
+    return supportedChains.includes(chain);
+  }
+
+  getEip7702DelegationAddress(): string {
+    return (
+      this.configService.get<string>('EIP7702_DELEGATION_ADDRESS') ||
+      '0xe6Cae83BdE06E4c305530e199D7217f42808555B'
+    );
+  }
+
+  getEip7702Config(
+    chain:
+      | 'ethereum'
+      | 'sepolia'
+      | 'base'
+      | 'arbitrum'
+      | 'optimism'
+      | 'polygon'
+      | 'bnb'
+      | 'avalanche',
+  ) {
+    const chainIds: Record<string, number> = {
+      ethereum: 1,
+      sepolia: 11155111,
+      base: 8453,
+      arbitrum: 42161,
+      optimism: 10,
+      polygon: 137,
+      bnb: 56,
+      avalanche: 43114,
+    };
+
+    const chainId = chainIds[chain];
+    if (!chainId) {
+      throw new Error(`Unsupported EIP-7702 chain: ${chain}`);
+    }
+
+    const apiKey = this.getPimlicoApiKey();
+    const bundlerBase = `https://api.pimlico.io/v2/${chainId}/rpc`;
+
+    // ✅ FIX: Always provide paymaster URL for sponsored transactions
+    // If no API key, still provide URL (may work for some networks)
+    const paymasterUrl = apiKey
+      ? `${bundlerBase}?apikey=${apiKey}`
+      : bundlerBase;
+
+    this.logger.log(`[Pimlico Config] EIP-7702 config for ${chain}:`, {
+      chainId,
+      bundlerUrl: apiKey ? `${bundlerBase}?apikey=${apiKey}` : bundlerBase,
+      paymasterUrl,
+      delegationAddress: this.getEip7702DelegationAddress(),
+      hasApiKey: !!apiKey,
+    });
+
+    return {
+      chainId,
+      bundlerUrl: apiKey ? `${bundlerBase}?apikey=${apiKey}` : bundlerBase,
+      paymasterUrl, // ✅ Always provide paymaster URL for sponsorship
+      delegationAddress: this.getEip7702DelegationAddress(),
+      // Use entry point 0.8 for EIP-7702 (required by to7702SimpleSmartAccount)
+      // Paymaster works via direct pimlico client integration
+      entryPointAddress: entryPoint08Address, // Entry Point v0.8
+    };
+  }
+
+  /**
+   * Validate EIP-7702 support for a specific chain
+   * Checks if delegation contract exists and bundler is accessible
+   */
+  async validateEip7702Support(
+    chain:
+      | 'ethereum'
+      | 'sepolia'
+      | 'base'
+      | 'arbitrum'
+      | 'optimism'
+      | 'polygon'
+      | 'bnb'
+      | 'avalanche',
+  ): Promise<{
+    supported: boolean;
+    errors: string[];
+    config?: ReturnType<PimlicoConfigService['getEip7702Config']>;
+  }> {
+    const errors: string[] = [];
+
+    try {
+      const config = this.getEip7702Config(chain);
+
+      // Check if API key is configured (recommended but not always required)
+      if (!this.hasPimlicoApiKey()) {
+        errors.push(
+          'PIMLICO_API_KEY not configured. Sponsored transactions may not work.',
+        );
+      }
+
+      // Note: We can't check delegation contract or bundler here without
+      // creating clients, which would require chain config. This validation
+      // is done in the factory's createAccount method instead.
+
+      return {
+        supported: errors.length === 0,
+        errors,
+        config,
+      };
+    } catch (error) {
+      errors.push(
+        error instanceof Error ? error.message : 'Unknown validation error',
+      );
+      return {
+        supported: false,
+        errors,
+      };
+    }
   }
 
   /**

@@ -16,6 +16,9 @@ export class ChainConfigService {
   getEvmChainConfig(
     chain:
       | 'ethereum'
+  | 'sepolia'
+  | 'optimism'
+  | 'bnb'
       | 'base'
       | 'arbitrum'
       | 'polygon'
@@ -41,6 +44,45 @@ export class ChainConfigService {
           decimals: 18,
         },
         blockExplorer: 'https://etherscan.io',
+      },
+      sepolia: {
+        chainId: 11155111,
+        name: 'Sepolia',
+        rpcUrl:
+          this.configService.get<string>('SEPOLIA_RPC_URL') ||
+          'https://rpc.sepolia.org',
+        nativeCurrency: {
+          name: 'Ether',
+          symbol: 'ETH',
+          decimals: 18,
+        },
+        blockExplorer: 'https://sepolia.etherscan.io',
+      },
+      optimism: {
+        chainId: 10,
+        name: 'Optimism',
+        rpcUrl:
+          this.configService.get<string>('OPTIMISM_RPC_URL') ||
+          'https://mainnet.optimism.io',
+        nativeCurrency: {
+          name: 'Ether',
+          symbol: 'ETH',
+          decimals: 18,
+        },
+        blockExplorer: 'https://optimistic.etherscan.io',
+      },
+      bnb: {
+        chainId: 56,
+        name: 'BNB Smart Chain',
+        rpcUrl:
+          this.configService.get<string>('BSC_RPC_URL') ||
+          'https://bsc-dataseed.binance.org',
+        nativeCurrency: {
+          name: 'BNB',
+          symbol: 'BNB',
+          decimals: 18,
+        },
+        blockExplorer: 'https://bscscan.com',
       },
       base: {
         chainId: 8453,
@@ -219,6 +261,9 @@ export class ChainConfigService {
   getAllEvmChainConfigs(): Record<string, EvmChainConfig> {
     return {
       ethereum: this.getEvmChainConfig('ethereum'),
+      sepolia: this.getEvmChainConfig('sepolia'),
+      optimism: this.getEvmChainConfig('optimism'),
+      bnb: this.getEvmChainConfig('bnb'),
       base: this.getEvmChainConfig('base'),
       arbitrum: this.getEvmChainConfig('arbitrum'),
       polygon: this.getEvmChainConfig('polygon'),
@@ -239,6 +284,9 @@ export class ChainConfigService {
   isEvmChain(chain: string): boolean {
     return [
       'ethereum',
+      'sepolia',
+      'optimism',
+      'bnb',
       'base',
       'arbitrum',
       'polygon',

@@ -27,16 +27,19 @@ export class CreateOrImportSeedDto {
 }
 
 const SUPPORTED_CHAINS = [
+  // EVM L1/L2
   'ethereum',
+  'base',
+  'arbitrum',
+  'optimism',
+  'polygon',
+  'avalanche',
+  'sepolia',
+  'bnb',
+  // Non-EVM
   'tron',
   'bitcoin',
   'solana',
-  'avalanche',
-  'ethereumErc4337',
-  'baseErc4337',
-  'arbitrumErc4337',
-  'polygonErc4337',
-  'avalancheErc4337',
 ] as const;
 
 export class SendCryptoDto {
@@ -53,9 +56,12 @@ export class SendCryptoDto {
   tokenAddress?: string;
 
   @IsNumber()
-  @IsOptional()
-  @Min(0)
-  @Max(36)
+  @ValidateIf((o) => o.tokenAddress !== undefined && o.tokenAddress !== null)
+  @IsNotEmpty({
+    message: 'tokenDecimals is required when tokenAddress is provided. This should come from Zerion token data.'
+  })
+  @Min(0, { message: 'tokenDecimals must be between 0 and 36' })
+  @Max(36, { message: 'tokenDecimals must be between 0 and 36' })
   tokenDecimals?: number;
 
   @IsString()
@@ -68,6 +74,40 @@ export class SendCryptoDto {
   @IsString()
   @IsNotEmpty()
   recipientAddress: string;
+}
+
+export class SendEip7702Dto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsNumber()
+  @Min(1)
+  chainId: number;
+
+  @IsString()
+  @IsNotEmpty()
+  recipientAddress: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[0-9]+(\.[0-9]+)?$/, {
+    message: 'Amount must be a positive number',
+  })
+  amount: string;
+
+  @IsString()
+  @IsOptional()
+  tokenAddress?: string;
+
+  @IsNumber()
+  @ValidateIf((o) => o.tokenAddress !== undefined && o.tokenAddress !== null)
+  @IsNotEmpty({
+    message: 'tokenDecimals is required when tokenAddress is provided. This should come from Zerion token data.'
+  })
+  @Min(0, { message: 'tokenDecimals must be between 0 and 36' })
+  @Max(36, { message: 'tokenDecimals must be between 0 and 36' })
+  tokenDecimals?: number;
 }
 
 export class WalletConnectSignDto {

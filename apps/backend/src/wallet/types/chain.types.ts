@@ -14,6 +14,9 @@ export type SubstrateChain =
  */
 export type ChainType =
   | 'ethereum'
+  | 'sepolia'
+  | 'optimism'
+  | 'bnb'
   | 'base'
   | 'arbitrum'
   | 'polygon'
@@ -30,22 +33,9 @@ export type ChainType =
   | 'bifrostTestnet';
 
 /**
- * EVM-compatible chains that support ERC-4337
+ * All chain types including Substrate chains
  */
-export type Erc4337Chain =
-  | 'ethereum'
-  | 'base'
-  | 'arbitrum'
-  | 'polygon'
-  | 'avalanche';
-
-/**
- * All chain types including ERC-4337 variants and Substrate chains
- */
-export type AllChainTypes =
-  | ChainType
-  | `${Erc4337Chain}Erc4337`
-  | SubstrateChain;
+export type AllChainTypes = ChainType | SubstrateChain;
 
 /**
  * Chain configuration for EVM chains
@@ -83,6 +73,9 @@ export const NATIVE_TOKENS: Record<
   { symbol: string; decimals: number }
 > = {
   ethereum: { symbol: 'ETH', decimals: 18 },
+  sepolia: { symbol: 'ETH', decimals: 18 },
+  optimism: { symbol: 'ETH', decimals: 18 },
+  bnb: { symbol: 'BNB', decimals: 18 },
   base: { symbol: 'ETH', decimals: 18 },
   arbitrum: { symbol: 'ETH', decimals: 18 },
   polygon: { symbol: 'MATIC', decimals: 18 },

@@ -9,10 +9,12 @@ import {
 import { AllChainTypes } from '../types/chain.types.js';
 import { SeedManager } from './seed.manager.js';
 import { AccountFactory } from '../factories/account.factory.js';
-import { PimlicoAccountFactory } from '../factories/pimlico-account.factory.js';
+import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
+import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
 import { SubstrateManager } from '../substrate/managers/substrate.manager.js';
 import { AddressCacheRepository } from '../repositories/address-cache.repository.js';
 import { AptosAddressManager } from '../aptos/managers/aptos-address.manager.js';
+import { PimlicoConfigService } from '../config/pimlico.config.js';
 
 /**
  * Address Manager
@@ -48,14 +50,6 @@ export class AddressManager implements IAddressManager {
     'bifrostTestnet',
   ];
 
-  private readonly erc4337Chains: WalletAddressKey[] = [
-    'ethereumErc4337',
-    'baseErc4337',
-    'arbitrumErc4337',
-    'polygonErc4337',
-    'avalancheErc4337',
-  ];
-
   private readonly nonEvmChains: WalletAddressKey[] = [
     'tron',
     'bitcoin',
@@ -65,11 +59,13 @@ export class AddressManager implements IAddressManager {
   constructor(
     private seedManager: SeedManager,
     private accountFactory: AccountFactory,
-    private pimlicoAccountFactory: PimlicoAccountFactory,
+    private nativeEoaFactory: NativeEoaFactory,
+    private eip7702AccountFactory: Eip7702AccountFactory,
     @Inject(forwardRef(() => SubstrateManager))
     private substrateManager: SubstrateManager,
     private addressCacheRepository: AddressCacheRepository,
     private aptosAddressManager: AptosAddressManager,
+    private pimlicoConfig: PimlicoConfigService,
   ) {}
 
   /**
@@ -142,22 +138,39 @@ export class AddressManager implements IAddressManager {
     const addressesToSave: Record<string, string> = {};
 
     // EOA chains
-    const eoaChains: AllChainTypes[] = [
-      'ethereum',
-      'base',
-      'arbitrum',
-      'polygon',
-      'avalanche',
-      'moonbeamTestnet',
-      'astarShibuya',
-      'paseoPassetHub',
-      'tron',
-      'bitcoin',
-      'solana',
-    ];
+    const evmChains: Array<
+      'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche' | 'sepolia'
+    > = ['ethereum', 'base', 'arbitrum', 'polygon', 'avalanche'];
 
-    for (const chain of eoaChains) {
-      // Skip if already cached
+    for (const chain of evmChains) {
+      if (addresses[chain]) {
+        continue;
+      }
+
+      try {
+        // Use EIP-7702 factory for enabled chains (same address as EOA), else native EOA
+        const useEip7702 =
+          this.pimlicoConfig.isEip7702Enabled(chain) &&
+          (chain === 'ethereum' || chain === 'sepolia');
+        const account = useEip7702
+          ? await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'sepolia', 0)
+          : await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
+
+        const address = await account.getAddress();
+        addresses[chain] = address as any;
+        addressesToSave[chain] = address as string;
+        await this.addressCacheRepository.saveAddress(userId, chain, address);
+      } catch (error) {
+        this.logger.error(
+          `Error getting EVM address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        addresses[chain] = null as any;
+      }
+    }
+
+    // Non-EVM chains via WDK factories
+    const nonEvmChains: AllChainTypes[] = ['tron', 'bitcoin', 'solana'];
+    for (const chain of nonEvmChains) {
       if (addresses[chain as keyof WalletAddresses]) {
         continue;
       }
@@ -171,53 +184,12 @@ export class AddressManager implements IAddressManager {
         const address = await account.getAddress();
         addresses[chain as keyof WalletAddresses] = address;
         addressesToSave[chain] = address;
-        // Save to database immediately
         await this.addressCacheRepository.saveAddress(userId, chain, address);
       } catch (error) {
         this.logger.error(
-          `Error getting EOA address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `Error getting non-EVM address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         addresses[chain as keyof WalletAddresses] = null as any;
-      }
-    }
-
-    // ERC-4337 smart accounts
-    const erc4337Chains: (
-      | 'ethereum'
-      | 'base'
-      | 'arbitrum'
-      | 'polygon'
-      | 'avalanche'
-    )[] = ['ethereum', 'base', 'arbitrum', 'polygon', 'avalanche'];
-
-    for (const chain of erc4337Chains) {
-      const chainKey = `${chain}Erc4337` as keyof WalletAddresses;
-
-      // Skip if already cached
-      if (addresses[chainKey]) {
-        continue;
-      }
-
-      try {
-        const account = await this.pimlicoAccountFactory.createAccount(
-          seedPhrase,
-          chain,
-          0,
-        );
-        const address = await account.getAddress();
-        addresses[chainKey] = address;
-        addressesToSave[chainKey] = address;
-        // Save to database immediately
-        await this.addressCacheRepository.saveAddress(
-          userId,
-          chainKey,
-          address,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Error getting ERC-4337 address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        addresses[chainKey] = null as any;
       }
     }
 
@@ -443,32 +415,28 @@ export class AddressManager implements IAddressManager {
       }
     }
 
-    // Process ERC-4337 chains
-    const erc4337Chains: {
-      name: string;
-      chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche';
-    }[] = [
-      { name: 'ethereumErc4337', chain: 'ethereum' },
-      { name: 'baseErc4337', chain: 'base' },
-      { name: 'arbitrumErc4337', chain: 'arbitrum' },
-      { name: 'polygonErc4337', chain: 'polygon' },
-      { name: 'avalancheErc4337', chain: 'avalanche' },
+    // Process EVM chains (native/EIP-7702)
+    const evmChains: { name: WalletAddressKey; chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche' | 'sepolia' }[] = [
+      { name: 'ethereum', chain: 'ethereum' },
+      { name: 'base', chain: 'base' },
+      { name: 'arbitrum', chain: 'arbitrum' },
+      { name: 'polygon', chain: 'polygon' },
+      { name: 'avalanche', chain: 'avalanche' },
     ];
 
-    for (const { name, chain } of erc4337Chains) {
-      // Skip if already cached
+    for (const { name, chain } of evmChains) {
       if (cachedAddresses[name]) {
         continue;
       }
 
       try {
-        const account = await this.pimlicoAccountFactory.createAccount(
-          seedPhrase,
-          chain,
-          0,
-        );
+        const useEip7702 =
+          this.pimlicoConfig.isEip7702Enabled(chain) &&
+          (chain === 'ethereum' || chain === 'sepolia');
+        const account = useEip7702
+          ? await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'sepolia', 0)
+          : await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
         const address = await account.getAddress();
-        // Save to database BEFORE streaming
         await this.addressCacheRepository.saveAddress(userId, name, address);
         yield { chain: name, address };
       } catch (error) {
@@ -669,7 +637,6 @@ export class AddressManager implements IAddressManager {
     ];
     substrateChains.forEach((chain) => assign(chain, 'substrate', true));
 
-    this.erc4337Chains.forEach((chain) => assign(chain, 'erc4337', true));
     this.nonEvmChains.forEach((chain) => assign(chain, 'nonEvm', true));
 
     // Aptos chains (visible)
@@ -704,11 +671,6 @@ export class AddressManager implements IAddressManager {
       unique: 'Unique',
       bifrost: 'Bifrost Mainnet',
       bifrostTestnet: 'Bifrost Testnet',
-      ethereumErc4337: 'Ethereum Smart Account',
-      baseErc4337: 'Base Smart Account',
-      arbitrumErc4337: 'Arbitrum Smart Account',
-      polygonErc4337: 'Polygon Smart Account',
-      avalancheErc4337: 'Avalanche Smart Account',
       // Substrate chains
       polkadot: 'Polkadot',
       hydrationSubstrate: 'Hydration (Substrate)',
@@ -754,12 +716,6 @@ export class AddressManager implements IAddressManager {
       'unique',
       'bifrost',
       'bifrostTestnet',
-      // ERC-4337 chains
-      'ethereumErc4337',
-      'baseErc4337',
-      'arbitrumErc4337',
-      'polygonErc4337',
-      'avalancheErc4337',
       // Substrate chains
       'polkadot',
       'hydrationSubstrate',
@@ -823,11 +779,6 @@ export class AddressManager implements IAddressManager {
       'unique',
       'bifrost',
       'bifrostTestnet',
-      'ethereumErc4337',
-      'baseErc4337',
-      'arbitrumErc4337',
-      'polygonErc4337',
-      'avalancheErc4337',
       // Aptos chains
       'aptos',
       'aptosMainnet',

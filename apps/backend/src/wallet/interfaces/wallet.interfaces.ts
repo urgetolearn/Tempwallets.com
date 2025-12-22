@@ -24,11 +24,6 @@ export interface WalletAddresses {
   unique: string;
   bifrost: string;
   bifrostTestnet: string;
-  ethereumErc4337: string;
-  baseErc4337: string;
-  arbitrumErc4337: string;
-  polygonErc4337: string;
-  avalancheErc4337: string;
   // Substrate/Polkadot chains (can be null if not derived)
   polkadot: string | null;
   hydrationSubstrate: string | null; // Note: Different from EVM hydration
@@ -77,11 +72,11 @@ export interface SmartAccountSummary {
     | null;
   address: string | null;
   chains: Record<
-    | 'ethereumErc4337'
-    | 'baseErc4337'
-    | 'arbitrumErc4337'
-    | 'polygonErc4337'
-    | 'avalancheErc4337',
+    | 'ethereum'
+    | 'base'
+    | 'arbitrum'
+    | 'polygon'
+    | 'avalanche',
     string | null
   >;
 }
@@ -184,6 +179,7 @@ export interface ITransactionManager {
     amount: string,
     tokenAddress?: string,
     tokenDecimals?: number,
+    options?: { forceEip7702?: boolean },
   ): Promise<{ txHash: string }>;
 
   signWalletConnectTransaction(

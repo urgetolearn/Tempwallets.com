@@ -41,6 +41,7 @@ export interface TokenBalance {
   symbol: string;
   balance: string;
   decimals: number;
+  chain?: string; // Optional chain field for multi-chain token support
 }
 
 // Any-chain aggregated asset returned by backend /wallet/assets-any
@@ -158,7 +159,7 @@ export interface CreateLightningNodeRequest {
   userId: string;
   participants?: string[]; // Optional wallet addresses (creator added automatically)
   token: string; // e.g., 'USDC'
-  chain?: string; // e.g., 'base', 'ethereum'
+  chain: string; // Required: 'base' or 'arbitrum'
   weights?: number[]; // Optional custom weights
   quorum?: number; // Optional quorum (default: 50)
   sessionData?: string; // Optional metadata
@@ -434,8 +435,9 @@ export const walletApi = {
   /**
    * Get aggregated assets (any-chain) for primary addresses (EOA, ERC-4337, Solana)
    */
-  async getAssetsAny(userId: string): Promise<AnyChainAsset[]> {
-    return fetchApi<AnyChainAsset[]>(`/wallet/assets-any?userId=${encodeURIComponent(userId)}`);
+  async getAssetsAny(userId: string, refresh: boolean = false): Promise<AnyChainAsset[]> {
+    const refreshParam = refresh ? '&refresh=true' : '';
+    return fetchApi<AnyChainAsset[]>(`/wallet/assets-any?userId=${encodeURIComponent(userId)}${refreshParam}`);
   },
 
   /**
@@ -696,34 +698,203 @@ export const walletApi = {
   },
 
   /**
-   * Get EVM WalletConnect accounts (CAIP-10 formatted)
+   * Get EIP-7702 WalletConnect accounts (CAIP-10 formatted)
+   * Uses new unified walletconnect endpoint
    */
   async getEvmWalletConnectAccounts(
     userId: string,
     useTestnet: boolean = false,
   ): Promise<{
-    userId: string;
-    useTestnet: boolean;
     accounts: Array<{
       accountId: string; // CAIP-10 format: eip155:<chain_id>:<address>
-      chainId: string;
+      chainId: number;
       address: string;
       chainName: string; // Internal chain name (ethereum, base, etc.)
     }>;
+    metadata: {
+      name: string;
+      description: string;
+      url: string;
+      icons: string[];
+    };
   }> {
     return fetchApi<{
-      userId: string;
-      useTestnet: boolean;
       accounts: Array<{
         accountId: string;
-        chainId: string;
+        chainId: number;
         address: string;
         chainName: string;
       }>;
-    }>(`/wallet/evm/walletconnect/accounts?userId=${userId}&useTestnet=${useTestnet}`);
+      metadata: {
+        name: string;
+        description: string;
+        url: string;
+        icons: string[];
+      };
+    }>(`/walletconnect/accounts?userId=${userId}`);
   },
 
   /**
+   * Get WalletConnect accounts (alias for getEvmWalletConnectAccounts)
+   * Uses new unified walletconnect endpoint
+   */
+  async getWcAccounts(userId: string): Promise<{
+    accounts: Array<{
+      accountId: string;
+      chainId: number;
+      address: string;
+      chainName: string;
+    }>;
+    metadata: {
+      name: string;
+      description: string;
+      url: string;
+      icons: string[];
+    };
+  }> {
+    return this.getEvmWalletConnectAccounts(userId, false);
+  },
+
+  /**
+   * Get active WalletConnect sessions
+   */
+  async getWcSessions(userId: string): Promise<{
+    sessions: Array<{
+      topic: string;
+      dapp: {
+        name: string | null;
+        url: string | null;
+        icon: string | null;
+      };
+      approvedChains: number[];
+      expiry: Date;
+      lastUsed: Date;
+    }>;
+  }> {
+    return fetchApi<{
+      sessions: Array<{
+        topic: string;
+        dapp: {
+          name: string | null;
+          url: string | null;
+          icon: string | null;
+        };
+        approvedChains: number[];
+        expiry: Date;
+        lastUsed: Date;
+      }>;
+    }>(`/walletconnect/sessions?userId=${userId}`);
+  },
+
+  /**
+   * Save a WalletConnect proposal
+   */
+  async saveWcProposal(
+    userId: string,
+    proposalId: number,
+    proposer: any,
+    requiredNamespaces: any,
+    optionalNamespaces: any,
+    expiresAt: Date,
+  ): Promise<{ success: boolean }> {
+    return fetchApi<{ success: boolean }>('/walletconnect/save-proposal', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        proposalId,
+        proposer,
+        requiredNamespaces,
+        optionalNamespaces,
+        expiresAt: expiresAt.toISOString(),
+      }),
+    });
+  },
+
+  /**
+   * Approve a WalletConnect proposal
+   */
+  async approveWcProposal(
+    userId: string,
+    proposalId: number,
+    approvedChains: number[],
+  ): Promise<{
+    namespaces: any;
+    session: {
+      topic: string;
+      expiry: Date;
+    };
+  }> {
+    return fetchApi<{
+      namespaces: any;
+      session: {
+        topic: string;
+        expiry: Date;
+      };
+    }>('/walletconnect/approve-proposal', {
+      method: 'POST',
+      body: JSON.stringify({ userId, proposalId, approvedChains }),
+    });
+  },
+
+  /**
+   * Reject a WalletConnect proposal
+   */
+  async rejectWcProposal(
+    userId: string,
+    proposalId: number,
+    reason?: string,
+  ): Promise<{ success: boolean }> {
+    return fetchApi<{ success: boolean }>('/walletconnect/reject-proposal', {
+      method: 'POST',
+      body: JSON.stringify({ userId, proposalId, reason }),
+    });
+  },
+
+  /**
+   * Save a WalletConnect session
+   */
+  async saveWcSession(userId: string, session: any, namespaces: any): Promise<{ success: boolean }> {
+    return fetchApi<{ success: boolean }>('/walletconnect/save-session', {
+      method: 'POST',
+      body: JSON.stringify({ userId, session, namespaces }),
+    });
+  },
+
+  /**
+   * Sign a WalletConnect request
+   */
+  async signWcRequest(
+    userId: string,
+    topic: string,
+    requestId: number,
+    method: string,
+    params: any[],
+    chainId: string,
+  ): Promise<{ signature: string }> {
+    return fetchApi<{ signature: string }>('/walletconnect/sign', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        topic,
+        requestId,
+        method,
+        params,
+        chainId,
+      }),
+    });
+  },
+
+  /**
+   * Disconnect a WalletConnect session
+   */
+  async disconnectWcSession(userId: string, topic: string): Promise<{ success: boolean }> {
+    return fetchApi<{ success: boolean }>(`/walletconnect/sessions/${topic}?userId=${userId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /**
+   * @deprecated Use signWcRequest instead
    * Sign an EVM transaction for WalletConnect
    */
   async signEvmWalletConnectTransaction(data: {
@@ -749,6 +920,7 @@ export const walletApi = {
   },
 
   /**
+   * @deprecated Use signWcRequest instead
    * Sign an EVM message for WalletConnect (personal_sign)
    */
   async signEvmWalletConnectMessage(data: {
@@ -764,6 +936,7 @@ export const walletApi = {
   },
 
   /**
+   * @deprecated Use signWcRequest instead
    * Sign EVM typed data for WalletConnect (eth_signTypedData)
    */
   async signEvmWalletConnectTypedData(data: {

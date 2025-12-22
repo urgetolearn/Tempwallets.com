@@ -67,11 +67,6 @@ const NATIVE_TOKEN_SYMBOLS: Record<string, string> = {
   // Legacy/internal fallbacks
   tron: 'TRX',
   bitcoin: 'BTC',
-  ethereumErc4337: 'ETH',
-  baseErc4337: 'ETH',
-  arbitrumErc4337: 'ETH',
-  polygonErc4337: 'MATIC',
-  avalancheErc4337: 'AVAX',
   // Polkadot EVM Compatible chains
   moonbeamTestnet: 'DEV',
   astarShibuya: 'SBY',
@@ -89,12 +84,12 @@ const NATIVE_TOKEN_SYMBOLS: Record<string, string> = {
  * Featured chains that should always show in balance view (even with zero balance)
  */
 export const FEATURED_CHAINS = [
-  // EVM Smart Accounts
-  'ethereumErc4337',
-  'baseErc4337',
-  'arbitrumErc4337',
-  'polygonErc4337',
-  'avalancheErc4337',
+  // EVM EOAs
+  'ethereum',
+  'base',
+  'arbitrum',
+  'polygon',
+  'avalanche',
   // Non-EVM
   'bitcoin',
   'solana',

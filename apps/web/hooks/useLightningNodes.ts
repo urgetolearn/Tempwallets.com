@@ -7,6 +7,13 @@ import {
   CreateLightningNodeRequest,
 } from '@/lib/api';
 import { useAuth } from './useAuth';
+import {
+  trackLightningWalletConnected,
+  trackLightningSessionCreated,
+  trackLightningSessionJoined,
+  trackLightningSessionsDiscovered,
+  trackLightningAuthFailed,
+} from '@/lib/mixpanel-events';
 
 /**
  * Hook to manage Lightning Nodes (Yellow Network Nitrolite Channels)
@@ -66,6 +73,14 @@ export function useLightningNodes() {
         setWalletAddress(response.walletAddress);
         console.log('[Lightning] ✅ Wallet authenticated:', response.walletAddress);
 
+        // Track successful authentication
+        trackLightningWalletConnected({
+          userId,
+          walletAddress: response.walletAddress,
+          chain,
+          timestamp: Date.now(),
+        });
+
         // After authentication, discover sessions
         await discoverSessions();
       } else {
@@ -76,6 +91,13 @@ export function useLightningNodes() {
       setError(errorMessage);
       console.error('[Lightning] Authentication error:', err);
       setAuthenticated(false);
+
+      // Track authentication failure
+      trackLightningAuthFailed({
+        userId,
+        chain,
+        errorMessage,
+      });
     } finally {
       setAuthenticating(false);
     }
@@ -112,6 +134,15 @@ export function useLightningNodes() {
           total: response.sessions.length,
           active: response.activeSessions.length,
           invitations: response.invitations.length
+        });
+
+        // Track session discovery (only if sessions found)
+        trackLightningSessionsDiscovered({
+          userId,
+          chain,
+          totalSessions: response.sessions.length,
+          activeSessions: response.activeSessions.length,
+          invitations: response.invitations.length,
         });
 
         // Show notification for new invitations
@@ -164,6 +195,13 @@ export function useLightningNodes() {
 
         setLastFetched(Date.now());
         console.log('[Lightning] ✅ Session found:', response.localMetadata.appSessionId);
+
+        // Track session joined
+        trackLightningSessionJoined({
+          userId,
+          sessionId: response.localMetadata.appSessionId,
+          chain: response.localMetadata.chain || 'base',
+        });
 
         return response.localMetadata;
       }
@@ -222,6 +260,14 @@ export function useLightningNodes() {
         setLastFetched(Date.now());
 
         console.log('[Lightning] ✅ Node created:', response.node.appSessionId);
+
+        // Track session creation
+        trackLightningSessionCreated({
+          userId,
+          sessionId: response.node.appSessionId,
+          chain: response.node.chain || 'base',
+        });
+
         return response.node;
       }
 

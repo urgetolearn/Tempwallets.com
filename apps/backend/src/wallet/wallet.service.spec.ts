@@ -11,6 +11,7 @@ import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
 import { SubstrateManager } from './substrate/managers/substrate.manager.js';
 import { BalanceCacheRepository } from './repositories/balance-cache.repository.js';
 import { WalletAddresses } from './interfaces/wallet.interfaces.js';
+import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
 
 // Mock TokenListService to avoid import.meta.url issues
 jest.mock('./services/token-list.service.js', () => {
@@ -34,6 +35,7 @@ describe('WalletService', () => {
   let polkadotEvmRpcService: jest.Mocked<PolkadotEvmRpcService>;
   let substrateManager: jest.Mocked<SubstrateManager>;
   let balanceCacheRepository: jest.Mocked<BalanceCacheRepository>;
+  let eip7702DelegationRepository: jest.Mocked<Eip7702DelegationRepository>;
 
   const mockUserId = 'test-fingerprint-123';
   const mockAddresses: WalletAddresses = {
@@ -88,6 +90,10 @@ describe('WalletService', () => {
       getBalances: jest.fn(),
     };
 
+    const mockEip7702DelegationRepository = {
+      getDelegationsForUser: jest.fn().mockResolvedValue([]),
+    };
+
     const mockBalanceCacheRepository = {
       getCachedBalances: jest.fn(),
       updateCachedBalances: jest.fn(),
@@ -138,6 +144,10 @@ describe('WalletService', () => {
           provide: BalanceCacheRepository,
           useValue: mockBalanceCacheRepository,
         },
+        {
+          provide: Eip7702DelegationRepository,
+          useValue: mockEip7702DelegationRepository,
+        },
       ],
     }).compile();
 
@@ -152,6 +162,7 @@ describe('WalletService', () => {
     polkadotEvmRpcService = module.get(PolkadotEvmRpcService);
     substrateManager = module.get(SubstrateManager);
     balanceCacheRepository = module.get(BalanceCacheRepository);
+  eip7702DelegationRepository = module.get(Eip7702DelegationRepository);
   });
 
   afterEach(() => {

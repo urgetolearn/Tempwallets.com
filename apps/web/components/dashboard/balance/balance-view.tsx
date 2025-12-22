@@ -18,11 +18,6 @@ const CHAIN_NAMES: Record<string, string> = {
   // Legacy/internal
   tron: 'Tron',
   bitcoin: 'Bitcoin',
-  ethereumErc4337: 'Ethereum',
-  baseErc4337: 'Base',
-  arbitrumErc4337: 'Arbitrum',
-  polygonErc4337: 'Polygon',
-  avalancheErc4337: 'Avalanche',
   // Polkadot EVM Compatible chains
   moonbeamTestnet: 'Moonbeam Testnet',
   astarShibuya: 'Astar Shibuya',

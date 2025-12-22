@@ -32,10 +32,8 @@ interface CreateLightningNodeModalProps {
 }
 
 const SUPPORTED_CHAINS = [
-  { id: 'ethereumErc4337', name: 'Ethereum Gasless' },
-  { id: 'baseErc4337', name: 'Base Gasless' },
-  { id: 'arbitrumErc4337', name: 'Arbitrum' },
-  { id: 'polygonErc4337', name: 'Polygon' },
+  { id: 'base', name: 'Base' },
+  { id: 'arbitrum', name: 'Arbitrum' },
 ];
 
 const SUPPORTED_TOKENS = ['USDC', 'USDT'];
@@ -58,7 +56,7 @@ export function CreateLightningNodeModal({ open, onOpenChange, onJoined }: Creat
   const [showJoinForm, setShowJoinForm] = useState(true);
 
   // Create form state
-  const [selectedChain, setSelectedChain] = useState('ethereumErc4337');
+  const [selectedChain, setSelectedChain] = useState('');
   const [selectedToken, setSelectedToken] = useState('USDC');
   const [participantAddresses, setParticipantAddresses] = useState<string>('');
   const [addressError, setAddressError] = useState<string | null>(null);
@@ -79,7 +77,7 @@ export function CreateLightningNodeModal({ open, onOpenChange, onJoined }: Creat
   const resetToStart = (tab: 'create' | 'join' = 'create') => {
     setActiveTab(tab);
     setShowJoinForm(true);
-    setSelectedChain('ethereumErc4337');
+    setSelectedChain('');
     setSelectedToken('USDC');
     setParticipantAddresses('');
     setJoinUri('');
@@ -134,9 +132,9 @@ export function CreateLightningNodeModal({ open, onOpenChange, onJoined }: Creat
       }
     }
 
-    // Validate chain
-    if (!selectedChain) {
-      setError('Please select a chain');
+    // Validate chain (required)
+    if (!selectedChain || !SUPPORTED_CHAINS.find(c => c.id === selectedChain)) {
+      setError('Please select a network (Base or Arbitrum)');
       return;
     }
 
@@ -233,14 +231,14 @@ export function CreateLightningNodeModal({ open, onOpenChange, onJoined }: Creat
             <TabsContent value="create" className="space-y-4 mt-4 min-h-[300px]">
               {!createdNode ? (
                 <>
-                  {/* Chain Selector */}
+                  {/* Network Selector (Required) */}
                   <div className="space-y-2">
                     <Label htmlFor="chain" className="text-gray-700">
-                      Chain
+                      Network <span className="text-red-500">*</span>
                     </Label>
                     <Select value={selectedChain} onValueChange={setSelectedChain}>
                       <SelectTrigger id="chain" className="bg-white border-gray-300 text-gray-900">
-                        <SelectValue placeholder="Select chain" />
+                        <SelectValue placeholder="Select network (Base or Arbitrum)" />
                       </SelectTrigger>
                       <SelectContent className="bg-white text-gray-900">
                         {SUPPORTED_CHAINS.map((chain) => (
@@ -250,6 +248,11 @@ export function CreateLightningNodeModal({ open, onOpenChange, onJoined }: Creat
                         ))}
                       </SelectContent>
                     </Select>
+                    {!selectedChain && (
+                      <p className="text-xs text-gray-500">
+                        Please select a network to create the Lightning Node on
+                      </p>
+                    )}
                   </div>
 
                   {/* Token Selector */}
@@ -589,7 +592,7 @@ export function CreateLightningNodeModal({ open, onOpenChange, onJoined }: Creat
               <Button
                 type="button"
                 onClick={handleCreateNode}
-                disabled={loading || !!addressError || !selectedChain}
+                disabled={loading || !!addressError || !selectedChain || !SUPPORTED_CHAINS.find(c => c.id === selectedChain)}
                 className="bg-black hover:bg-gray-800 text-white"
               >
                 {loading ? (

@@ -87,9 +87,37 @@ export class AppSessionService {
     const response = await this.ws.send(request);
     const sessionResponse = response.res[2];
 
-    const appSessionId = sessionResponse.app_session_id as Hash;
-    const status = sessionResponse.status as 'open' | 'closed';
-    const version = sessionResponse.version as number;
+    // Log full response for debugging
+    console.log('[AppSessionService] Full response:', JSON.stringify(response, null, 2));
+    console.log('[AppSessionService] Session response:', JSON.stringify(sessionResponse, null, 2));
+
+    // Extract app session ID - try multiple possible field names
+    const appSessionId: Hash = sessionResponse?.app_session_id || 
+                               sessionResponse?.appSessionId || 
+                               sessionResponse?.session_id ||
+                               sessionResponse?.sessionId;
+
+    // app_session_id MUST come from Yellow Network - no fallback computation
+    if (!appSessionId || typeof appSessionId !== 'string') {
+      console.error('[AppSessionService] ❌ app_session_id missing from Yellow Network response');
+      console.error('[AppSessionService] Response structure:', JSON.stringify(sessionResponse, null, 2));
+      throw new Error(
+        'Failed to create app session: Yellow Network did not return app_session_id. ' +
+        `Response: ${JSON.stringify(sessionResponse)}`
+      );
+    }
+
+    // Ensure appSessionId is a valid Hash (0x-prefixed hex string)
+    if (!appSessionId.startsWith('0x') || appSessionId.length !== 66) {
+      console.error('[AppSessionService] ❌ Invalid app_session_id format:', appSessionId);
+      throw new Error(
+        `Invalid app_session_id format from Yellow Network: ${appSessionId}. ` +
+        'Expected 0x-prefixed 64-character hex string.'
+      );
+    }
+
+    const status = (sessionResponse?.status || 'open') as 'open' | 'closed';
+    const version = (sessionResponse?.version || 1) as number;
 
     console.log('[AppSessionService] ✅ App session created!');
     console.log(`  - Session ID: ${appSessionId}`);

@@ -11,7 +11,9 @@ import { PimlicoConfigService } from './config/pimlico.config.js';
 import { SeedManager } from './managers/seed.manager.js';
 import { AddressManager } from './managers/address.manager.js';
 import { AccountFactory } from './factories/account.factory.js';
-import { PimlicoAccountFactory } from './factories/pimlico-account.factory.js';
+import { NativeEoaFactory } from './factories/native-eoa.factory.js';
+import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js';
+import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
 // Import Pimlico service for bundler/paymaster operations
 import { PimlicoService } from './services/pimlico.service.js';
 // Import Polkadot EVM RPC service
@@ -60,8 +62,11 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     AptosSequenceManager,
     // Factories
     AccountFactory,
-    PimlicoAccountFactory,
+  NativeEoaFactory,
+  Eip7702AccountFactory,
     AptosAccountFactory,
+  // Delegation repository for EIP-7702
+  Eip7702DelegationRepository,
     // Aptos Services
     AptosRpcService,
     AptosAccountService,
@@ -89,13 +94,15 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     SeedManager,
     AddressManager,
     AccountFactory,
-    PimlicoAccountFactory,
+  NativeEoaFactory,
+  Eip7702AccountFactory,
     AptosAddressManager,
     AptosAccountFactory,
     AptosRpcService,
     AptosAccountService,
     AptosTransactionService,
     AptosSequenceManager,
+  Eip7702DelegationRepository,
     // Export Pimlico service
     PimlicoService,
     // Export Polkadot EVM RPC service

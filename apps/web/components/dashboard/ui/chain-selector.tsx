@@ -26,26 +26,23 @@ export function ChainSelector({
     const isDev = walletConfig.isDev;
     return walletConfig.getMainnet()
       .filter((config) => {
-        // MVP FILTERS: Only show Gasless EVMs, Polkadot, and Aptos in modal
-        
         // Exclude testnets (getMainnet already does this, but being explicit)
         if (config.isTestnet) {
           return false;
         }
-        
-        // For EVM chains: Only keep gasless (smart accounts), remove EOA wallets
-        if (config.type === 'evm') {
-          if (!config.isSmartAccount) {
-            return false; // Remove non-gasless EVM chains (EOA wallets)
-          }
+
+        // Honor feature flags: hide entries that are disabled for list/selector,
+        // but EOAs stay visible if showInWalletList is true.
+        if (!config.features.showInWalletList) {
+          return false;
         }
-        
+
         // Remove chains that show "Coming Soon" (no walletConnect AND not Aptos)
         // Exception: Aptos doesn't have walletConnect but we want to keep it
         if (!config.capabilities.walletConnect && config.type !== 'aptos') {
           return false; // Remove "Coming Soon" chains
         }
-        
+
         return true;
       })
       .sort((a, b) => {

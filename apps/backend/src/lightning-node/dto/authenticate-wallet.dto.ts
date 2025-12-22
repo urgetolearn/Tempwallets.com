@@ -10,5 +10,5 @@ export class AuthenticateWalletDto {
 
   @IsString()
   @IsOptional()
-  chain?: string; // ethereum, base, polygon (optional, defaults to base)
+  chain?: string; // base, arbitrum (optional, defaults to base)
 }
