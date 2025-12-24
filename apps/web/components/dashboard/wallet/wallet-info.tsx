@@ -1,5 +1,6 @@
 import { Copy, Check, Loader2, QrCode, Send, History, RefreshCw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@repo/ui/components/ui/tooltip";
+import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,

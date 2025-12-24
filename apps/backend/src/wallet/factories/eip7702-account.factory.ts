@@ -13,9 +13,6 @@ import {
   base,
   arbitrum,
   optimism,
-  polygon,
-  avalanche,
-  bsc,
 } from 'viem/chains';
 import { createSmartAccountClient } from 'permissionless';
 import { to7702SimpleSmartAccount } from 'permissionless/accounts';
@@ -47,10 +44,7 @@ export class Eip7702AccountFactory {
       | 'sepolia'
       | 'base'
       | 'arbitrum'
-      | 'optimism'
-      | 'polygon'
-      | 'bnb'
-      | 'avalanche',
+      | 'optimism',
     accountIndex = 0,
     userId?: string,
   ): Promise<IAccount> {
@@ -168,10 +162,7 @@ export class Eip7702AccountFactory {
       | 'sepolia'
       | 'base'
       | 'arbitrum'
-      | 'optimism'
-      | 'polygon'
-      | 'bnb'
-      | 'avalanche',
+      | 'optimism',
   ): Chain {
     const mapping: Record<string, Chain> = {
       ethereum: mainnet,
@@ -179,9 +170,6 @@ export class Eip7702AccountFactory {
       base,
       arbitrum,
       optimism,
-      polygon,
-      bnb: bsc,
-      avalanche,
     };
     const viemChain = mapping[chain];
     if (!viemChain) {
@@ -196,10 +184,7 @@ export class Eip7702AccountFactory {
       | 'sepolia'
       | 'base'
       | 'arbitrum'
-      | 'optimism'
-      | 'polygon'
-      | 'bnb'
-      | 'avalanche',
+      | 'optimism',
   ): string {
     return this.chainConfig.getEvmChainConfig(chain).rpcUrl;
   }

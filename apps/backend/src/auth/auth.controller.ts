@@ -30,7 +30,7 @@ export class AuthController {
   async googleCallback(
     @Req() req: Request & { user?: any },
     @Res() res: Response,
-    @Query('state') fingerprint?: string,
+    @Query('state') state?: string,
   ) {
     try {
       const user = req.user;
@@ -40,6 +40,21 @@ export class AuthController {
 
       // Validate and upsert Google user
       const googleUser = await this.authService.validateGoogleUser(user);
+
+      // Parse state - can be just fingerprint (legacy) or JSON with fingerprint and returnUrl
+      let fingerprint: string | undefined;
+      let returnUrl: string | undefined;
+
+      if (state) {
+        try {
+          const stateData = JSON.parse(state);
+          fingerprint = stateData.fingerprint;
+          returnUrl = stateData.returnUrl;
+        } catch {
+          // Legacy format - state is just the fingerprint
+          fingerprint = state;
+        }
+      }
 
       // Link fingerprint if provided
       if (fingerprint && googleUser.googleId) {
@@ -52,19 +67,27 @@ export class AuthController {
       // Generate token
       const { accessToken } = this.authService.generateTokens(googleUser.id);
 
-      // Redirect to frontend with token
+      // Redirect to frontend with token and returnUrl if provided
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      const redirectUrl = `${frontendUrl}/auth/callback?token=${accessToken}&user=${encodeURIComponent(
-        JSON.stringify({
-          id: googleUser.id,
-          email: googleUser.email,
-          name: googleUser.name,
-          picture: googleUser.picture,
-        }),
-      )}`;
+      const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
+      redirectUrl.searchParams.set('token', accessToken);
+      redirectUrl.searchParams.set(
+        'user',
+        encodeURIComponent(
+          JSON.stringify({
+            id: googleUser.id,
+            email: googleUser.email,
+            name: googleUser.name,
+            picture: googleUser.picture,
+          }),
+        ),
+      );
+      if (returnUrl) {
+        redirectUrl.searchParams.set('returnUrl', returnUrl);
+      }
 
-      this.logger.log(`Redirecting to frontend: ${redirectUrl}`);
-      res.redirect(redirectUrl);
+      this.logger.log(`Redirecting to frontend: ${redirectUrl.toString()}`);
+      res.redirect(redirectUrl.toString());
     } catch (error) {
       this.logger.error(
         `OAuth callback error: ${error instanceof Error ? error.message : 'Unknown error'}`,

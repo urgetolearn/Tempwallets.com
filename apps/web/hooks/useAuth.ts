@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useBrowserFingerprint } from './useBrowserFingerprint';
 import { trackAuth, identifyUser, aliasUser, resetMixpanel } from '@/lib/tempwallets-analytics';
+import { walletStorage } from '@/lib/walletStorage';
 
 export interface User {
   id: string;
@@ -46,156 +47,15 @@ export function useAuth() {
     // Track sign-in button click
     trackAuth.signinClicked();
 
-    const width = 500;
-    const height = 600;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
+    // Simple redirect-based OAuth flow - no popups
+    // Store the current page so we can redirect back after auth
+    const returnUrl = window.location.pathname + window.location.search;
+    sessionStorage.setItem('auth_return_url', returnUrl);
 
-    // Store current auth state to detect changes
-    const initialToken = localStorage.getItem('auth_token');
-    const initialUser = localStorage.getItem('auth_user');
-
-    // Mark that we're opening a popup (for the callback page to detect)
-    localStorage.setItem('auth_popup_open', 'true');
-
-    // Open OAuth popup
-    const popup = window.open(
-      `${API_URL}/auth/google?state=${encodeURIComponent(fingerprint)}`,
-      'google-oauth',
-      `width=${width},height=${height},left=${left},top=${top}`
-    );
-
-    if (!popup) {
-      console.error('Popup blocked. Please allow popups for this site.');
-      localStorage.removeItem('auth_popup_open'); // Clean up marker
-      return;
-    }
-
-    let authCompleted = false;
-    let checkAuthInterval: ReturnType<typeof setInterval>;
-    let cleanupTimeout: ReturnType<typeof setTimeout>;
-
-    // Helper function to complete auth process
-    const completeAuth = (newToken: string, userData: User) => {
-      if (authCompleted) return;
-      authCompleted = true;
-
-      setToken(newToken);
-      setUser(userData);
-
-      // Track successful login
-      trackAuth.signinSuccess(userData.id, 'google');
-      
-      // Identify user in Mixpanel
-      aliasUser(userData.id);
-      identifyUser(userData.id, {
-        email: userData.email,
-        name: userData.name,
-        picture: userData.picture,
-      });
-
-      // Clean up marker
-      localStorage.removeItem('auth_popup_open');
-
-      // Try to close popup - wrap in try-catch due to COOP restrictions
-      try {
-        if (popup) {
-          popup.close();
-        }
-      } catch {
-        // COOP blocks access to popup - that's fine, it will close itself
-      }
-
-      // Remove all listeners
-      window.removeEventListener('message', messageHandler);
-      window.removeEventListener('storage', storageHandler);
-      clearInterval(checkAuthInterval);
-      clearTimeout(cleanupTimeout);
-    };
-
-    // Listen for message from popup (when it redirects to callback page)
-    const messageHandler = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-
-      if (event.data.type === 'auth_success') {
-        const { token, user } = event.data;
-        try {
-          const userData = typeof user === 'string' ? JSON.parse(user) : user;
-          localStorage.setItem('auth_token', token);
-          localStorage.setItem('auth_user', JSON.stringify(userData));
-          completeAuth(token, userData);
-        } catch (e) {
-          console.error('Failed to parse user data:', e);
-        }
-      }
-    };
-
-    // Listen for storage changes (fallback when popup redirects and updates localStorage)
-    const storageHandler = (event: StorageEvent) => {
-      if (event.key === 'auth_token' || event.key === 'auth_user') {
-        const newToken = localStorage.getItem('auth_token');
-        const newUser = localStorage.getItem('auth_user');
-
-        if (newToken && newUser && (newToken !== initialToken || newUser !== initialUser)) {
-          try {
-            const userData = JSON.parse(newUser);
-            completeAuth(newToken, userData);
-          } catch (e) {
-            console.error('Failed to parse user data from storage:', e);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('message', messageHandler);
-    window.addEventListener('storage', storageHandler);
-
-    // Check for localStorage changes periodically (fallback for COOP restrictions)
-    checkAuthInterval = setInterval(() => {
-      if (authCompleted) {
-        clearInterval(checkAuthInterval);
-        return;
-      }
-
-      // Note: We cannot check popup.closed due to COOP restrictions
-      // Instead, we rely on localStorage polling and the popup_open marker
-      // The popup will close itself and we detect auth via localStorage changes
-
-      // Check if localStorage was updated
-      const newToken = localStorage.getItem('auth_token');
-      const newUser = localStorage.getItem('auth_user');
-
-      if (newToken && newUser && (newToken !== initialToken || newUser !== initialUser)) {
-        try {
-          const userData = JSON.parse(newUser);
-          completeAuth(newToken, userData);
-        } catch (e) {
-          console.error('Failed to parse user data:', e);
-        }
-      }
-    }, 500); // Check every 500ms for faster response
-
-    // Cleanup after 5 minutes
-    cleanupTimeout = setTimeout(() => {
-      if (!authCompleted) {
-        console.log('Auth timeout - cleaning up');
-        localStorage.removeItem('auth_popup_open');
-        clearInterval(checkAuthInterval);
-        window.removeEventListener('message', messageHandler);
-        window.removeEventListener('storage', storageHandler);
-
-        // Try to close popup - wrap in try-catch due to COOP restrictions
-        try {
-          if (popup) {
-            popup.close();
-          }
-        } catch {
-          // COOP blocks access to popup - that's fine
-        }
-      }
-    }, 5 * 60 * 1000);
+    // Redirect to backend OAuth endpoint with return URL in state
+    // The backend will pass it through to the callback
+    const state = JSON.stringify({ fingerprint, returnUrl });
+    window.location.href = `${API_URL}/auth/google?state=${encodeURIComponent(state)}`;
   }, [fingerprint]);
 
   const logout = useCallback(async () => {
@@ -218,7 +78,6 @@ export function useAuth() {
 
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
-    localStorage.removeItem('auth_popup_open'); // Clean up marker if exists
     setToken(null);
     setUser(null);
   }, [token]);

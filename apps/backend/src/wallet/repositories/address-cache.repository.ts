@@ -139,4 +139,14 @@ export class AddressCacheRepository {
       where: { fingerprint },
     });
   }
+
+  /**
+   * Clear all cached addresses for a user (alias for clearAddresses)
+   * Call this after auth migration or wallet changes
+   * @param userId - The user ID
+   */
+  async clearCacheForUser(userId: string): Promise<void> {
+    await this.clearAddresses(userId);
+    this.logger.log(`Cleared address cache for user ${userId}`);
+  }
 }

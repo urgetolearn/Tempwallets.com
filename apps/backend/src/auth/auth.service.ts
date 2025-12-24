@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../database/prisma.service.js';
+import { EncryptionService } from '../crypto/encryption.service.js';
+import { WalletHistoryRepository } from '../wallet/repositories/wallet-history.repository.js';
+import { AddressManager } from '../wallet/managers/address.manager.js';
+import { SeedManager } from '../wallet/managers/seed.manager.js';
 import { GoogleProfile } from './strategies/google.strategy.js';
 
 export interface TokenPair {
@@ -14,6 +18,10 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private encryptionService: EncryptionService,
+    private walletHistoryRepo: WalletHistoryRepository,
+    private addressManager: AddressManager,
+    private seedManager: SeedManager,
   ) {}
 
   /**
@@ -39,10 +47,12 @@ export class AuthService {
   }
 
   /**
-   * Link fingerprint to Google user and migrate wallets if needed
+   * Link fingerprint to Google user and create a new wallet for Google user
+   * The old fingerprint wallet remains unchanged - we create a fresh wallet for Google auth
    */
   async linkFingerprintToUser(googleId: string, fingerprint: string) {
-    return this.prisma.$transaction(async (tx) => {
+    // First, handle user linking in a transaction
+    const result = await this.prisma.$transaction(async (tx) => {
       const googleUser = await tx.user.findUnique({ where: { googleId } });
       const fingerprintUser = await tx.user.findUnique({
         where: { fingerprint },
@@ -52,92 +62,70 @@ export class AuthService {
         throw new Error('Google user not found');
       }
 
-      // No fingerprint user? Just link fingerprint and done
+      // No fingerprint user? Just link fingerprint
       if (!fingerprintUser) {
-        return tx.user.update({
+        // Link fingerprint to Google user
+        await tx.user.update({
           where: { id: googleUser.id },
           data: { fingerprint },
         });
+
+        return { googleUser, fingerprintUser: null };
       }
 
       // Same user? Already done
       if (fingerprintUser.id === googleUser.id) {
-        return googleUser;
+        return { googleUser, fingerprintUser: null };
       }
 
-      // Different users? Migrate wallets and related data
-      const walletCount = await tx.wallet.count({
-        where: { userId: fingerprintUser.id },
-      });
-
-      // Migrate wallets
-      await tx.wallet.updateMany({
-        where: { userId: fingerprintUser.id },
-        data: { userId: googleUser.id },
-      });
-
-      // Migrate WalletSeed if exists
-      const walletSeed = await tx.walletSeed.findUnique({
-        where: { userId: fingerprintUser.id },
-      });
-      if (walletSeed) {
-        // Delete old seed and create new one with new userId
-        await tx.walletSeed.delete({
-          where: { userId: fingerprintUser.id },
-        });
-        await tx.walletSeed.create({
-          data: {
-            userId: googleUser.id,
-            ciphertext: walletSeed.ciphertext,
-            iv: walletSeed.iv,
-            authTag: walletSeed.authTag,
-          },
-        });
-      }
-
-      // Migrate WalletCache (fingerprint is the old fingerprint value, not userId)
-      const walletCache = await tx.walletCache.findUnique({
-        where: { fingerprint: fingerprint },
-      });
-      if (walletCache) {
-        // Update fingerprint to point to Google user's id
-        await tx.walletCache.update({
-          where: { fingerprint: fingerprint },
-          data: {
-            fingerprint: googleUser.id,
-          },
-        });
-      }
-
-      // Migrate WalletAddressCache (fingerprint is the old fingerprint value)
-      const addressCaches = await tx.walletAddressCache.findMany({
-        where: { fingerprint: fingerprint },
-      });
-      if (addressCaches.length > 0) {
-        // Update all address caches to use Google user's id as fingerprint
-        await tx.walletAddressCache.updateMany({
-          where: { fingerprint: fingerprint },
-          data: {
-            fingerprint: googleUser.id,
-          },
-        });
-      }
-
-      // Delete fingerprint user
-      await tx.user.delete({ where: { id: fingerprintUser.id } });
-
-      // Link fingerprint to Google user
+      // Different users? Keep fingerprint user and wallet intact
+      // Just link fingerprint to Google user for reference
       await tx.user.update({
         where: { id: googleUser.id },
         data: { fingerprint },
       });
 
-      this.logger.log(
-        `Migrated ${walletCount} wallets from fingerprint user ${fingerprintUser.id} to Google user ${googleUser.id}`,
-      );
-
-      return { googleUser, migratedWallets: walletCount };
+      return { googleUser, fingerprintUser };
     });
+
+    // After transaction, create wallet for Google user if needed
+    // This is done outside transaction to avoid Prisma transaction issues
+    const hasExistingWallet = await this.seedManager.hasSeed(result.googleUser.id);
+    let newWalletCreated = false;
+
+    if (!hasExistingWallet) {
+      // Create new wallet seed for Google user
+      await this.seedManager.createOrImportSeed(result.googleUser.id, 'random');
+      newWalletCreated = true;
+      
+      if (result.fingerprintUser) {
+        this.logger.log(
+          `Created new wallet for Google user ${result.googleUser.id} after linking fingerprint ${fingerprint}. ` +
+          `Fingerprint user ${result.fingerprintUser.id} and its wallet remain unchanged.`,
+        );
+      } else {
+        this.logger.log(
+          `Created new wallet for Google user ${result.googleUser.id} after linking fingerprint ${fingerprint}`,
+        );
+      }
+    } else {
+      if (result.fingerprintUser) {
+        this.logger.log(
+          `Linked fingerprint ${fingerprint} to Google user ${result.googleUser.id}. ` +
+          `Fingerprint user ${result.fingerprintUser.id} and its wallet remain unchanged. ` +
+          `Google user already has a wallet.`,
+        );
+      }
+    }
+
+    // Clear address cache to ensure fresh addresses are generated
+    await this.addressManager.clearAddressCache(result.googleUser.id);
+
+    return {
+      googleUser: result.googleUser,
+      newWalletCreated,
+      fingerprintUserPreserved: !!result.fingerprintUser,
+    };
   }
 
   /**

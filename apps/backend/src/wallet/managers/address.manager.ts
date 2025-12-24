@@ -149,11 +149,13 @@ export class AddressManager implements IAddressManager {
 
       try {
         // Use EIP-7702 factory for enabled chains (same address as EOA), else native EOA
+        // Only enable EIP-7702 for supported chains: ethereum, sepolia, base, arbitrum, optimism
+        const supportedEip7702Chains = ['ethereum', 'sepolia', 'base', 'arbitrum', 'optimism'];
         const useEip7702 =
           this.pimlicoConfig.isEip7702Enabled(chain) &&
-          (chain === 'ethereum' || chain === 'sepolia');
+          supportedEip7702Chains.includes(chain);
         const account = useEip7702
-          ? await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'sepolia', 0)
+          ? await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'sepolia' | 'base' | 'arbitrum' | 'optimism', 0)
           : await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
 
         const address = await account.getAddress();
@@ -376,13 +378,8 @@ export class AddressManager implements IAddressManager {
     // Step 4: Generate missing addresses
     const seedPhrase = await this.seedManager.getSeed(userId);
 
-    // Process EOA chains
-    const eoaChains: { name: string; chain: AllChainTypes }[] = [
-      { name: 'ethereum', chain: 'ethereum' },
-      { name: 'base', chain: 'base' },
-      { name: 'arbitrum', chain: 'arbitrum' },
-      { name: 'polygon', chain: 'polygon' },
-      { name: 'avalanche', chain: 'avalanche' },
+    // Process non-EVM chains via WDK (keep for Tron, Bitcoin, Solana, and Polkadot EVM chains)
+    const nonEvmWdkChains: { name: string; chain: AllChainTypes }[] = [
       { name: 'moonbeamTestnet', chain: 'moonbeamTestnet' },
       { name: 'astarShibuya', chain: 'astarShibuya' },
       { name: 'paseoPassetHub', chain: 'paseoPassetHub' },
@@ -391,7 +388,7 @@ export class AddressManager implements IAddressManager {
       { name: 'solana', chain: 'solana' },
     ];
 
-    for (const { name, chain } of eoaChains) {
+    for (const { name, chain } of nonEvmWdkChains) {
       // Skip if already cached
       if (cachedAddresses[name]) {
         continue;
@@ -430,11 +427,13 @@ export class AddressManager implements IAddressManager {
       }
 
       try {
+        // Only enable EIP-7702 for supported chains: ethereum, sepolia, base, arbitrum, optimism
+        const supportedEip7702Chains = ['ethereum', 'sepolia', 'base', 'arbitrum', 'optimism'];
         const useEip7702 =
           this.pimlicoConfig.isEip7702Enabled(chain) &&
-          (chain === 'ethereum' || chain === 'sepolia');
+          supportedEip7702Chains.includes(chain);
         const account = useEip7702
-          ? await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'sepolia', 0)
+          ? await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'sepolia' | 'base' | 'arbitrum' | 'optimism', 0)
           : await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
         const address = await account.getAddress();
         await this.addressCacheRepository.saveAddress(userId, name, address);
@@ -810,4 +809,5 @@ export class AddressManager implements IAddressManager {
 
     return complete as WalletAddresses;
   }
+
 }

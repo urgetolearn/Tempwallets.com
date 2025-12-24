@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { english, generateMnemonic } from 'viem/accounts';
 import { ISeedManager } from '../interfaces/wallet.interfaces.js';
 import { SeedRepository } from '../seed.repository.js';
+import { WalletHistoryRepository } from '../repositories/wallet-history.repository.js';
 import { validateMnemonic } from '../utils/validation.utils.js';
 
 /**
@@ -13,7 +14,10 @@ import { validateMnemonic } from '../utils/validation.utils.js';
 export class SeedManager implements ISeedManager {
   private readonly logger = new Logger(SeedManager.name);
 
-  constructor(private seedRepository: SeedRepository) {}
+  constructor(
+    private seedRepository: SeedRepository,
+    private walletHistoryRepo: WalletHistoryRepository,
+  ) {}
 
   /**
    * Create a random seed phrase (12 words)
