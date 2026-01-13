@@ -68,16 +68,31 @@ const CHAIN_NAMES: Record<string, string> = {
 };
 
 // EIP-7702 chain ID mapping
+// ✅ FIX: Include both base chain names and ERC4337 variants
 const EIP7702_CHAIN_IDS: Record<string, number> = {
   ethereum: 1,
   base: 8453,
+  baseErc4337: 8453, // ✅ Add ERC4337 variant
   arbitrum: 42161,
+  arbitrumErc4337: 42161, // ✅ Add ERC4337 variant
   optimism: 10,
+  polygon: 137,
+  polygonErc4337: 137, // ✅ Add ERC4337 variant
+  avalanche: 43114,
+  avalancheErc4337: 43114, // ✅ Add ERC4337 variant
   // Only chains confirmed for EIP-7702 gasless flow
   sepolia: 11155111,
 };
 
-const isEip7702Chain = (chain: string): boolean => chain in EIP7702_CHAIN_IDS;
+// ✅ FIX: Check both direct chain name and normalized version
+const isEip7702Chain = (chain: string): boolean => {
+  // Direct check
+  if (chain in EIP7702_CHAIN_IDS) return true;
+  
+  // Normalize chain name (remove Erc4337 suffix for base chains)
+  const normalized = chain.replace(/Erc4337$/i, '').toLowerCase();
+  return normalized in EIP7702_CHAIN_IDS;
+};
 
 // Address validation per chain type
 const validateAddress = (address: string, chain: string): string | null => {
@@ -528,13 +543,16 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
       const APTOS_CHAINS = ["aptos", "aptosTestnet"];
       const isAptos = APTOS_CHAINS.includes(tokenChain);
 
-      // Check if this is an EIP-7702 gasless chain
-      const isGasless = isEip7702Chain(tokenChain);
+      // ✅ FIX: Check if this is an EIP-7702 gasless chain
+      // Normalize chain name first (handle both 'base' and 'baseErc4337')
+      const normalizedChain = tokenChain.replace(/Erc4337$/i, '').toLowerCase();
+      const isGasless = isEip7702Chain(normalizedChain) || isEip7702Chain(tokenChain);
 
       // 🔍 LOG WHICH ENDPOINT WILL BE USED
       if (isGasless) {
+        const chainId = EIP7702_CHAIN_IDS[normalizedChain] || EIP7702_CHAIN_IDS[tokenChain];
         console.log('✅ [Endpoint] Using EIP-7702 gasless endpoint (/wallet/eip7702/send)');
-        console.log('✅ [ChainID]', EIP7702_CHAIN_IDS[tokenChain]);
+        console.log('✅ [ChainID]', chainId, `(from ${normalizedChain} or ${tokenChain})`);
       } else if (isSubstrate) {
         console.log('ℹ️ [Endpoint] Using Substrate endpoint');
       } else if (isAptos) {
@@ -547,10 +565,14 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess }
       let result: { txHash: string; userOpHash?: string; explorerUrl?: string; isFirstTransaction?: boolean };
 
       if (isGasless) {
-        // Use EIP-7702 gasless endpoint
-        const chainId = EIP7702_CHAIN_IDS[tokenChain];
+        // ✅ FIX: Use EIP-7702 gasless endpoint
+        // Try both normalized and original chain name
+        const chainId = EIP7702_CHAIN_IDS[normalizedChain] || EIP7702_CHAIN_IDS[tokenChain];
         if (!chainId) {
-          throw new Error(`Chain ID not found for ${tokenChain}`);
+          throw new Error(
+            `Chain ID not found for ${tokenChain} (normalized: ${normalizedChain}). ` +
+            `Available chains: ${Object.keys(EIP7702_CHAIN_IDS).join(', ')}`
+          );
         }
 
         const gaslessResult = await walletApi.sendEip7702Gasless({
