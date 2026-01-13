@@ -1735,14 +1735,6 @@ export class LightningNodeService {
     return { ok: true };
   }
 
-  /**
-   * Fund unified balance via payment channel (placeholder).
-   * TODO: Implement channel create/resize once custody contract addresses are wired.
-   */
-  async fundChannel(dto: FundChannelDto): Promise<{ ok: boolean; message: string }> {
-    this.logger.warn('[fundChannel] Not yet implemented', dto);
-    return { ok: false, message: 'fundChannel not implemented yet' };
-  }
 
   /**
    * Transfer funds within a Lightning Node (gasless) via Yellow.
