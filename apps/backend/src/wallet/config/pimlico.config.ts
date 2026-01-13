@@ -140,6 +140,42 @@ export class PimlicoConfigService {
   }
 
   /**
+   * Check if EIP-7702 is enabled for a chain
+   * NOTE: EIP-7702 is not yet deployed on any mainnet chains
+   * This method returns false for all chains for now
+   */
+  isEip7702Enabled(chain: string): boolean {
+    // EIP-7702 is not yet deployed on any production chains
+    // When it becomes available, update this method to return true for supported chains
+    return false;
+  }
+
+  /**
+   * Get EIP-7702 configuration for a specific chain
+   * NOTE: EIP-7702 is not yet deployed, this returns the standard ERC-4337 config
+   */
+  getEip7702Config(
+    chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche' | 'sepolia' | 'optimism' | 'bnb',
+  ): Erc4337Config {
+    // Map non-standard chains to supported ones
+    const chainMap: Record<string, 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche'> = {
+      sepolia: 'ethereum',
+      optimism: 'ethereum',
+      bnb: 'ethereum',
+    };
+
+    const mappedChain = chainMap[chain] || chain;
+
+    // For now, return standard ERC-4337 config since EIP-7702 is not deployed
+    if (mappedChain === 'ethereum' || mappedChain === 'base' || mappedChain === 'arbitrum' || mappedChain === 'polygon' || mappedChain === 'avalanche') {
+      return this.getErc4337Config(mappedChain);
+    }
+
+    // Fallback to ethereum config
+    return this.getErc4337Config('ethereum');
+  }
+
+  /**
    * Ensure RPC URL points to a standard node (not Pimlico bundler)
    */
   private resolveRpcUrl(

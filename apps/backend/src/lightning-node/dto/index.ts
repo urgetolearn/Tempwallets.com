@@ -4,5 +4,6 @@ export * from './transfer-funds.dto.js';
 export * from './close-lightning-node.dto.js';
 export * from './authenticate-wallet.dto.js';
 export * from './search-session.dto.js';
+export * from './fund-channel.dto.js';
 // Legacy - will be removed
 export * from './join-lightning-node.dto.js';

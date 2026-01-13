@@ -2,10 +2,16 @@
 
 import { useMemo } from 'react';
 import Image from 'next/image';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Zap, Info } from 'lucide-react';
 import { useWalletData } from '@/hooks/useWalletData';
 import { TokenBalanceItem } from './token-balance-item';
 import { NormalizedBalance } from '@/types/wallet-data';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@repo/ui/components/ui/tooltip';
 
 const CHAIN_NAMES: Record<string, string> = {
   // Zerion canonical chain ids
@@ -18,11 +24,6 @@ const CHAIN_NAMES: Record<string, string> = {
   // Legacy/internal
   tron: 'Tron',
   bitcoin: 'Bitcoin',
-  ethereumErc4337: 'Ethereum',
-  baseErc4337: 'Base',
-  arbitrumErc4337: 'Arbitrum',
-  polygonErc4337: 'Polygon',
-  avalancheErc4337: 'Avalanche',
   // Polkadot EVM Compatible chains
   moonbeamTestnet: 'Moonbeam Testnet',
   astarShibuya: 'Astar Shibuya',
@@ -112,6 +113,29 @@ export function BalanceView() {
   // Render balances grouped by chain
   return (
     <div className="space-y-6">
+      {/* Unified Balance Button with Tooltip */}
+      <div className="flex justify-end">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                disabled
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-100 rounded-lg cursor-not-allowed opacity-60 border border-gray-200"
+              >
+                <Zap className="h-3.5 w-3.5" />
+                Unified Balance
+                <Info className="h-3 w-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-xs">
+              <p className="text-xs">
+                Add funds to your Lightning Network unified balance for gasless transfers. Coming soon!
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+
       {groupedBalances.map(({ chain, balances: chainBalances }) => (
         <div key={chain} className="space-y-2">
           <div className="space-y-2">

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
-import { Loader2, Zap, Copy, ChevronRight, Search, Mail, CheckCircle2, AlertCircle, Wallet } from 'lucide-react';
+import { Loader2, Zap, Copy, ChevronRight, Search, Mail, CheckCircle2, AlertCircle, Wallet, Plus } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@repo/ui/components/ui/tooltip';
 import { useLightningNodes } from '@/hooks/lightning-nodes-context';
 import { CreateLightningNodeModal } from './create-lightning-node-modal';
 import { LightningNodeDetails } from './lightning-node-details';
@@ -100,7 +101,33 @@ function AuthenticationBanner({
             )}
           </div>
         </div>
-        <span className="text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded-full">Base</span>
+        <div className="ml-auto flex items-center gap-2">
+          <TooltipProvider>
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex items-center justify-center px-3 py-1 rounded-lg bg-black text-white text-xs font-rubik-medium cursor-not-allowed opacity-80"
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  Unified Balance
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                className="bg-black/85 text-white text-xs px-3 py-2 rounded-md border border-white/10 max-w-xs space-y-1.5"
+              >
+                <p className="font-semibold">Unified balance</p>
+                <p className="text-[11px] font-medium text-gray-200">Coming soon</p>
+                <p className="text-[11px]">
+                  Adding funds to unified balance and Lightning deposits/withdrawals are disabled in production right now.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <span className="text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded-full">Base</span>
+        </div>
       </div>
     );
   }

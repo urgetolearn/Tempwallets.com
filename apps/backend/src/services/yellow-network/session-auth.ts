@@ -85,7 +85,7 @@ export class SessionKeyAuth {
       allowances = [],
       application = 'tempwallets-lightning',
       expiryHours = 24,
-      scope = 'transfer,app.create,app.submit',
+  scope = 'transfer,app.create,app.submit,channel.create,channel.update,channel.close',
     } = options || {};
 
     console.log('[SessionKeyAuth] Starting authentication flow...');
@@ -483,7 +483,9 @@ export class SessionKeyAuth {
       },
       message: {
         challenge: challengeMessage,
-        scope: authParams.scope || 'transfer,app.create,app.submit',
+        scope:
+          authParams.scope ||
+          'transfer,app.create,app.submit,channel.create,channel.update,channel.close',
         wallet: getAddress(authParams.address), // Ensure checksummed
         session_key: getAddress(authParams.session_key), // Ensure checksummed
         expires_at: authParams.expires_at,

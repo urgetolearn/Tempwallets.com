@@ -18,6 +18,9 @@ export type ChainType =
   | 'arbitrum'
   | 'polygon'
   | 'avalanche'
+  | 'sepolia'
+  | 'optimism'
+  | 'bnb'
   | 'tron'
   | 'bitcoin'
   | 'solana'
@@ -87,6 +90,9 @@ export const NATIVE_TOKENS: Record<
   arbitrum: { symbol: 'ETH', decimals: 18 },
   polygon: { symbol: 'MATIC', decimals: 18 },
   avalanche: { symbol: 'AVAX', decimals: 18 },
+  sepolia: { symbol: 'ETH', decimals: 18 },
+  optimism: { symbol: 'ETH', decimals: 18 },
+  bnb: { symbol: 'BNB', decimals: 18 },
   tron: { symbol: 'TRX', decimals: 6 },
   bitcoin: { symbol: 'BTC', decimals: 8 },
   solana: { symbol: 'SOL', decimals: 9 },

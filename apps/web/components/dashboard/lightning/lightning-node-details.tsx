@@ -304,17 +304,20 @@ export function LightningNodeDetails({ lightningNodeId, onClose }: LightningNode
           <div className="grid grid-cols-2 gap-3">
             <Button
               onClick={() => setTransferModalOpen(true)}
-              className="bg-gray-900 hover:bg-gray-800 text-white"
-              disabled={Number(myBalance) === 0}
+              className="bg-gray-900 hover:bg-gray-800 text-white relative"
+              disabled={true}
             >
               <ArrowRightLeft className="mr-2 h-4 w-4" />
               Transfer
+              <span className="ml-2 text-[10px] bg-gray-700 px-2 py-0.5 rounded-full">
+                Coming Soon
+              </span>
             </Button>
             <Button
               onClick={handleCloseNode}
               variant="outline"
               className="text-gray-900 border-gray-300 hover:bg-gray-100"
-              disabled={loading}
+              disabled={true}
             >
               {loading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -322,6 +325,9 @@ export function LightningNodeDetails({ lightningNodeId, onClose }: LightningNode
                 <X className="mr-2 h-4 w-4" />
               )}
               Close Node
+              <span className="ml-2 text-[10px] bg-gray-200 px-2 py-0.5 rounded-full">
+                Coming Soon
+              </span>
             </Button>
           </div>
         )}

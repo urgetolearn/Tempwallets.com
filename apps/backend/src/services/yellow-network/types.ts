@@ -353,6 +353,8 @@ export interface NitroliteConfig {
   adjudicatorAddresses?: Record<number, Address>; // Adjudicator contracts per chain
   application?: string; // Application identifier
   sessionKeyExpiry?: number; // Session key expiry in ms (default: 24h)
+  scope?: string; // Requested auth scope (comma-separated permissions)
+  allowances?: SessionKeyAllowance[]; // Optional spend caps per asset
 }
 
 // ============================================================================

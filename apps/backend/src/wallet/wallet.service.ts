@@ -11,14 +11,16 @@ import { ZerionService, TokenBalance } from './zerion.service.js';
 import { SeedManager } from './managers/seed.manager.js';
 import { AddressManager } from './managers/address.manager.js';
 import { AccountFactory } from './factories/account.factory.js';
-import { PimlicoAccountFactory } from './factories/pimlico-account.factory.js';
+// import { NativeEoaFactory } from './factories/native-eoa.factory.js'; // TODO: Implement EIP-7702 support
+// import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js'; // TODO: Implement EIP-7702 support
 import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
 import { SubstrateManager } from './substrate/managers/substrate.manager.js';
 import { SubstrateChainKey } from './substrate/config/substrate-chain.config.js';
 import { BalanceCacheRepository } from './repositories/balance-cache.repository.js';
 import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
+// import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js'; // TODO: Implement EIP-7702 support
 import { IAccount } from './types/account.types.js';
-import { AllChainTypes, Erc4337Chain } from './types/chain.types.js';
+import { AllChainTypes } from './types/chain.types.js';
 import {
   WalletAddresses,
   UiWalletPayload,
@@ -35,6 +37,7 @@ import {
   convertSmallestToHuman,
 } from './utils/conversion.utils.js';
 import { validateAmount } from './utils/validation.utils.js';
+import { PimlicoConfigService } from './config/pimlico.config.js';
 
 @Injectable()
 export class WalletService {
@@ -54,18 +57,8 @@ export class WalletService {
   > = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
   private readonly SMART_ACCOUNT_CHAIN_KEYS: Array<
-    | 'ethereumErc4337'
-    | 'baseErc4337'
-    | 'arbitrumErc4337'
-    | 'polygonErc4337'
-    | 'avalancheErc4337'
-  > = [
-    'ethereumErc4337',
-    'baseErc4337',
-    'arbitrumErc4337',
-    'polygonErc4337',
-    'avalancheErc4337',
-  ];
+    'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche'
+  > = ['ethereum', 'base', 'arbitrum', 'polygon', 'avalanche'];
   private readonly EOA_CHAIN_KEYS: Array<
     | 'ethereum'
     | 'base'
@@ -114,32 +107,27 @@ export class WalletService {
   private readonly WALLETCONNECT_CHAIN_CONFIG = [
     {
       chainId: 1,
-      erc4337Key: 'ethereumErc4337' as WalletAddressKey,
-      fallbackKey: 'ethereum' as WalletAddressKey,
+      key: 'ethereum' as WalletAddressKey,
       label: 'Ethereum',
     },
     {
       chainId: 8453,
-      erc4337Key: 'baseErc4337' as WalletAddressKey,
-      fallbackKey: 'base' as WalletAddressKey,
+      key: 'base' as WalletAddressKey,
       label: 'Base',
     },
     {
       chainId: 42161,
-      erc4337Key: 'arbitrumErc4337' as WalletAddressKey,
-      fallbackKey: 'arbitrum' as WalletAddressKey,
+      key: 'arbitrum' as WalletAddressKey,
       label: 'Arbitrum',
     },
     {
       chainId: 137,
-      erc4337Key: 'polygonErc4337' as WalletAddressKey,
-      fallbackKey: 'polygon' as WalletAddressKey,
+      key: 'polygon' as WalletAddressKey,
       label: 'Polygon',
     },
     {
       chainId: 43114,
-      erc4337Key: 'avalancheErc4337' as WalletAddressKey,
-      fallbackKey: 'avalanche' as WalletAddressKey,
+      key: 'avalanche' as WalletAddressKey,
       label: 'Avalanche',
     },
   ];
@@ -151,11 +139,14 @@ export class WalletService {
     private seedManager: SeedManager,
     private addressManager: AddressManager,
     private accountFactory: AccountFactory,
-    private pimlicoAccountFactory: PimlicoAccountFactory,
+    // private nativeEoaFactory: NativeEoaFactory, // TODO: Implement EIP-7702 support
+    // private eip7702AccountFactory: Eip7702AccountFactory, // TODO: Implement EIP-7702 support
     private polkadotEvmRpcService: PolkadotEvmRpcService,
     private substrateManager: SubstrateManager,
     private balanceCacheRepository: BalanceCacheRepository,
     private walletHistoryRepository: WalletHistoryRepository,
+    private pimlicoConfig: PimlicoConfigService,
+    // private eip7702DelegationRepository: Eip7702DelegationRepository, // TODO: Implement EIP-7702 support
   ) {}
 
   /**
@@ -182,7 +173,6 @@ export class WalletService {
         if (hasSeed) {
           const currentSeed = await this.seedManager.getSeed(userId);
           await this.walletHistoryRepository.saveToHistory(userId, currentSeed);
-          this.logger.log(`Saved current wallet to history for user ${userId}`);
         }
       } catch (error) {
         this.logger.warn(
@@ -194,7 +184,6 @@ export class WalletService {
 
     // Clear any cached addresses since a new seed means new addresses
     await this.addressManager.clearAddressCache(userId);
-    this.logger.log(`Cleared address cache for user ${userId}`);
 
     // Use the SeedManager for all seed operations
     return this.seedManager.createOrImportSeed(userId, mode, mnemonic);
@@ -255,7 +244,6 @@ export class WalletService {
     // Set this wallet as active
     await this.walletHistoryRepository.setActiveWallet(walletId, userId);
 
-    this.logger.log(`User ${userId} switched to wallet ${walletId}`);
     return true;
   }
 
@@ -302,9 +290,7 @@ export class WalletService {
     };
 
     for (const config of this.WALLETCONNECT_CHAIN_CONFIG) {
-      const primary = metadata[config.erc4337Key]?.address;
-      const fallback = metadata[config.fallbackKey]?.address;
-      const address = primary || fallback;
+      const address = metadata[config.key]?.address;
 
       if (!address) {
         continue;
@@ -396,7 +382,7 @@ export class WalletService {
       ? (metadata[canonicalChainKey]?.address ?? null)
       : null;
     const canonicalChain = canonicalChainKey
-      ? this.normalizeSmartAccountChain(canonicalChainKey)
+  ? canonicalChainKey
       : null;
 
     const smartAccount: SmartAccountSummary | null = canonicalAddress
@@ -415,22 +401,6 @@ export class WalletService {
       smartAccount,
       auxiliary,
     };
-  }
-
-  private normalizeSmartAccountChain(
-    key:
-      | 'ethereumErc4337'
-      | 'baseErc4337'
-      | 'arbitrumErc4337'
-      | 'polygonErc4337'
-      | 'avalancheErc4337',
-  ): 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche' {
-    return key.replace('Erc4337', '') as
-      | 'ethereum'
-      | 'base'
-      | 'arbitrum'
-      | 'polygon'
-      | 'avalanche';
   }
 
   private buildAuxiliaryWalletEntries(
@@ -575,7 +545,7 @@ export class WalletService {
     ];
     polkadotEvmChains.forEach((chain) => assign(chain, 'eoa', true));
     this.SMART_ACCOUNT_CHAIN_KEYS.forEach((chain) =>
-      assign(chain, 'erc4337', true),
+      assign(chain, 'eoa', true),
     );
     this.NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
 
@@ -613,11 +583,6 @@ export class WalletService {
       unique: 'Unique',
       bifrost: 'Bifrost Mainnet',
       bifrostTestnet: 'Bifrost Testnet',
-      ethereumErc4337: 'Ethereum Smart Account',
-      baseErc4337: 'Base Smart Account',
-      arbitrumErc4337: 'Arbitrum Smart Account',
-      polygonErc4337: 'Polygon Smart Account',
-      avalancheErc4337: 'Avalanche Smart Account',
     };
 
     const label = baseLabels[chain];
@@ -695,26 +660,45 @@ export class WalletService {
     // Ensure wallet exists
     const hasSeed = await this.seedRepository.hasSeed(userId);
     if (!hasSeed) {
-      this.logger.debug(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
-      this.logger.debug(`Successfully auto-created wallet for user ${userId}`);
     }
 
     const addresses = await this.getAddresses(userId);
-    const erc4337Address =
-      [
-        addresses.ethereumErc4337,
-        addresses.baseErc4337,
-        addresses.arbitrumErc4337,
-        addresses.polygonErc4337,
-        addresses.avalancheErc4337,
-      ].find((a) => !!a) || null;
 
-    const targetAddresses = [
-      addresses.ethereum,
-      erc4337Address,
-      addresses.solana,
-    ].filter(Boolean) as string[];
+    // Collect all unique target addresses we want Zerion to index
+    const seenAddresses = new Set<string>();
+    const targetAddresses: string[] = [];
+    const addTarget = (addr?: string | null) => {
+      if (!addr) return;
+      const key = addr.toLowerCase();
+      if (seenAddresses.has(key)) return;
+      seenAddresses.add(key);
+      targetAddresses.push(addr);
+    };
+
+    // Primary EVM EOAs (one per supported chain)
+    addTarget(addresses.ethereum);
+    addTarget(addresses.base);
+    addTarget(addresses.arbitrum);
+    addTarget(addresses.polygon);
+    addTarget(addresses.avalanche);
+
+    // Solana address (Zerion supports Solana)
+    addTarget(addresses.solana);
+
+    // Include any recorded EIP-7702 delegated accounts (EOA keeps same address)
+    // TODO: Implement EIP-7702 support
+    /* try {
+      const delegations =
+        await this.eip7702DelegationRepository.getDelegationsForUser(userId);
+      for (const delegation of delegations) {
+        addTarget(delegation.address);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to load EIP-7702 delegations for ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    } */
 
     // Polkadot EVM chains use the same EOA address as ethereum
     const polkadotEvmAddress = addresses.ethereum;
@@ -886,25 +870,13 @@ export class WalletService {
   > {
     const hasSeed = await this.seedRepository.hasSeed(userId);
     if (!hasSeed) {
-      this.logger.debug(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
-      this.logger.debug(`Successfully auto-created wallet for user ${userId}`);
     }
 
     const addresses = await this.getAddresses(userId);
-    const erc4337Address =
-      [
-        addresses.ethereumErc4337,
-        addresses.baseErc4337,
-        addresses.arbitrumErc4337,
-        addresses.polygonErc4337,
-      ].find((a) => !!a) || null;
-
-    const targetAddresses = [
-      addresses.ethereum,
-      erc4337Address,
-      addresses.solana,
-    ].filter(Boolean) as string[];
+    const targetAddresses = [addresses.ethereum, addresses.solana].filter(
+      Boolean,
+    ) as string[];
 
     // Polkadot EVM chains use the same EOA address as ethereum
     const polkadotEvmAddress = addresses.ethereum;
@@ -1244,9 +1216,7 @@ export class WalletService {
     const hasSeed = await this.seedRepository.hasSeed(userId);
 
     if (!hasSeed) {
-      this.logger.debug(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
-      this.logger.debug(`Successfully auto-created wallet for user ${userId}`);
     }
 
     // Get addresses first (using WDK - addresses stay on backend)
@@ -1346,45 +1316,10 @@ export class WalletService {
   async getErc4337PaymasterBalances(
     userId: string,
   ): Promise<Array<{ chain: string; balance: string }>> {
-    const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
-
-    const erc4337Chains: Array<{ name: string; chain: Erc4337Chain }> = [
-      { name: 'Ethereum', chain: 'ethereum' },
-      { name: 'Base', chain: 'base' },
-      { name: 'Arbitrum', chain: 'arbitrum' },
-      { name: 'Polygon', chain: 'polygon' },
-    ];
-
-    const balances: Array<{ chain: string; balance: string }> = [];
-
-    for (const { name: chainName, chain } of erc4337Chains) {
-      try {
-        // Create ERC-4337 account using Pimlico factory
-        const account = await this.pimlicoAccountFactory.createAccount(
-          seedPhrase,
-          chain,
-          0,
-        );
-
-        // Get paymaster token balance
-        // Note: This would need implementation in PimlicoSmartAccountWrapper if needed
-        // For now, returning 0 as paymaster balance checking is typically not exposed
-        balances.push({
-          chain: chainName,
-          balance: '0',
-        });
-      } catch (error) {
-        this.logger.error(
-          `Error fetching paymaster balance for ${chainName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        balances.push({
-          chain: chainName,
-          balance: '0',
-        });
-      }
-    }
-
-    return balances;
+    this.logger.warn(
+      'EIP-7702 migration: paymaster balances for legacy ERC-4337 are disabled.',
+    );
+    return [];
   }
 
   /**
@@ -1543,34 +1478,20 @@ export class WalletService {
         'deployAccount' in account &&
         typeof account.deployAccount === 'function'
       ) {
-        this.logger.debug(`[Deploy] Using account.deployAccount() method`);
-        const result = await account.deployAccount();
-        this.logger.log(
-          `[Deploy] Deployment result: ${JSON.stringify(result)}`,
-        );
+        await account.deployAccount();
         return;
       }
 
       // Method 2: Try deploy() if available
       if ('deploy' in account && typeof account.deploy === 'function') {
-        this.logger.debug(`[Deploy] Using account.deploy() method`);
-        const result = await account.deploy();
-        this.logger.log(
-          `[Deploy] Deployment result: ${JSON.stringify(result)}`,
-        );
+        await account.deploy();
         return;
       }
 
       // Method 3: Send a zero-value transaction to self to trigger deployment
       // ERC-4337 accounts typically auto-deploy on first UserOperation
       if ('send' in account && typeof account.send === 'function') {
-        this.logger.debug(
-          `[Deploy] Using account.send() with zero-value self-transfer to trigger deployment`,
-        );
-        const result = await account.send(address, '0');
-        this.logger.log(
-          `[Deploy] Deployment triggered via self-transfer: ${JSON.stringify(result)}`,
-        );
+        await account.send(address, '0');
 
         // Wait a bit for deployment to be confirmed
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -1828,8 +1749,9 @@ export class WalletService {
 
       if (!match) {
         this.logger.warn(
-          `[Zerion Lookup] No matching position found for token=${tokenAddress} on chain=${chain} ` +
-            `(checked aliases: [${chainAliases.join(', ')}])`,
+          `[Zerion Lookup] Token ${tokenAddress} not found in Zerion positions for ${walletAddress}. ` +
+          `User may not hold this token, or Zerion data is stale. ` +
+          `Checked chain aliases: [${chainAliases.join(', ')}]`,
         );
         return null;
       }
@@ -1837,16 +1759,35 @@ export class WalletService {
       const decimals = match.decimals;
       const balanceSmallest = match.balanceSmallest;
 
-      if (typeof decimals !== 'number' || decimals < 0 || decimals > 36) {
-        this.logger.warn(
-          `[Zerion Lookup] Invalid decimals for token ${tokenAddress}: ${decimals}`,
+      // CRITICAL VALIDATION: Ensure decimals field exists and is valid
+      if (decimals === null || decimals === undefined) {
+        this.logger.error(
+          `[Zerion Lookup] Token ${tokenAddress} found but decimals field is null/undefined. ` +
+          `Decimals value: ${decimals}. Zerion data may be incomplete.`,
+        );
+        return null;
+      }
+
+      if (typeof decimals !== 'number') {
+        this.logger.error(
+          `[Zerion Lookup] Token ${tokenAddress} has invalid decimals type: ${typeof decimals}. ` +
+          `Value: ${decimals}. Expected a number.`,
+        );
+        return null;
+      }
+
+      if (decimals < 0 || decimals > 36) {
+        this.logger.error(
+          `[Zerion Lookup] Token ${tokenAddress} has out-of-range decimals: ${decimals}. ` +
+          `Decimals must be between 0 and 36.`,
         );
         return null;
       }
 
       this.logger.log(
-        `[Zerion Lookup] Found token: symbol=${match.symbol}, ` +
-          `decimals=${decimals}, balance=${balanceSmallest}`,
+        `[Zerion Lookup] Successfully found token: symbol=${match.symbol}, ` +
+          `decimals=${decimals}, balance=${balanceSmallest}. ` +
+          `Data from Zerion is valid and ready for use.`,
       );
 
       return {
@@ -1980,53 +1921,57 @@ export class WalletService {
    */
   private async createAccountForChain(
     seedPhrase: string,
-    chain: string,
+    chain: AllChainTypes,
+    userId?: string,
   ): Promise<IAccount> {
-    const isErc4337 = this.isErc4337Chain(chain);
+    const eip7702Chains: AllChainTypes[] = [
+      'ethereum',
+      'sepolia',
+      'base',
+      'arbitrum',
+      'optimism',
+    ];
 
-    if (isErc4337) {
-      // ERC-4337 chains: use PimlicoAccountFactory
-      const chainMap: Record<string, Erc4337Chain> = {
-        ethereumErc4337: 'ethereum',
-        baseErc4337: 'base',
-        arbitrumErc4337: 'arbitrum',
-        polygonErc4337: 'polygon',
-        avalancheErc4337: 'avalanche',
-      };
+    // EIP-7702 not yet implemented (isEip7702Enabled always returns false)
+    // const isEip7702 =
+    //   this.pimlicoConfig.isEip7702Enabled(chain) &&
+    //   eip7702Chains.includes(chain);
+    //
+    // if (isEip7702) {
+    //   return this.eip7702AccountFactory.createAccount(
+    //     seedPhrase,
+    //     chain as 'ethereum' | 'sepolia' | 'base' | 'arbitrum' | 'optimism',
+    //     0,
+    //     userId,
+    //   );
+    // }
 
-      const erc4337Chain = chainMap[chain];
-      if (!erc4337Chain) {
-        throw new BadRequestException(`Unknown ERC-4337 chain: ${chain}`);
-      }
+    const evmChains: AllChainTypes[] = [
+      'ethereum',
+      'base',
+      'arbitrum',
+      'optimism',
+      'polygon',
+      'avalanche',
+      'sepolia',
+      'bnb',
+    ];
 
-      return await this.pimlicoAccountFactory.createAccount(
+    if (evmChains.includes(chain)) {
+      return this.accountFactory.createAccount(
         seedPhrase,
-        erc4337Chain,
+        chain as
+          | 'ethereum'
+          | 'base'
+          | 'arbitrum'
+          | 'polygon'
+          | 'avalanche'
+          | 'sepolia',
         0,
       );
-    } else {
-      // EOA chains: use AccountFactory
-      const chainMap: Record<string, AllChainTypes> = {
-        ethereum: 'ethereum',
-        base: 'base',
-        arbitrum: 'arbitrum',
-        polygon: 'polygon',
-        avalanche: 'avalanche',
-        moonbeamTestnet: 'moonbeamTestnet',
-        astarShibuya: 'astarShibuya',
-        paseoPassetHub: 'paseoPassetHub',
-        tron: 'tron',
-        bitcoin: 'bitcoin',
-        solana: 'solana',
-      };
-
-      const eoaChain = chainMap[chain];
-      if (!eoaChain) {
-        throw new BadRequestException(`Unknown EOA chain: ${chain}`);
-      }
-
-      return await this.accountFactory.createAccount(seedPhrase, eoaChain, 0);
     }
+
+    return this.accountFactory.createAccount(seedPhrase, chain, 0);
   }
 
   /**
@@ -2041,11 +1986,12 @@ export class WalletService {
    */
   async sendCrypto(
     userId: string,
-    chain: string,
+    chain: AllChainTypes,
     recipientAddress: string,
     amount: string,
     tokenAddress?: string,
     tokenDecimals?: number,
+    options?: { forceEip7702?: boolean },
   ): Promise<{ txHash: string }> {
     this.logger.log(
       `Sending crypto for user ${userId} on chain ${chain}: ${amount} to ${recipientAddress}`,
@@ -2055,9 +2001,7 @@ export class WalletService {
     const hasSeed = await this.seedRepository.hasSeed(userId);
 
     if (!hasSeed) {
-      this.logger.debug(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
-      this.logger.debug(`Successfully auto-created wallet for user ${userId}`);
     }
 
     // Validate amount
@@ -2066,56 +2010,48 @@ export class WalletService {
       throw new BadRequestException('Amount must be a positive number');
     }
 
-    // Determine account type for logging and error handling (needed in catch block)
-    const isErc4337 = this.isErc4337Chain(chain);
-    const accountType = isErc4337 ? 'ERC-4337' : 'EOA';
+  const forceEip7702 = options?.forceEip7702 === true;
+  const isEip7702Chain = this.pimlicoConfig.isEip7702Enabled(chain);
+  const accountType = isEip7702Chain ? 'EIP-7702' : 'EOA';
 
     try {
       const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
 
+      // Auto-route native sends on EIP-7702 enabled chains to the gasless flow to avoid zeroed gas fields
+      if (isEip7702Chain && !tokenAddress && !forceEip7702) {
+        const chainId = this.pimlicoConfig.getEip7702Config(
+          chain as 'ethereum' | 'sepolia' | 'base' | 'arbitrum' | 'optimism' | 'polygon' | 'bnb' | 'avalanche',
+        ).chainId;
+
+        this.logger.warn(
+          `[Auto-Route] Chain ${chain} has EIP-7702 enabled but sendCrypto() was called. ` +
+            `Routing to sendEip7702Gasless() for proper user operation flow.`,
+        );
+
+        const result = await this.sendEip7702Gasless(
+          userId,
+          chainId,
+          recipientAddress,
+          amount,
+          tokenAddress,
+          tokenDecimals,
+        );
+
+        return { txHash: result.transactionHash || result.userOpHash };
+      }
+
       // Create account using appropriate factory
-      const account = await this.createAccountForChain(seedPhrase, chain);
+      const account = await this.createAccountForChain(
+        seedPhrase,
+        chain,
+        userId,
+      );
       const walletAddress = await account.getAddress();
 
       this.logger.log(
         `[Send Debug] User is sending ${amount} ${tokenAddress || 'native'} from ${chain} ` +
           `(accountType: ${accountType}, address: ${walletAddress})`,
       );
-
-      // Check if ERC-4337 smart account is deployed, auto-deploy if needed
-      if (isErc4337) {
-        const isDeployed = await this.checkIfDeployed(account);
-        if (!isDeployed) {
-          this.logger.log(
-            `[Auto-Deploy] ERC-4337 account ${walletAddress} is not deployed. Initiating auto-deployment...`,
-          );
-
-          try {
-            // Auto-deploy the smart account
-            await this.deployErc4337Account(account, walletAddress, chain);
-            this.logger.log(
-              `[Auto-Deploy] Successfully deployed ERC-4337 account ${walletAddress}`,
-            );
-          } catch (deployError) {
-            const errorMessage =
-              deployError instanceof Error
-                ? deployError.message
-                : 'Unknown error';
-            this.logger.error(
-              `[Auto-Deploy] Failed to deploy ERC-4337 account ${walletAddress}: ${errorMessage}`,
-            );
-            throw new ServiceUnavailableException(
-              `Failed to auto-deploy ERC-4337 smart account. ` +
-                `Error: ${errorMessage}. ` +
-                `Please ensure you have sufficient funds for deployment or try again later.`,
-            );
-          }
-        } else {
-          this.logger.log(
-            `[Send Debug] ERC-4337 account ${walletAddress} is already deployed`,
-          );
-        }
-      }
 
       // Get decimals: Use provided tokenDecimals, or fetch from Zerion, or use native decimals
       let finalDecimals: number;
@@ -2125,17 +2061,24 @@ export class WalletService {
         // ERC-20 token
         if (
           tokenDecimals !== undefined &&
+          tokenDecimals !== null &&
           tokenDecimals >= 0 &&
           tokenDecimals <= 36
         ) {
-          // Use provided decimals from UI/Zerion
+          // OPTIMIZED: Use provided decimals from UI/Zerion directly - no re-fetch
           finalDecimals = tokenDecimals;
-          decimalsSource = 'ui-provided';
+          decimalsSource = 'frontend-zerion';
           this.logger.log(
-            `Using provided token decimals: ${finalDecimals} (source: ${decimalsSource})`,
+            `[Decimals Optimization] Using frontend-provided token decimals: ${finalDecimals} ` +
+            `(source: ${decimalsSource}). Skipping redundant Zerion API call.`,
           );
         } else {
-          // Fetch from Zerion first
+          // Frontend didn't provide decimals or they're invalid - fetch from Zerion
+          this.logger.warn(
+            `[Decimals Fallback] Frontend did not provide valid tokenDecimals for ${tokenAddress}. ` +
+            `Provided value: ${tokenDecimals}. Falling back to Zerion API lookup.`,
+          );
+
           const tokenInfo = await this.getZerionTokenInfo(
             tokenAddress,
             chain,
@@ -2143,19 +2086,24 @@ export class WalletService {
           );
           if (
             tokenInfo &&
+            tokenInfo.decimals !== null &&
+            tokenInfo.decimals !== undefined &&
             tokenInfo.decimals >= 0 &&
             tokenInfo.decimals <= 36
           ) {
             finalDecimals = tokenInfo.decimals;
-            decimalsSource = 'zerion';
+            decimalsSource = 'zerion-api';
             this.logger.log(
-              `Fetched token decimals from Zerion: ${finalDecimals} (source: ${decimalsSource})`,
+              `[Decimals Fallback] Fetched token decimals from Zerion API: ${finalDecimals} ` +
+              `(source: ${decimalsSource})`,
             );
           } else {
-            // Zerion failed - try RPC as fallback
-            this.logger.debug(
-              `Zerion token lookup failed for ${tokenAddress}, trying RPC decimals() as fallback`,
+            // Zerion failed - try RPC as final fallback
+            this.logger.warn(
+              `[Decimals Fallback] Zerion API lookup failed for ${tokenAddress} on ${chain}. ` +
+              `Trying RPC decimals() call as final fallback.`,
             );
+
             const rpcDecimals = await this.fetchDecimalsFromRPC(
               tokenAddress,
               account,
@@ -2164,14 +2112,16 @@ export class WalletService {
               finalDecimals = rpcDecimals;
               decimalsSource = 'rpc-decimals()';
               this.logger.log(
-                `Fetched token decimals from RPC: ${finalDecimals} (source: ${decimalsSource})`,
+                `[Decimals Fallback] Fetched token decimals from RPC: ${finalDecimals} ` +
+                `(source: ${decimalsSource})`,
               );
             } else {
-              // Both Zerion and RPC failed
+              // All methods failed
               throw new BadRequestException(
-                `Cannot determine token decimals for ${tokenAddress}. ` +
-                  `Tried Zerion and RPC decimals() call, both failed. ` +
-                  `Token may not exist or RPC is unavailable.`,
+                `Cannot determine token decimals for ${tokenAddress} on ${chain}. ` +
+                `Attempted: Frontend (${tokenDecimals}), Zerion API (failed), RPC decimals() (failed). ` +
+                `This token may not exist on ${chain}, or Zerion data is incomplete. ` +
+                `Please refresh your wallet data and try again.`,
               );
             }
           }
@@ -2416,18 +2366,6 @@ export class WalletService {
         // Enhanced error handling with specific messages
         const lowerError = errorMessage.toLowerCase();
 
-        // ERC-4337 specific errors
-        if (
-          isErc4337 &&
-          (lowerError.includes('paymaster') || lowerError.includes('sponsor'))
-        ) {
-          throw new ServiceUnavailableException(
-            `ERC-4337 account deployment or gas sponsorship failed. ` +
-              `This may be due to missing paymaster configuration or insufficient funds for deployment. ` +
-              `Error: ${errorMessage}`,
-          );
-        }
-
         if (
           lowerError.includes('insufficient') ||
           lowerError.includes('balance')
@@ -2496,6 +2434,68 @@ export class WalletService {
     }
   }
 
+  async sendEip7702Gasless(
+    userId: string,
+    chainId: number,
+    recipientAddress: string,
+    amount: string,
+    tokenAddress?: string,
+    tokenDecimals?: number,
+  ): Promise<{
+    success: boolean;
+    userOpHash: string;
+    transactionHash?: string;
+    isFirstTransaction: boolean;
+    explorerUrl?: string;
+  }> {
+    const chainIdMap: Record<number, AllChainTypes> = {
+      1: 'ethereum',
+      8453: 'base',
+      42161: 'arbitrum',
+      10: 'optimism',
+      137: 'polygon',
+      43114: 'avalanche',
+      11155111: 'sepolia',
+      56: 'bnb',
+    };
+
+    const chain = chainIdMap[chainId];
+    if (!chain) {
+      throw new BadRequestException(`Unsupported EIP-7702 chainId: ${chainId}`);
+    }
+
+    if (!this.pimlicoConfig.isEip7702Enabled(chain)) {
+      this.logger.warn(
+        `EIP-7702 is not enabled for chain ${chain}. Gasless transactions unavailable for this chain in production.`,
+      );
+      throw new BadRequestException(
+        `Gasless transactions are not available for ${chain} at this time. Please use standard transfers instead.`,
+      );
+    }
+
+    // Determine if this is the first delegation/transaction before sending
+    // TODO: Implement EIP-7702 support
+    const isFirstTransaction = true; // Default to true since EIP-7702 is not yet implemented
+    // const isFirstTransaction = !(await this.eip7702DelegationRepository.hasDelegation(userId, chainId));
+
+    const { txHash } = await this.sendCrypto(
+      userId,
+      chain,
+      recipientAddress,
+      amount,
+      tokenAddress,
+      tokenDecimals,
+      { forceEip7702: true },
+    );
+
+    return {
+      success: true,
+      userOpHash: txHash,
+      transactionHash: txHash,
+      isFirstTransaction,
+    };
+  }
+
   /**
    * Sign a WalletConnect transaction request
    * @param userId - The user ID
@@ -2518,21 +2518,12 @@ export class WalletService {
       nonce?: string;
     },
   ): Promise<{ txHash: string }> {
-    this.logger.log(
-      `Signing WalletConnect transaction for user ${userId} on chain ${chainId}`,
-    );
-
-    // Check if wallet exists, create if not
     const hasSeed = await this.seedRepository.hasSeed(userId);
 
     if (!hasSeed) {
-      this.logger.debug(`No wallet found for user ${userId}. Auto-creating...`);
       await this.createOrImportSeed(userId, 'random');
-      this.logger.debug(`Successfully auto-created wallet for user ${userId}`);
     }
 
-    // Map WalletConnect chain ID to internal chain name
-    // Format: eip155:chainId (e.g., eip155:1 for Ethereum, eip155:8453 for Base)
     const chainIdMatch = chainId.match(/^eip155:(\d+)$/);
     if (!chainIdMatch || !chainIdMatch[1]) {
       throw new BadRequestException(
@@ -2540,173 +2531,32 @@ export class WalletService {
       );
     }
 
-    const numericChainId = parseInt(chainIdMatch[1], 10);
-
-    // Map chain ID to internal chain name
-    // Prefer ERC-4337 chains for better UX (gasless transactions)
-    const chainIdMap: Record<number, string> = {
-      1: 'ethereumErc4337', // Ethereum Mainnet
-      8453: 'baseErc4337', // Base
-      42161: 'arbitrumErc4337', // Arbitrum
-      137: 'polygonErc4337', // Polygon
-      43114: 'avalancheErc4337', // Avalanche C-Chain
-      420420422: 'moonbeamTestnet', // Moonbeam Testnet (EOA only)
-      81: 'astarShibuya', // Astar Shibuya (EOA only)
-      // Note: Paseo PassetHub also uses 420420422, but we'll use moonbeamTestnet as primary
-      // Fallback to EOA chains if ERC-4337 not available
-      // 1: 'ethereum',
-      // 8453: 'base',
-      // 42161: 'arbitrum',
-      // 137: 'polygon',
-      // 43114: 'avalanche',
+    const chainMap: Record<string, AllChainTypes> = {
+      '1': 'ethereum',
+      '8453': 'base',
+      '42161': 'arbitrum',
+      '137': 'polygon',
+      '43114': 'avalanche',
     };
 
-    const internalChain = chainIdMap[numericChainId];
+    const internalChain = chainMap[chainIdMatch[1]];
     if (!internalChain) {
       throw new BadRequestException(
-        `Unsupported chain ID: ${numericChainId}. Supported chains: Ethereum (1), Base (8453), Arbitrum (42161), Polygon (137), Avalanche (43114), Moonbeam Testnet (420420422), Astar Shibuya (81)`,
+        `Unsupported chain ID: ${chainIdMatch[1]}. Supported chains: ${Object.keys(chainMap).join(', ')}`,
       );
     }
 
-    try {
-      const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
+    const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
+    const account = await this.createAccountForChain(
+      seedPhrase,
+      internalChain,
+      userId,
+    );
 
-      // Create account using appropriate factory
-      const account = await this.createAccountForChain(
-        seedPhrase,
-        internalChain,
-      );
-      const accountAddress = await account.getAddress();
-
-      // Verify that the 'from' address matches the account address
-      if (transaction.from.toLowerCase() !== accountAddress.toLowerCase()) {
-        throw new BadRequestException(
-          `Transaction 'from' address (${transaction.from}) does not match wallet address (${accountAddress})`,
-        );
-      }
-
-      // Prepare transaction object
-      const txParams: any = {};
-
-      if (transaction.to) {
-        txParams.to = transaction.to;
-      }
-
-      if (transaction.value) {
-        // Convert hex value to BigInt if needed
-        const value = transaction.value.startsWith('0x')
-          ? BigInt(transaction.value).toString()
-          : transaction.value;
-        txParams.value = value;
-      }
-
-      if (transaction.data) {
-        txParams.data = transaction.data;
-      }
-
-      if (transaction.gas) {
-        txParams.gas = transaction.gas.startsWith('0x')
-          ? parseInt(transaction.gas, 16).toString()
-          : transaction.gas;
-      }
-
-      if (transaction.gasPrice) {
-        txParams.gasPrice = transaction.gasPrice.startsWith('0x')
-          ? BigInt(transaction.gasPrice).toString()
-          : transaction.gasPrice;
-      }
-
-      if (transaction.maxFeePerGas) {
-        txParams.maxFeePerGas = transaction.maxFeePerGas.startsWith('0x')
-          ? BigInt(transaction.maxFeePerGas).toString()
-          : transaction.maxFeePerGas;
-      }
-
-      if (transaction.maxPriorityFeePerGas) {
-        txParams.maxPriorityFeePerGas =
-          transaction.maxPriorityFeePerGas.startsWith('0x')
-            ? BigInt(transaction.maxPriorityFeePerGas).toString()
-            : transaction.maxPriorityFeePerGas;
-      }
-
-      if (transaction.nonce) {
-        txParams.nonce = transaction.nonce.startsWith('0x')
-          ? parseInt(transaction.nonce, 16)
-          : parseInt(transaction.nonce, 10);
-      }
-
-      // Send transaction using account's sendTransaction method
-      let txHash: string = '';
-
-      if (
-        'sendTransaction' in account &&
-        typeof (account as any).sendTransaction === 'function'
-      ) {
-        const result = await (account as any).sendTransaction(txParams);
-        txHash =
-          typeof result === 'string'
-            ? result
-            : result?.hash || result?.txHash || String(result);
-      } else if ('send' in account && typeof account.send === 'function') {
-        // Fallback to send method if sendTransaction not available
-        const recipient = transaction.to || accountAddress;
-        const amount = transaction.value
-          ? transaction.value.startsWith('0x')
-            ? BigInt(transaction.value).toString()
-            : transaction.value
-          : '0';
-        const result = await account.send(recipient, amount);
-        txHash =
-          typeof result === 'string'
-            ? result
-            : (result as any).hash || (result as any).txHash || String(result);
-      } else {
-        throw new ServiceUnavailableException(
-          `Account does not support sendTransaction or send methods`,
-        );
-      }
-
-      if (!txHash || typeof txHash !== 'string') {
-        throw new ServiceUnavailableException(
-          'Transaction submitted but no transaction hash returned',
-        );
-      }
-
-      // Invalidate Zerion cache for this address/chain after successful send
-      try {
-        this.zerionService.invalidateCache(accountAddress, internalChain);
-        this.logger.log(
-          `Invalidated Zerion cache for ${accountAddress} on ${internalChain} after WalletConnect transaction`,
-        );
-      } catch (cacheError) {
-        this.logger.warn(
-          `Failed to invalidate cache: ${cacheError instanceof Error ? cacheError.message : 'Unknown error'}`,
-        );
-      }
-
-      this.logger.log(
-        `Successfully signed WalletConnect transaction. Transaction hash: ${txHash}`,
-      );
-      return { txHash };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof UnprocessableEntityException
-      ) {
-        throw error;
-      }
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(
-        `Error signing WalletConnect transaction: ${errorMessage}`,
-      );
-      this.logger.error(
-        `Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`,
-      );
-      throw new ServiceUnavailableException(
-        `Failed to sign WalletConnect transaction: ${errorMessage}`,
-      );
-    }
+    const to = transaction.to || transaction.from;
+    const value = transaction.value || '0';
+    const txHash = await account.send(to, value);
+    return { txHash };
   }
 
   /**
@@ -2981,206 +2831,9 @@ export class WalletService {
       decimals: number;
     }>
   > {
-    const tokens: Array<{
-      address: string | null;
-      symbol: string;
-      balance: string;
-      decimals: number;
-    }> = [];
-    const discoveredTokenAddresses = new Set<string>();
-
-    try {
-      // Get account address
-      const address = await account.getAddress();
-
-      // ERC-20 Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
-      const transferEventSignature =
-        '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-
-      // Try to get RPC provider from account to query events
-      let provider: any = null;
-      if ('provider' in account) {
-        provider = account.provider;
-      } else if (
-        'getProvider' in account &&
-        typeof account.getProvider === 'function'
-      ) {
-        provider = await account.getProvider();
-      }
-
-      if (provider && typeof provider.request === 'function') {
-        // Query recent Transfer events where this address is the recipient or sender
-        // This finds all tokens the address has interacted with
-        const currentBlock = await provider.request({
-          method: 'eth_blockNumber',
-        });
-        const blockNumber = parseInt(currentBlock, 16);
-        // Reduced to 1000 blocks (~4 hours on Ethereum mainnet) for better performance
-        const fromBlock = Math.max(0, blockNumber - 1000);
-
-        // Pad address to 32 bytes (64 hex chars) for topic encoding
-        const addressLower = address.toLowerCase();
-        const paddedAddress = '0x' + addressLower.slice(2).padStart(64, '0');
-
-        try {
-          const events = await provider.request({
-            method: 'eth_getLogs',
-            params: [
-              {
-                fromBlock: '0x' + fromBlock.toString(16),
-                toBlock: 'latest',
-                topics: [
-                  transferEventSignature,
-                  null, // from address (any)
-                  paddedAddress, // to address (this account)
-                ],
-              },
-            ],
-          });
-
-          // Also check for outgoing transfers
-          const outgoingEvents = await provider.request({
-            method: 'eth_getLogs',
-            params: [
-              {
-                fromBlock: '0x' + fromBlock.toString(16),
-                toBlock: 'latest',
-                topics: [
-                  transferEventSignature,
-                  paddedAddress, // from address (this account)
-                  null, // to address (any)
-                ],
-              },
-            ],
-          });
-
-          // Combine both sets of events
-          const allEvents = [...(events || []), ...(outgoingEvents || [])];
-
-          // Extract unique token contract addresses
-          allEvents.forEach((event: any) => {
-            if (
-              event.address &&
-              !discoveredTokenAddresses.has(event.address.toLowerCase())
-            ) {
-              discoveredTokenAddresses.add(event.address.toLowerCase());
-            }
-          });
-        } catch (error) {
-          this.logger.debug(
-            `Failed to query Transfer events: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          );
-        }
-      }
-
-      // For each discovered token, get balance, symbol, and decimals
-      // Limit to first 50 tokens to prevent excessive RPC calls
-      const tokenAddressesArray = Array.from(discoveredTokenAddresses).slice(
-        0,
-        50,
-      );
-
-      // Process in parallel batches of 10 to speed up
-      const batchSize = 10;
-      for (let i = 0; i < tokenAddressesArray.length; i += batchSize) {
-        const batch = tokenAddressesArray.slice(i, i + batchSize);
-        const batchPromises = batch.map(async (tokenAddress) => {
-          try {
-            // Get token balance
-            let tokenBalance: any = '0';
-            if (
-              'getTokenBalance' in account &&
-              typeof account.getTokenBalance === 'function'
-            ) {
-              tokenBalance = await account.getTokenBalance(tokenAddress);
-            } else if (provider) {
-              // Fallback: Call balanceOf directly via RPC
-              const balanceResult = await provider.request({
-                method: 'eth_call',
-                params: [
-                  {
-                    to: tokenAddress,
-                    data: '0x70a08231' + address.slice(2).padStart(64, '0'), // balanceOf(address)
-                  },
-                  'latest',
-                ],
-              });
-              tokenBalance = BigInt(balanceResult).toString();
-            }
-
-            if (tokenBalance && parseFloat(tokenBalance.toString()) > 0) {
-              // Get token symbol and decimals
-              let symbol = 'UNKNOWN';
-              let decimals = 18;
-
-              try {
-                if (provider) {
-                  // Call symbol() - 0x95d89b41
-                  const symbolResult = await provider.request({
-                    method: 'eth_call',
-                    params: [
-                      {
-                        to: tokenAddress,
-                        data: '0x95d89b41',
-                      },
-                      'latest',
-                    ],
-                  });
-                  if (symbolResult && symbolResult !== '0x') {
-                    symbol = this.decodeStringFromHex(symbolResult);
-                  }
-
-                  // Call decimals() - 0x313ce567
-                  const decimalsResult = await provider.request({
-                    method: 'eth_call',
-                    params: [
-                      {
-                        to: tokenAddress,
-                        data: '0x313ce567',
-                      },
-                      'latest',
-                    ],
-                  });
-                  if (decimalsResult && decimalsResult !== '0x') {
-                    decimals = parseInt(decimalsResult, 16);
-                  }
-                }
-              } catch (error) {
-                this.logger.debug(
-                  `Failed to fetch token metadata for ${tokenAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                );
-              }
-
-              tokens.push({
-                address: tokenAddress,
-                symbol,
-                balance: tokenBalance.toString(),
-                decimals,
-              });
-            }
-            return null;
-          } catch (error) {
-            this.logger.debug(
-              `Failed to process token ${tokenAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            );
-            return null;
-          }
-        });
-
-        const batchResults = await Promise.all(batchPromises);
-        batchResults.forEach((token) => {
-          if (token) {
-            tokens.push(token);
-          }
-        });
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Token discovery from events failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-    }
-
-    return tokens;
+    // EIP-7702 refactor: event-based discovery temporarily disabled.
+    // Zerion balance fetch plus cached tokens cover discovery today.
+    return [];
   }
 
   /**

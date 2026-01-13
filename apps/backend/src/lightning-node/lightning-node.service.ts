@@ -31,6 +31,7 @@ import type {
   JoinLightningNodeDto,
   AuthenticateWalletDto,
   SearchSessionDto,
+  FundChannelDto,
 } from './dto/index.js';
 import { SeedRepository } from '../wallet/seed.repository.js';
 import { WalletService } from '../wallet/wallet.service.js';
@@ -337,12 +338,15 @@ export class LightningNodeService {
     };
 
     // Create NitroliteClient
+    // NOTE: useSessionKeys set to false for production compatibility
+    // Yellow Network production requires main wallet signatures for mutation operations (create, submit)
+    // Session keys only work for query operations in production
     const nitroliteClient = new NitroliteClient({
       wsUrl: this.wsUrl,
       mainWallet,
       publicClient,
       walletClient,
-      useSessionKeys: true,
+      useSessionKeys: false, // Disabled for production compatibility - see CHANNELID_FIX.md
       application: 'tempwallets-lightning',
     });
 
@@ -1393,6 +1397,15 @@ export class LightningNodeService {
     }
 
     return { ok: true };
+  }
+
+  /**
+   * Fund unified balance via payment channel (placeholder).
+   * TODO: Implement channel create/resize once custody contract addresses are wired.
+   */
+  async fundChannel(dto: FundChannelDto): Promise<{ ok: boolean; message: string }> {
+    this.logger.warn('[fundChannel] Not yet implemented', dto);
+    return { ok: false, message: 'fundChannel not implemented yet' };
   }
 
   /**
