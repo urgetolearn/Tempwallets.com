@@ -8,14 +8,13 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service.js';
 import {
   createPublicClient,
-  createWalletClient,
   http,
   type Address,
   type PublicClient,
   type WalletClient,
 } from 'viem';
 import { mnemonicToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { base, arbitrum } from 'viem/chains';
+import { base, mainnet, polygon, arbitrum } from 'viem/chains';
 import {
   NitroliteClient,
   type MainWallet,
@@ -27,7 +26,6 @@ import type {
 import type {
   CreateLightningNodeDto,
   DepositFundsDto,
-  WithdrawFundsDto,
   TransferFundsDto,
   CloseLightningNodeDto,
   JoinLightningNodeDto,
@@ -37,7 +35,6 @@ import type {
 } from './dto/index.js';
 import { SeedRepository } from '../wallet/seed.repository.js';
 import { WalletService } from '../wallet/wallet.service.js';
-import { PimlicoConfigService } from '../wallet/config/pimlico.config.js';
 
 // Note: This codebase uses WalletAddress model, not TempWallet
 // "tempwallet" refers to the wallet address concept
@@ -52,12 +49,29 @@ export class LightningNodeService {
   // Cache for user NitroliteClients (to avoid recreating for each request)
   private userClients: Map<string, NitroliteClient> = new Map();
 
+  // Normal EOA chains (have private keys, can sign)
+  private readonly EOA_CHAINS = [
+    'ethereum',
+    'base',
+    'arbitrum',
+    'polygon',
+    'avalanche',
+  ];
+
+  // ERC-4337 chains (smart contract accounts, need parent EOA for signing)
+  private readonly ERC4337_CHAINS = [
+    'ethereumErc4337',
+    'baseErc4337',
+    'arbitrumErc4337',
+    'polygonErc4337',
+    'avalancheErc4337',
+  ];
+
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
     private seedRepository: SeedRepository,
     private walletService: WalletService,
-    private pimlicoConfig: PimlicoConfigService,
   ) {
     this.wsUrl = this.configService.get<string>('YELLOW_NETWORK_WS_URL') || '';
     if (!this.wsUrl) {
@@ -80,14 +94,6 @@ export class LightningNodeService {
     // Map chain name to the base chain (e.g., 'base' -> 'base', 'baseErc4337' -> 'base')
     const baseChain = this.getBaseChainName(chainName);
 
-    // Lightning Node requires direct EOA signing. If EIP-7702 is enabled, log and proceed with the raw EOA.
-    if (this.pimlicoConfig.isEip7702Enabled(baseChain)) {
-      this.logger.warn(
-        `EIP-7702 is enabled on ${baseChain}, but Lightning Node requires direct EOA signing. ` +
-          `Proceeding with the EOA (no delegation/UserOp).`,
-      );
-    }
-
     // IMPORTANT: Use WalletService.getAddresses() which auto-creates wallet if needed
     // This works for both temp users (WalletSeed) and authenticated users (Wallet table)
     this.logger.debug(`Ensuring wallet exists for user ${userId}...`);
@@ -97,10 +103,24 @@ export class LightningNodeService {
       Object.keys(allAddresses),
     );
 
-    // Get address for the requested chain directly from the addresses object (EOA only)
-    const walletAddress = allAddresses[baseChain as keyof typeof allAddresses];
-    const isEOA = true;
-    const chainKey = baseChain;
+    // Get address for the requested chain directly from the addresses object
+    // Try base chain first (e.g., 'base')
+    let walletAddress = allAddresses[baseChain as keyof typeof allAddresses];
+    let isEOA = true;
+    let chainKey = baseChain;
+
+    // If base chain not found, try ERC-4337 variant (e.g., 'baseErc4337')
+    if (!walletAddress) {
+      const erc4337Chain = `${baseChain}Erc4337`;
+      walletAddress = allAddresses[erc4337Chain as keyof typeof allAddresses];
+      if (walletAddress) {
+        isEOA = false;
+        chainKey = erc4337Chain;
+        this.logger.debug(
+          `Using ERC-4337 wallet for ${chainName}. Will use parent EOA for signing.`,
+        );
+      }
+    }
 
     if (!walletAddress) {
       // List available chains for better error message
@@ -109,14 +129,14 @@ export class LightningNodeService {
         .join(', ');
 
       throw new NotFoundException(
-        `No wallet address found for chain "${chainName}" (tried ${baseChain}). ` +
+        `No wallet address found for chain "${chainName}" (tried ${baseChain} and ${baseChain}Erc4337). ` +
           `Available chains: ${availableChains || 'none'}. ` +
           `Please select a different chain or refresh your wallet to generate addresses for this chain.`,
       );
     }
 
     this.logger.debug(
-      `Found wallet address ${walletAddress} for user ${userId} on ${chainKey} (EOA)`,
+      `Found wallet address ${walletAddress} for user ${userId} on ${chainKey} (${isEOA ? 'EOA' : 'ERC-4337'})`,
     );
 
     return {
@@ -138,12 +158,14 @@ export class LightningNodeService {
   /**
    * Create a viem EOA account from user's seed phrase for signing
    * This uses the normal EVM wallet (EOA) which has a private key
-   * Returns the full viem account with all signing methods
    */
   private async createEOASignerAccount(
     userId: string,
     chainName: string,
-  ): Promise<ReturnType<typeof mnemonicToAccount>> {
+  ): Promise<{
+    address: Address;
+    signTypedData: (typedData: any) => Promise<string>;
+  }> {
     try {
       // Get user's seed phrase
       const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
@@ -152,11 +174,7 @@ export class LightningNodeService {
       const baseChain = this.getBaseChainName(chainName);
 
       // Create viem account from mnemonic (uses HD path: m/44'/60'/0'/0/0)
-      // This gives us access to the private key for ALL signing operations:
-      // - signMessage (EIP-191)
-      // - signTypedData (EIP-712)
-      // - signTransaction (for sending txs)
-      // - sign (raw hash signing for smart contracts)
+      // This gives us access to the private key for signing
       const account = mnemonicToAccount(seedPhrase, {
         accountIndex: 0,
         addressIndex: 0,
@@ -166,8 +184,19 @@ export class LightningNodeService {
         `Created EOA signer account ${account.address} for user ${userId} on ${baseChain}`,
       );
 
-      // Return the full viem account - it has all methods needed
-      return account;
+      // Return a wrapper that provides signTypedData
+      return {
+        address: account.address,
+        signTypedData: async (typedData: any) => {
+          // Viem requires typed data to be destructured
+          return await account.signTypedData({
+            domain: typedData.domain,
+            types: typedData.types,
+            primaryType: typedData.primaryType,
+            message: typedData.message,
+          });
+        },
+      };
     } catch (error) {
       const err = error as Error;
       this.logger.error(
@@ -183,12 +212,16 @@ export class LightningNodeService {
 
   /**
    * Get viem chain from chain name
-   * Supported networks: base, arbitrum
    */
   private getChain(chainName: string) {
     switch (chainName.toLowerCase()) {
       case 'base':
         return base;
+      case 'ethereum':
+      case 'mainnet':
+        return mainnet;
+      case 'polygon':
+        return polygon;
       case 'arbitrum':
         return arbitrum;
       default:
@@ -198,70 +231,20 @@ export class LightningNodeService {
 
   /**
    * Get default RPC URL for chain
-   * Supported networks: base, arbitrum
    */
   private getDefaultRpcUrl(chainName: string): string {
     switch (chainName.toLowerCase()) {
       case 'base':
         return 'https://mainnet.base.org';
+      case 'ethereum':
+      case 'mainnet':
+        return 'https://eth.llamarpc.com';
+      case 'polygon':
+        return 'https://polygon-rpc.com';
       case 'arbitrum':
         return 'https://arb1.arbitrum.io/rpc';
       default:
         return 'https://mainnet.base.org';
-    }
-  }
-
-  /**
-   * Execute a Yellow Network operation with automatic retry on session expiry
-   *
-   * If the operation fails due to expired session, clears cache and retries once
-   * with a freshly authenticated client.
-   */
-  private async executeWithRetry<T>(
-    operation: (client: NitroliteClient) => Promise<T>,
-    userId: string,
-    chainName: string,
-    userWalletAddress: Address,
-    isEOA: boolean,
-    chainKey: string,
-    cacheKey: string,
-  ): Promise<T> {
-    try {
-      const client = await this.getUserNitroliteClient(
-        userId,
-        chainName,
-        userWalletAddress,
-        isEOA,
-        chainKey,
-      );
-      return await operation(client);
-    } catch (error) {
-      const err = error as Error;
-      // If session expired, clear cache and retry once with fresh authentication
-      if (
-        err.message.includes('Session expired') ||
-        err.message.includes('re-authenticate')
-      ) {
-        this.logger.warn(
-          `Session expired during operation, re-authenticating and retrying...`,
-        );
-        // Clear the cached client to force re-authentication
-        this.userClients.delete(cacheKey);
-
-        // Get fresh authenticated client
-        const freshClient = await this.getUserNitroliteClient(
-          userId,
-          chainName,
-          userWalletAddress,
-          isEOA,
-          chainKey,
-        );
-
-        // Retry the operation
-        return await operation(freshClient);
-      }
-      // Re-throw other errors
-      throw error;
     }
   }
 
@@ -285,19 +268,10 @@ export class LightningNodeService {
     // Check cache
     if (this.userClients.has(cacheKey)) {
       const cached = this.userClients.get(cacheKey)!;
-      // Check both initialization AND authentication (session expiry)
-      // isInitialized() only checks if client was initialized, not if session is still valid
-      // isAuthenticated() checks if session key exists and hasn't expired
-      if (cached.isInitialized() && cached.isAuthenticated()) {
-        this.logger.debug(
-          `Reusing cached NitroliteClient for user ${userId} (session still valid)`,
-        );
+      if (cached.isInitialized()) {
         return cached;
       }
-      // Remove invalid/expired client from cache
-      this.logger.log(
-        `Cached NitroliteClient expired or invalid for user ${userId}, removing from cache`,
-      );
+      // Remove invalid client from cache
       this.userClients.delete(cacheKey);
     }
 
@@ -311,47 +285,45 @@ export class LightningNodeService {
       this.configService.get<string>(`${baseChain.toUpperCase()}_RPC_URL`) ||
       this.getDefaultRpcUrl(baseChain);
 
-    // Create EOA signer account first (needed for wallet client)
-    // This uses the normal EVM wallet which has a private key
-    const eoaAccount = await this.createEOASignerAccount(userId, baseChain);
-
     // Create public client
     const publicClient = createPublicClient({
       chain,
       transport: http(rpcUrl),
     }) as PublicClient;
 
-    // Create wallet client with the EOA account for on-chain operations
-    // This is crucial - the wallet client needs an account that can sign transactions
-    const walletClient = createWalletClient({
-      account: eoaAccount, // The full viem account with all signing methods
+    // Create wallet client (used for on-chain operations)
+    const walletClient = createPublicClient({
       chain,
       transport: http(rpcUrl),
-    }) as WalletClient;
+    }) as unknown as WalletClient;
+
+    // Create EOA signer account for signing EIP-712 messages
+    // This uses the normal EVM wallet which has a private key
+    const eoaSigner = await this.createEOASignerAccount(userId, baseChain);
 
     this.logger.log(
-      `Using EOA address ${eoaAccount.address} for authentication (wallet address: ${walletAddress})`,
+      `Using EOA address ${eoaSigner.address} for authentication (wallet address: ${walletAddress})`,
     );
 
     // Create MainWallet interface
     // Use EOA address as main wallet address - signature must match the address in typed data
     const mainWallet: MainWallet = {
-      address: eoaAccount.address, // Use EOA address since that's what we sign with
+      address: eoaSigner.address, // Use EOA address since that's what we sign with
       signTypedData: async (typedData: any) => {
         try {
           this.logger.debug(
-            `Signing EIP-712 with address ${eoaAccount.address}, typed data message wallet: ${typedData.message?.wallet}`,
+            `Signing EIP-712 with address ${eoaSigner.address}, typed data message wallet: ${typedData.message?.wallet}`,
           );
           // Sign with the EOA account (which has the private key)
           // Viem requires destructured typed data
-          const signature = await eoaAccount.signTypedData({
+          const signature = await eoaSigner.signTypedData({
             domain: typedData.domain,
             types: typedData.types,
             primaryType: typedData.primaryType,
             message: typedData.message,
           });
           this.logger.debug(
-            `Signed EIP-712 message for wallet ${eoaAccount.address}`,
+            `Signed EIP-712 message for wallet ${eoaSigner.address}`,
           );
           return signature;
         } catch (error) {
@@ -366,15 +338,12 @@ export class LightningNodeService {
     };
 
     // Create NitroliteClient
-    // NOTE: useSessionKeys set to false for production compatibility
-    // Yellow Network production requires main wallet signatures for mutation operations (create, submit)
-    // Session keys only work for query operations in production
     const nitroliteClient = new NitroliteClient({
       wsUrl: this.wsUrl,
       mainWallet,
       publicClient,
       walletClient,
-      useSessionKeys: false, // Disabled for production compatibility - see CHANNELID_FIX.md
+      useSessionKeys: true,
       application: 'tempwallets-lightning',
     });
 
@@ -407,21 +376,8 @@ export class LightningNodeService {
       // Ensure a User row exists for FK constraint (temp users don't live in User table by default)
       await this.ensureUserRecord(dto.userId);
 
-      // Validate chain is provided and supported
-      if (!dto.chain) {
-        throw new BadRequestException(
-          'Chain is required. Please select either "base" or "arbitrum".',
-        );
-      }
-
-      const chainName = dto.chain.toLowerCase();
-      if (chainName !== 'base' && chainName !== 'arbitrum') {
-        throw new BadRequestException(
-          `Unsupported chain: ${dto.chain}. Only "base" and "arbitrum" are supported.`,
-        );
-      }
-
       // Get user's wallet address for the chain
+      const chainName = dto.chain || 'base';
       const {
         address: userWalletAddress,
         isEOA,
@@ -490,6 +446,15 @@ export class LightningNodeService {
         // For now, we'll proceed with single signer and let Yellow Network reject if needed
       }
 
+      // Get or create NitroliteClient for this user's wallet
+      const nitroliteClient = await this.getUserNitroliteClient(
+        dto.userId,
+        chainName,
+        userWalletAddress,
+        isEOA,
+        chainKey,
+      );
+
       // Create app session via Yellow Network
       // NOTE: In Yellow Network, ALL participants are authorized at creation time.
       // There is no separate "join" step in the protocol itself.
@@ -498,38 +463,16 @@ export class LightningNodeService {
       this.logger.log(`  - Weights: ${weights.join(', ')}`);
       this.logger.log(`  - Quorum: ${quorum}`);
 
-      const cacheKey = `${dto.userId}-${chainName}-${userWalletAddress}`;
-      const appSession = await this.executeWithRetry(
-        async (client) =>
-          await client.createLightningNode({
-            participants,
-            weights,
-            quorum,
-            token: dto.token.toLowerCase(),
-            initialAllocations,
-            sessionData: dto.sessionData,
-          }),
-        dto.userId,
-        chainName,
-        userWalletAddress,
-        isEOA,
-        chainKey,
-        cacheKey,
-      );
+      const appSession = await nitroliteClient.createLightningNode({
+        participants,
+        weights,
+        quorum,
+        token: dto.token.toLowerCase(),
+        initialAllocations,
+        sessionData: dto.sessionData,
+      });
 
       const appSessionId = appSession.app_session_id;
-      
-      // Validate appSessionId is present and valid
-      if (!appSessionId || typeof appSessionId !== 'string') {
-        this.logger.error(
-          `Failed to create app session: app_session_id is missing or invalid`,
-          { appSession },
-        );
-        throw new BadRequestException(
-          'Failed to create app session: Yellow Network did not return a valid session ID',
-        );
-      }
-
       this.logger.log(
         `✅ App session created on Yellow Network: ${appSessionId}`,
       );
@@ -565,7 +508,7 @@ export class LightningNodeService {
           userId: dto.userId,
           appSessionId,
           uri,
-          chain: chainName,
+          chain: dto.chain || 'base',
           token: dto.token,
           status: appSession.status,
           maxParticipants: 50,
@@ -649,13 +592,7 @@ export class LightningNodeService {
     this.logger.log(`[AUTH] Authenticating wallet for user ${dto.userId}`);
 
     try {
-      // Validate chain if provided, otherwise default to base
-      let chainName = dto.chain ? dto.chain.toLowerCase() : 'base';
-      if (chainName !== 'base' && chainName !== 'arbitrum') {
-        throw new BadRequestException(
-          `Unsupported chain: ${dto.chain}. Only "base" and "arbitrum" are supported.`,
-        );
-      }
+      const chainName = dto.chain || 'base';
 
       // Get user's wallet address for the chain
       const {
@@ -726,14 +663,14 @@ export class LightningNodeService {
       const appSessionId = this.parseSessionIdFromInput(dto.sessionId);
 
       // Try to find session in local DB first (for chain info)
-      let chainName = dto.chain ? dto.chain.toLowerCase() : 'base';
+      let chainName = dto.chain || 'base';
       const localSession = await this.prisma.lightningNode.findUnique({
         where: { appSessionId },
         include: { participants: true },
       });
 
       if (localSession) {
-        chainName = localSession.chain.toLowerCase();
+        chainName = localSession.chain;
         this.logger.log(
           `[SEARCH] Found session in local DB, using chain: ${chainName}`,
         );
@@ -748,19 +685,19 @@ export class LightningNodeService {
 
       this.logger.log(`[SEARCH] Querying as wallet: ${userWalletAddress}`);
 
-      // Query Yellow Network for the session
-      this.logger.log(`[SEARCH] Querying Yellow Network...`);
-      const cacheKey = `${dto.userId}-${chainName}-${userWalletAddress}`;
-      const remoteSession = await this.executeWithRetry(
-        async (client) => {
-          return await client.getLightningNode(appSessionId as `0x${string}`);
-        },
+      // Get authenticated NitroliteClient for this user
+      const nitroliteClient = await this.getUserNitroliteClient(
         dto.userId,
         chainName,
         userWalletAddress,
         isEOA,
         chainKey,
-        cacheKey,
+      );
+
+      // Query Yellow Network for the session
+      this.logger.log(`[SEARCH] Querying Yellow Network...`);
+      const remoteSession = await nitroliteClient.getLightningNode(
+        appSessionId as `0x${string}`,
       );
 
       this.logger.log(`[SEARCH] ✅ Session found on Yellow Network`);
@@ -900,20 +837,18 @@ export class LightningNodeService {
         chainKey,
       } = await this.getUserWalletAddress(userId, chainName);
 
-      // Query Yellow Network for all open app sessions
-      this.logger.log(`[DISCOVER] Querying Yellow Network for all sessions...`);
-      const cacheKey = `${userId}-${chainName}-${primaryAddress}`;
-      const allRemoteSessions = await this.executeWithRetry(
-        async (client) => {
-          return await client.getLightningNodes('open');
-        },
+      // Get authenticated NitroliteClient
+      const nitroliteClient = await this.getUserNitroliteClient(
         userId,
         chainName,
         primaryAddress,
         isEOA,
         chainKey,
-        cacheKey,
       );
+
+      // Query Yellow Network for all open app sessions
+      this.logger.log(`[DISCOVER] Querying Yellow Network for all sessions...`);
+      const allRemoteSessions = await nitroliteClient.getLightningNodes('open');
 
       this.logger.log(
         `[DISCOVER] Found ${allRemoteSessions.length} total sessions on Yellow Network`,
@@ -1399,202 +1334,159 @@ export class LightningNodeService {
   }
 
   /**
-   * Fund payment channel (add to unified balance)
+   * Fund payment channel (add funds to unified balance)
    * 
-   * This creates or resizes a payment channel with Yellow Network,
-   * moving funds from the user's on-chain wallet to their unified balance.
-   * The unified balance can then be used for gasless deposits into Lightning Nodes.
+   * This moves funds from the user's on-chain wallet to the unified balance.
+   * Uses Yellow Network's resizeChannel() method to add funds to an existing channel.
+   * If no channel exists, creates one first then funds it.
+   * Once funded, the unified balance can be used for gasless deposits to app sessions.
    * 
-   * Flow:
-   * 1. Check if user has existing channel for this chain/token
-   * 2. If yes: Resize channel (add funds)
-   * 3. If no: Create new channel
-   * 
-   * NOTE: This requires on-chain transaction and will currently fail due to
-   * channelId mismatch issue with Yellow Network on Base Mainnet.
-   * See: YELLOW_NETWORK_CHANNELID_ISSUE.md
+   * @param dto - FundChannelDto containing userId, chain, asset, and amount
+   * @returns Success response with transaction details
    */
   async fundChannel(dto: FundChannelDto) {
-    this.logger.log(`Funding channel for user ${dto.userId} on ${dto.chain}`);
+    const { userId, chain, asset, amount } = dto;
+
+    this.logger.log(
+      `Funding channel for user ${userId} on chain ${chain}: ${amount} ${asset}`,
+    );
+
+    // Get user's wallet address
+    const {
+      address: userWalletAddress,
+      isEOA,
+      chainKey,
+    } = await this.getUserWalletAddress(userId, chain);
+
+    this.logger.log(
+      `User wallet: ${userWalletAddress} (isEOA: ${isEOA}, chainKey: ${chainKey})`,
+    );
+
+    // Get authenticated NitroliteClient for this user
+    const nitroliteClient = await this.getUserNitroliteClient(
+      userId,
+      chain,
+      userWalletAddress,
+      isEOA,
+      chainKey,
+    );
 
     try {
-      // Validate chain
-      const chainName = dto.chain.toLowerCase();
-      if (chainName !== 'base' && chainName !== 'arbitrum') {
-        throw new BadRequestException(
-          `Unsupported chain: ${dto.chain}. Only "base" and "arbitrum" are supported.`,
-        );
-      }
-
-      // Get user's wallet address
-      const {
-        address: userWalletAddress,
-        isEOA,
-        chainKey,
-      } = await this.getUserWalletAddress(dto.userId, chainName);
-
-      // Get or create NitroliteClient
-      const cacheKey = `${dto.userId}-${chainName}-${userWalletAddress}`;
-      const client = await this.executeWithRetry(
-        async (client) => client, // Just return the client
-        dto.userId,
-        chainName,
-        userWalletAddress,
-        isEOA,
-        chainKey,
-        cacheKey,
-      );
-
-      // Parse amount (USDC/USDT use 6 decimals)
+      // Parse amount to smallest units (assuming 6 decimals for USDC/USDT)
       const decimals = 6;
-      const amount = BigInt(parseFloat(dto.amount) * Math.pow(10, decimals));
-
-      if (amount <= 0n) {
-        throw new BadRequestException('Amount must be greater than 0');
-      }
-
-      // Get chain ID and token address
-      const chainId = this.getChainId(chainName);
-      const tokenAddress = this.getTokenAddress(dto.asset, chainName);
+      const amountInSmallestUnits = BigInt(
+        Math.floor(parseFloat(amount) * Math.pow(10, decimals)),
+      );
 
       this.logger.log(
-        `Funding channel: ${amount.toString()} (${dto.amount}) of ${dto.asset} on chain ${chainId}`,
+        `Amount in smallest units: ${amountInSmallestUnits.toString()}`,
       );
 
-      // Check if user has existing channels
-      const channels = await client.getChannels();
-      this.logger.debug(
-        `User has ${channels.length} existing channels`,
-        channels.map((ch) => ({
-          id: ch.channelId,
-          chainId: ch.chainId,
-          status: ch.status,
-        })),
-      );
+      // Get chain ID for this chain
+      const chainIdMap: Record<string, number> = {
+        ethereum: 1,
+        base: 8453,
+        arbitrum: 42161,
+        avalanche: 43114,
+        sepolia: 11155111,
+      };
+      const chainId = chainIdMap[chain];
+      if (!chainId) {
+        throw new BadRequestException(`Unsupported chain: ${chain}`);
+      }
 
-      // Find matching channel (same chain and token)
-      const existingChannel = channels.find(
-        (ch) =>
-          ch.chainId === chainId &&
-          ch.state.allocations.some(
-            (alloc) => alloc[0].toString().toLowerCase() === tokenAddress.toLowerCase(),
-          ),
-      );
+      // Get token address (assuming USDC/USDT - you may need to add a mapping)
+      const tokenAddressMap: Record<string, Record<string, Address>> = {
+        base: {
+          usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as Address,
+          usdt: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2' as Address,
+        },
+        arbitrum: {
+          usdc: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' as Address,
+          usdt: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9' as Address,
+        },
+        ethereum: {
+          usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as Address,
+          usdt: '0xdAC17F958D2ee523a2206206994597C13D831ec7' as Address,
+        },
+        avalanche: {
+          usdc: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E' as Address,
+          usdt: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7' as Address,
+        },
+      };
 
-      if (existingChannel) {
-        this.logger.log(
-          `Resizing existing channel ${existingChannel.channelId}`,
+      const tokenAddress = tokenAddressMap[chain]?.[asset.toLowerCase()];
+      if (!tokenAddress) {
+        throw new BadRequestException(
+          `Token ${asset} not supported on chain ${chain}`,
         );
+      }
 
-        // Validate that the channel has both participants
-        const otherParticipant = existingChannel.participants[1];
-        if (!otherParticipant) {
-          throw new BadRequestException(
-            'Channel is missing the second participant (server address)',
-          );
+      // Check if channel exists by querying existing channels
+      let channelId: `0x${string}` | null = null;
+      try {
+        const channels = await nitroliteClient.getChannels();
+        if (channels && channels.length > 0) {
+          const firstChannel = channels[0];
+          if (firstChannel && firstChannel.channelId) {
+            // Use the first channel found for this chain
+            channelId = firstChannel.channelId as `0x${string}`;
+            this.logger.log(
+              `Found existing channel: ${channelId}`,
+            );
+          }
         }
-
-        // Resize existing channel
-        await client.resizeChannel(
-          existingChannel.channelId,
-          chainId,
-          amount,
-          userWalletAddress,
-          tokenAddress,
-          [userWalletAddress, otherParticipant],
+      } catch (error) {
+        this.logger.log(
+          'No existing channel found or error querying channels',
         );
-
-        return {
-          ok: true,
-          message: 'Channel resized successfully',
-          channelId: existingChannel.channelId,
-          amount: dto.amount,
-          asset: dto.asset,
-        };
-      } else {
-        this.logger.log('Creating new channel');
-
-        // Create new channel
-        // NOTE: In Yellow Network 0.5.x, channels are created with zero balance
-        // Then funded via resize_channel
-        const newChannel = await client.createChannel(
-          chainId,
-          tokenAddress,
-          amount,
-        );
-
-        return {
-          ok: true,
-          message: 'Channel created and funded successfully',
-          channelId: newChannel.channelId,
-          amount: dto.amount,
-          asset: dto.asset,
-        };
       }
+
+      // If no channel exists, create one first
+      if (!channelId) {
+        this.logger.log(
+          `Creating new channel on chain ${chainId} for token ${tokenAddress}...`,
+        );
+        const newChannel = await nitroliteClient.createChannel(
+          chainId,
+          tokenAddress,
+          BigInt(0), // Create with zero balance
+        );
+        channelId = newChannel.channelId as `0x${string}`;
+        this.logger.log(`Channel created: ${channelId}`);
+      }
+
+      // Now resize the channel to add funds
+      this.logger.log(
+        `Resizing channel ${channelId} to add ${amountInSmallestUnits} ${asset}...`,
+      );
+
+      await nitroliteClient.resizeChannel(
+        channelId,
+        chainId,
+        amountInSmallestUnits, // Positive amount = add funds
+        userWalletAddress, // Funds destination (user's wallet)
+        tokenAddress,
+        [userWalletAddress, userWalletAddress], // Participants (adjust as needed)
+      );
+
+      this.logger.log(`Channel funded successfully`);
+
+      return {
+        success: true,
+        message: `Successfully funded channel with ${amount} ${asset}`,
+        channelId,
+        chainId,
+        amount: amountInSmallestUnits.toString(),
+      };
     } catch (error) {
-      const err = error as Error;
       this.logger.error(
-        `Failed to fund channel: ${err.message}`,
-        err.stack,
+        `Failed to fund channel for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
-
-      // Provide helpful error message
-      let errorMessage = `Channel funding failed: ${err.message}`;
-      
-      if (err.message.includes('InvalidStateSignatures')) {
-        errorMessage +=
-          '\n\nNote: There is a known issue with channel creation on Base Mainnet. ' +
-          'See YELLOW_NETWORK_CHANNELID_ISSUE.md for details.';
-      }
-
-      throw new BadRequestException(errorMessage);
-    }
-  }
-
-  /**
-   * Helper: Get chain ID from chain name
-   */
-  private getChainId(chainName: string): number {
-    const chainMap: Record<string, number> = {
-      base: 8453,
-      arbitrum: 42161,
-      ethereum: 1,
-      avalanche: 43114,
-    };
-    return chainMap[chainName] || 8453;
-  }
-
-  /**
-   * Helper: Get token address for asset
-   */
-  private getTokenAddress(asset: string, chainName: string): Address {
-    // Token addresses per chain
-    const tokens: Record<string, Record<string, Address>> = {
-      base: {
-        usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-        usdt: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
-      },
-      arbitrum: {
-        usdc: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-        usdt: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
-      },
-    };
-
-    const chainTokens = tokens[chainName.toLowerCase()];
-    if (!chainTokens) {
       throw new BadRequestException(
-        `Token addresses not configured for chain: ${chainName}`,
+        `Failed to fund channel: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
-
-    const tokenAddress = chainTokens[asset.toLowerCase()];
-    if (!tokenAddress) {
-      throw new BadRequestException(
-        `Token ${asset} not supported on ${chainName}`,
-      );
-    }
-
-    return tokenAddress;
   }
 
   /**
@@ -1617,124 +1509,48 @@ export class LightningNodeService {
       chainKey,
     } = await this.getUserWalletAddress(dto.userId, node.chain);
 
-    const cacheKey = `${dto.userId}-${node.chain}-${userWalletAddress}`;
-
-    await this.executeWithRetry(
-      async (client) => {
-        const remoteSession = await client.getLightningNode(
-          node.appSessionId as `0x${string}`,
-        );
-        const currentAllocations: AppSessionAllocation[] =
-          (remoteSession.allocations || []) as any;
-
-        await client.depositToLightningNode(
-          node.appSessionId as `0x${string}`,
-          dto.participantAddress as Address,
-          dto.asset,
-          dto.amount,
-          currentAllocations,
-        );
-
-        // Refresh remote state and persist balances best-effort
-        const updated = await client.getLightningNode(
-          node.appSessionId as `0x${string}`,
-        );
-        const updatedAllocations: AppSessionAllocation[] = (updated.allocations ||
-          []) as any;
-
-        for (const alloc of updatedAllocations) {
-          await this.prisma.lightningNodeParticipant.updateMany({
-            where: {
-              lightningNodeId: node.id,
-              address: (alloc as any).participant,
-              asset: dto.asset,
-            },
-            data: { balance: (alloc as any).amount } as any,
-          });
-        }
-
-        return { ok: true };
-      },
+    const nitroliteClient = await this.getUserNitroliteClient(
       dto.userId,
       node.chain,
       userWalletAddress,
       isEOA,
       chainKey,
-      cacheKey,
     );
+
+    const remoteSession = await nitroliteClient.getLightningNode(
+      node.appSessionId as `0x${string}`,
+    );
+    const currentAllocations: AppSessionAllocation[] =
+      (remoteSession.allocations || []) as any;
+
+    await nitroliteClient.depositToLightningNode(
+      node.appSessionId as `0x${string}`,
+      dto.participantAddress as Address,
+      dto.asset,
+      dto.amount,
+      currentAllocations,
+    );
+
+    // Refresh remote state and persist balances best-effort
+    const updated = await nitroliteClient.getLightningNode(
+      node.appSessionId as `0x${string}`,
+    );
+    const updatedAllocations: AppSessionAllocation[] = (updated.allocations ||
+      []) as any;
+
+    for (const alloc of updatedAllocations) {
+      await this.prisma.lightningNodeParticipant.updateMany({
+        where: {
+          lightningNodeId: node.id,
+          address: (alloc as any).participant,
+          asset: dto.asset,
+        },
+        data: { balance: (alloc as any).amount } as any,
+      });
+    }
 
     return { ok: true };
   }
-
-  /**
-   * Withdraw funds from a Lightning Node back to unified balance (gasless).
-   * Persists the returned allocations to local DB (best-effort).
-   */
-  async withdraw(dto: WithdrawFundsDto) {
-    const node = await this.prisma.lightningNode.findUnique({
-      where: { appSessionId: dto.appSessionId },
-      include: { participants: true },
-    });
-    if (!node)
-      throw new NotFoundException(
-        `Lightning Node not found: ${dto.appSessionId}`,
-      );
-
-    const {
-      address: userWalletAddress,
-      isEOA,
-      chainKey,
-    } = await this.getUserWalletAddress(dto.userId, node.chain);
-
-    const cacheKey = `${dto.userId}-${node.chain}-${userWalletAddress}`;
-
-    await this.executeWithRetry(
-      async (client) => {
-        const remoteSession = await client.getLightningNode(
-          node.appSessionId as `0x${string}`,
-        );
-        const currentAllocations: AppSessionAllocation[] =
-          (remoteSession.allocations || []) as any;
-
-        await client.withdrawFromLightningNode(
-          node.appSessionId as `0x${string}`,
-          dto.participantAddress as Address,
-          dto.asset,
-          dto.amount,
-          currentAllocations,
-        );
-
-        // Refresh remote state and persist balances best-effort
-        const updated = await client.getLightningNode(
-          node.appSessionId as `0x${string}`,
-        );
-        const updatedAllocations: AppSessionAllocation[] = (updated.allocations ||
-          []) as any;
-
-        for (const alloc of updatedAllocations) {
-          await this.prisma.lightningNodeParticipant.updateMany({
-            where: {
-              lightningNodeId: node.id,
-              address: (alloc as any).participant,
-              asset: dto.asset,
-            },
-            data: { balance: (alloc as any).amount } as any,
-          });
-        }
-
-        return { ok: true };
-      },
-      dto.userId,
-      node.chain,
-      userWalletAddress,
-      isEOA,
-      chainKey,
-      cacheKey,
-    );
-
-    return { ok: true };
-  }
-
 
   /**
    * Transfer funds within a Lightning Node (gasless) via Yellow.
@@ -1756,51 +1572,45 @@ export class LightningNodeService {
       chainKey,
     } = await this.getUserWalletAddress(dto.userId, node.chain);
 
-    const cacheKey = `${dto.userId}-${node.chain}-${userWalletAddress}`;
-
-    await this.executeWithRetry(
-      async (client) => {
-        const remoteSession = await client.getLightningNode(
-          node.appSessionId as `0x${string}`,
-        );
-        const currentAllocations: AppSessionAllocation[] =
-          (remoteSession.allocations || []) as any;
-
-        await client.transferInLightningNode(
-          node.appSessionId as `0x${string}`,
-          dto.fromAddress as Address,
-          dto.toAddress as Address,
-          dto.asset,
-          dto.amount,
-          currentAllocations,
-        );
-
-        const updated = await client.getLightningNode(
-          node.appSessionId as `0x${string}`,
-        );
-        const updatedAllocations: AppSessionAllocation[] = (updated.allocations ||
-          []) as any;
-
-        for (const alloc of updatedAllocations) {
-          await this.prisma.lightningNodeParticipant.updateMany({
-            where: {
-              lightningNodeId: node.id,
-              address: (alloc as any).participant,
-              asset: dto.asset,
-            },
-            data: { balance: (alloc as any).amount } as any,
-          });
-        }
-
-        return { ok: true };
-      },
+    const nitroliteClient = await this.getUserNitroliteClient(
       dto.userId,
       node.chain,
       userWalletAddress,
       isEOA,
       chainKey,
-      cacheKey,
     );
+
+    const remoteSession = await nitroliteClient.getLightningNode(
+      node.appSessionId as `0x${string}`,
+    );
+    const currentAllocations: AppSessionAllocation[] =
+      (remoteSession.allocations || []) as any;
+
+    await nitroliteClient.transferInLightningNode(
+      node.appSessionId as `0x${string}`,
+      dto.fromAddress as Address,
+      dto.toAddress as Address,
+      dto.asset,
+      dto.amount,
+      currentAllocations,
+    );
+
+    const updated = await nitroliteClient.getLightningNode(
+      node.appSessionId as `0x${string}`,
+    );
+    const updatedAllocations: AppSessionAllocation[] = (updated.allocations ||
+      []) as any;
+
+    for (const alloc of updatedAllocations) {
+      await this.prisma.lightningNodeParticipant.updateMany({
+        where: {
+          lightningNodeId: node.id,
+          address: (alloc as any).participant,
+          asset: dto.asset,
+        },
+        data: { balance: (alloc as any).amount } as any,
+      });
+    }
 
     return { ok: true };
   }
@@ -1851,6 +1661,15 @@ export class LightningNodeService {
         );
       }
 
+      // Get or create NitroliteClient for this user's wallet
+      const nitroliteClient = await this.getUserNitroliteClient(
+        dto.userId,
+        lightningNode.chain,
+        userWalletAddress,
+        isEOA,
+        chainKey,
+      );
+
       // Close the app session via Yellow Network
       this.logger.log(
         `Closing app session on Yellow Network: ${lightningNode.appSessionId}`,
@@ -1864,21 +1683,9 @@ export class LightningNodeService {
         asset: p.asset,
         amount: p.balance,
       }));
-
-      const cacheKey = `${dto.userId}-${lightningNode.chain}-${userWalletAddress}`;
-      await this.executeWithRetry(
-        async (client) => {
-          await client.closeLightningNode(
-            lightningNode.appSessionId as `0x${string}`,
-            finalAllocations,
-          );
-        },
-        dto.userId,
-        lightningNode.chain,
-        userWalletAddress,
-        isEOA,
-        chainKey,
-        cacheKey,
+      await nitroliteClient.closeLightningNode(
+        lightningNode.appSessionId as `0x${string}`,
+        finalAllocations,
       );
 
       // Update local status to closed
