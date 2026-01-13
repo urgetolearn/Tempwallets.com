@@ -50,22 +50,24 @@ export class Eip7702AccountFactory {
     userId?: string,
   ): Promise<IAccount> {
     // ✅ FIX: Check EIP-7702 enablement with better error message
-    if (!this.pimlicoConfig.isEip7702Enabled(chain)) {
-      // For production, ensure base chain is always enabled for EIP-7702
-      // This handles the case where env vars might not be set correctly
-      if (chain === 'base') {
-        this.logger.warn(
-          `EIP-7702 not explicitly enabled for base via env vars, but base chain supports EIP-7702 natively. ` +
-          `Continuing with EIP-7702 support. ` +
-          `To avoid this warning, set ENABLE_EIP7702=true and EIP7702_CHAINS=base in production.`,
-        );
-        // Continue - base chain supports EIP-7702 natively
-      } else {
-        throw new Error(
-          `EIP-7702 is not enabled for chain ${chain}. ` +
-          `Enable via config (ENABLE_EIP7702=true, EIP7702_CHAINS=${chain}) before sending gasless transactions.`,
-        );
-      }
+    // For base chain, always allow EIP-7702 (it's natively supported)
+    const isBaseChain = chain === 'base';
+    const isEip7702Enabled = this.pimlicoConfig.isEip7702Enabled(chain);
+    
+    if (!isEip7702Enabled && !isBaseChain) {
+      throw new Error(
+        `EIP-7702 is not enabled for chain ${chain}. ` +
+        `Enable via config (ENABLE_EIP7702=true, EIP7702_CHAINS=${chain}) before sending gasless transactions.`,
+      );
+    }
+    
+    // Log warning for base if env vars not set, but continue
+    if (isBaseChain && !isEip7702Enabled) {
+      this.logger.warn(
+        `EIP-7702 not explicitly enabled for base via env vars, but base chain supports EIP-7702 natively. ` +
+        `Continuing with EIP-7702 support. ` +
+        `To avoid this warning, set ENABLE_EIP7702=true and EIP7702_CHAINS=base in production.`,
+      );
     }
 
     const viemChain = this.getViemChain(chain);

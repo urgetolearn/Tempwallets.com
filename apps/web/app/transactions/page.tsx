@@ -306,10 +306,14 @@ export default function TransactionsPage() {
               <>
                 {chainBalances
                   .filter((chainBalance) => {
-                    // Only show chains with non-zero balance
-                    const nativeBalance = parseFloat(chainBalance.nativeBalance);
-                    const hasTokenBalance = chainBalance.tokens.some(token => parseFloat(token.balance) > 0);
-                    return nativeBalance > 0 || hasTokenBalance;
+                    // ✅ FIX: Show chains even with very small balances (avoid precision issues)
+                    const nativeBalance = parseFloat(chainBalance.nativeBalance || '0');
+                    const hasTokenBalance = chainBalance.tokens.some(token => {
+                      const tokenBalance = parseFloat(token.balance || '0');
+                      return tokenBalance > 0;
+                    });
+                    // Use a small threshold to avoid precision issues (1e-10)
+                    return nativeBalance > 1e-10 || hasTokenBalance;
                   })
                   .length === 0 ? (
                   <div className="py-12 text-center">
@@ -320,10 +324,14 @@ export default function TransactionsPage() {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {chainBalances
                       .filter((chainBalance) => {
-                        // Only show chains with non-zero balance
-                        const nativeBalance = parseFloat(chainBalance.nativeBalance);
-                        const hasTokenBalance = chainBalance.tokens.some(token => parseFloat(token.balance) > 0);
-                        return nativeBalance > 0 || hasTokenBalance;
+                        // ✅ FIX: Show chains even with very small balances (avoid precision issues)
+                        const nativeBalance = parseFloat(chainBalance.nativeBalance || '0');
+                        const hasTokenBalance = chainBalance.tokens.some(token => {
+                          const tokenBalance = parseFloat(token.balance || '0');
+                          return tokenBalance > 0;
+                        });
+                        // Use a small threshold to avoid precision issues (1e-10)
+                        return nativeBalance > 1e-10 || hasTokenBalance;
                       })
                       .map((chainBalance) => {
                         const chainName = CHAIN_NAMES[chainBalance.chain] || chainBalance.chain;
