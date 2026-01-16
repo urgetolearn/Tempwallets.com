@@ -22,7 +22,7 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
 
   const copyToClipboard = async () => {
     if (!wallet?.address) return;
-    
+
     try {
       await navigator.clipboard.writeText(wallet.address);
       setShowTooltip(true);
@@ -33,10 +33,9 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
   };
 
   return (
-    <div 
-      className={`rounded-3xl p-6 md:p-8 shadow-lg bg-white min-h-[150px] flex items-center justify-center relative ${
-        wallet ? 'cursor-pointer hover:shadow-xl transition-shadow duration-200' : ''
-      }`}
+    <div
+      className={`rounded-3xl p-6 md:p-8 shadow-lg bg-white min-h-[150px] flex items-center justify-center relative ${wallet ? 'cursor-pointer hover:shadow-xl transition-shadow duration-200' : ''
+        }`}
       onClick={wallet ? copyToClipboard : undefined}
     >
       {/* Wallet address or loading state */}
@@ -61,9 +60,25 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
         ) : wallet ? (
           // Wallet loaded
           <div className="space-y-2 relative">
-            <p className="text-gray-800 text-medium md:text-base font-rubik-light">
-              {chain.name} Wallet
-            </p>
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-gray-800 text-medium md:text-base font-rubik-light">
+                {chain.name} Wallet
+              </p>
+              {/* Wallet Type Badges */}
+              {(chain as any).isSmartAccount ? (
+                <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
+                  <span className="px-1 py-0 text-[10px] bg-blue-500/20 text-blue-500 rounded-full font-rubik-medium leading-tight">
+                    GasLess / EIP-7702
+                  </span>
+                </div>
+              ) : chain.type === 'evm' ? (
+                <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
+                  <span className="px-1 py-0 text-[10px] bg-purple-500/20 text-purple-500 rounded-full font-rubik-medium leading-tight">
+                    EOA
+                  </span>
+                </div>
+              ) : null}
+            </div>
             <div className="flex items-center justify-center ">
               <div className="rounded-lg px-4 flex items-center gap-2">
                 <span className="text-gray-800 font-semibold text-4xl md:text-2xl font-rubik-medium">
