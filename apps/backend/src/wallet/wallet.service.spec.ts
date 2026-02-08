@@ -16,6 +16,7 @@ import { NativeEoaFactory } from './factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js';
 import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
 import { PimlicoConfigService } from './config/pimlico.config.js';
+import { WalletMapper } from './mappers/wallet.mapper.js';
 
 // Mock TokenListService to avoid import.meta.url issues
 jest.mock('./services/token-list.service.js', () => {
@@ -187,6 +188,14 @@ describe('WalletService', () => {
               address: '0xmockaddress',
               privateKey: '0xmockprivatekey',
             }),
+          },
+        },
+        {
+          provide: WalletMapper,
+          useValue: {
+            buildMetadataSnapshot: jest.fn(),
+            isVisibleChain: jest.fn(),
+            buildUiWalletPayload: jest.fn().mockReturnValue({}),
           },
         },
       ],
