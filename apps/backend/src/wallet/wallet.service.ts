@@ -38,6 +38,14 @@ import {
 } from './utils/conversion.utils.js';
 import { validateAmount, getExplorerUrl } from './utils/validation.utils.js';
 import { PimlicoConfigService } from './config/pimlico.config.js';
+import {
+  CACHE_TTL,
+  SMART_ACCOUNT_CHAIN_KEYS,
+  EOA_CHAIN_KEYS,
+  NON_EVM_CHAIN_KEYS,
+  UI_SMART_ACCOUNT_LABEL,
+  WALLETCONNECT_CHAIN_CONFIG,
+} from './constants/wallet.constants.js';
 
 @Injectable()
 export class WalletService {
@@ -55,82 +63,7 @@ export class WalletService {
       timestamp: number;
     }
   > = new Map();
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
-  private readonly SMART_ACCOUNT_CHAIN_KEYS: Array<
-    'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche'
-  > = ['ethereum', 'base', 'arbitrum', 'polygon', 'avalanche'];
-  private readonly EOA_CHAIN_KEYS: Array<
-    | 'ethereum'
-    | 'base'
-    | 'arbitrum'
-    | 'polygon'
-    | 'avalanche'
-    | 'moonbeamTestnet'
-    | 'astarShibuya'
-    | 'paseoPassetHub'
-    | 'hydration'
-    | 'unique'
-    | 'bifrost'
-    | 'bifrostTestnet'
-  > = [
-    'ethereum',
-    'base',
-    'arbitrum',
-    'polygon',
-    'avalanche',
-    'moonbeamTestnet',
-    'astarShibuya',
-    'paseoPassetHub',
-    'hydration',
-    'unique',
-    'bifrost',
-    'bifrostTestnet',
-  ];
-  private readonly NON_EVM_CHAIN_KEYS: Array<
-    | 'tron'
-    | 'bitcoin'
-    | 'solana'
-    | 'aptos'
-    | 'aptosMainnet'
-    | 'aptosTestnet'
-    | 'aptosDevnet'
-  > = [
-    'tron',
-    'bitcoin',
-    'solana',
-    'aptos',
-    'aptosMainnet',
-    'aptosTestnet',
-    'aptosDevnet',
-  ];
-  private readonly UI_SMART_ACCOUNT_LABEL = 'EVM Smart Account';
-  private readonly WALLETCONNECT_CHAIN_CONFIG = [
-    {
-      chainId: 1,
-      key: 'ethereum' as WalletAddressKey,
-      label: 'Ethereum',
-    },
-    {
-      chainId: 8453,
-      key: 'base' as WalletAddressKey,
-      label: 'Base',
-    },
-    {
-      chainId: 42161,
-      key: 'arbitrum' as WalletAddressKey,
-      label: 'Arbitrum',
-    },
-    {
-      chainId: 137,
-      key: 'polygon' as WalletAddressKey,
-      label: 'Polygon',
-    },
-    {
-      chainId: 43114,
-      key: 'avalanche' as WalletAddressKey,
-      label: 'Avalanche',
-    },
-  ];
+  
 
   constructor(
     private seedRepository: SeedRepository,
@@ -289,7 +222,7 @@ export class WalletService {
       addressesByChain: {},
     };
 
-    for (const config of this.WALLETCONNECT_CHAIN_CONFIG) {
+    for (const config of WALLETCONNECT_CHAIN_CONFIG) {
       const address = metadata[config.key]?.address;
 
       if (!address) {
@@ -374,7 +307,7 @@ export class WalletService {
       avalanche: metadata.avalanche?.address ?? null,
     };
 
-    const canonicalChainKey = this.SMART_ACCOUNT_CHAIN_KEYS.find(
+    const canonicalChainKey = SMART_ACCOUNT_CHAIN_KEYS.find(
       (key) => metadata[key]?.address,
     );
 
@@ -386,7 +319,7 @@ export class WalletService {
     const smartAccount: SmartAccountSummary | null = canonicalAddress
       ? {
           key: 'evmSmartAccount',
-          label: this.UI_SMART_ACCOUNT_LABEL,
+          label: UI_SMART_ACCOUNT_LABEL,
           canonicalChain,
           address: canonicalAddress,
           chains: chainsRecord,
@@ -469,7 +402,7 @@ export class WalletService {
     });
 
     // Non-EVM chains (including Aptos)
-    this.NON_EVM_CHAIN_KEYS.forEach((chain) => {
+    NON_EVM_CHAIN_KEYS.forEach((chain) => {
       const entry = metadata[chain];
       if (entry?.visible && entry.address) {
         // Determine category based on chain
@@ -517,7 +450,7 @@ export class WalletService {
     };
 
     // Standard EOA chains (not visible by default)
-    const standardEoaChains = this.EOA_CHAIN_KEYS.filter(
+    const standardEoaChains = EOA_CHAIN_KEYS.filter(
       (chain) =>
         ![
           'moonbeamTestnet',
@@ -542,10 +475,10 @@ export class WalletService {
       'bifrostTestnet',
     ];
     polkadotEvmChains.forEach((chain) => assign(chain, 'eoa', true));
-    this.SMART_ACCOUNT_CHAIN_KEYS.forEach((chain) =>
+    SMART_ACCOUNT_CHAIN_KEYS.forEach((chain) =>
       assign(chain, 'eoa', true),
     );
-    this.NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
+    NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
 
     // Substrate chains (visible)
     const substrateChains: WalletAddressKey[] = [
@@ -617,11 +550,11 @@ export class WalletService {
     > = ['moonbeamTestnet', 'astarShibuya', 'paseoPassetHub'];
 
     return (
-      this.SMART_ACCOUNT_CHAIN_KEYS.includes(
-        chain as (typeof this.SMART_ACCOUNT_CHAIN_KEYS)[number],
+      SMART_ACCOUNT_CHAIN_KEYS.includes(
+        chain as (typeof SMART_ACCOUNT_CHAIN_KEYS)[number],
       ) ||
-      this.NON_EVM_CHAIN_KEYS.includes(
-        chain as (typeof this.NON_EVM_CHAIN_KEYS)[number],
+      NON_EVM_CHAIN_KEYS.includes(
+        chain as (typeof NON_EVM_CHAIN_KEYS)[number],
       ) ||
       SUBSTRATE_CHAIN_KEYS.includes(
         chain as (typeof SUBSTRATE_CHAIN_KEYS)[number],
@@ -629,8 +562,8 @@ export class WalletService {
       POLKADOT_EVM_CHAIN_KEYS.includes(
         chain as (typeof POLKADOT_EVM_CHAIN_KEYS)[number],
       ) ||
-      this.EOA_CHAIN_KEYS.includes(
-        chain as (typeof this.EOA_CHAIN_KEYS)[number],
+      EOA_CHAIN_KEYS.includes(
+        chain as (typeof EOA_CHAIN_KEYS)[number],
       )
     );
   }
