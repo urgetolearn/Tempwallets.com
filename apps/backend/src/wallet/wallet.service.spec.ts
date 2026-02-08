@@ -6,12 +6,16 @@ import { ZerionService } from './zerion.service.js';
 import { SeedManager } from './managers/seed.manager.js';
 import { AddressManager } from './managers/address.manager.js';
 import { AccountFactory } from './factories/account.factory.js';
-import { PimlicoAccountFactory } from './factories/pimlico-account.factory.js';
+//import { PimlicoAccountFactory } from './factories/pimlico-account.factory.js';
 import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
 import { SubstrateManager } from './substrate/managers/substrate.manager.js';
 import { BalanceCacheRepository } from './repositories/balance-cache.repository.js';
 import { WalletAddresses } from './interfaces/wallet.interfaces.js';
 import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
+import { NativeEoaFactory } from './factories/native-eoa.factory.js';
+import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js';
+import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
+import { PimlicoConfigService } from './config/pimlico.config.js';
 
 // Mock TokenListService to avoid import.meta.url issues
 jest.mock('./services/token-list.service.js', () => {
@@ -31,7 +35,7 @@ describe('WalletService', () => {
   let seedManager: jest.Mocked<SeedManager>;
   let addressManager: jest.Mocked<AddressManager>;
   let accountFactory: jest.Mocked<AccountFactory>;
-  let pimlicoAccountFactory: jest.Mocked<PimlicoAccountFactory>;
+  //let pimlicoAccountFactory: jest.Mocked<PimlicoAccountFactory>;
   let polkadotEvmRpcService: jest.Mocked<PolkadotEvmRpcService>;
   let substrateManager: jest.Mocked<SubstrateManager>;
   let balanceCacheRepository: jest.Mocked<BalanceCacheRepository>;
@@ -55,6 +59,10 @@ describe('WalletService', () => {
     const mockConfigService = {
       get: jest.fn(),
     };
+    const mockPimlicoConfigService = {
+      isEip7702Enabled: jest.fn().mockReturnValue(false),
+      getEip7702Config: jest.fn().mockReturnValue(undefined),
+    };
 
     const mockZerionService = {
       getPortfolio: jest.fn(),
@@ -69,18 +77,20 @@ describe('WalletService', () => {
     };
 
     const mockAddressManager = {
-      getAddresses: jest.fn(),
+      clearAddressCache: jest.fn().mockResolvedValue(undefined),
+      getAddresses: jest.fn().mockResolvedValue({}),
       streamAddresses: jest.fn(),
-      getManagedAddresses: jest.fn(),
+      getManagedAddresses: jest.fn().mockResolvedValue([]),
     };
 
     const mockAccountFactory = {
+      getAccountType: jest.fn().mockReturnValue('EOA'),
       createAccount: jest.fn(),
     };
 
-    const mockPimlicoAccountFactory = {
-      createAccount: jest.fn(),
-    };
+    // const mockPimlicoAccountFactory = {
+    //   createAccount: jest.fn(),
+    // };
 
     const mockPolkadotEvmRpcService = {
       getTokenBalances: jest.fn(),
@@ -92,6 +102,15 @@ describe('WalletService', () => {
 
     const mockEip7702DelegationRepository = {
       getDelegationsForUser: jest.fn().mockResolvedValue([]),
+    };
+    const mockEip7702AccountFactory = {
+      createAccount: jest.fn(),
+      createFromSeed: jest.fn(),
+    };
+    const mockWalletHistoryRepository = {
+      save: jest.fn(),
+      find: jest.fn(),
+      findOne: jest.fn(),
     };
 
     const mockBalanceCacheRepository = {
@@ -125,13 +144,17 @@ describe('WalletService', () => {
           useValue: mockAddressManager,
         },
         {
+          provide: PimlicoConfigService,
+          useValue: mockPimlicoConfigService,
+        },
+        {
           provide: AccountFactory,
           useValue: mockAccountFactory,
         },
-        {
-          provide: PimlicoAccountFactory,
-          useValue: mockPimlicoAccountFactory,
-        },
+        // {
+        //   provide: PimlicoAccountFactory,
+        //   useValue: mockPimlicoAccountFactory,
+        // },
         {
           provide: PolkadotEvmRpcService,
           useValue: mockPolkadotEvmRpcService,
@@ -148,6 +171,24 @@ describe('WalletService', () => {
           provide: Eip7702DelegationRepository,
           useValue: mockEip7702DelegationRepository,
         },
+        {
+          provide: Eip7702AccountFactory,
+          useValue: mockEip7702AccountFactory,
+        },
+        {
+          provide: WalletHistoryRepository,
+          useValue: mockWalletHistoryRepository,
+        },
+
+        {
+          provide: NativeEoaFactory,
+          useValue: {
+            createAccount: jest.fn().mockResolvedValue({
+              address: '0xmockaddress',
+              privateKey: '0xmockprivatekey',
+            }),
+          },
+        },
       ],
     }).compile();
 
@@ -158,11 +199,11 @@ describe('WalletService', () => {
     seedManager = module.get(SeedManager);
     addressManager = module.get(AddressManager);
     accountFactory = module.get(AccountFactory);
-    pimlicoAccountFactory = module.get(PimlicoAccountFactory);
+    //pimlicoAccountFactory = module.get(PimlicoAccountFactory);
     polkadotEvmRpcService = module.get(PolkadotEvmRpcService);
     substrateManager = module.get(SubstrateManager);
     balanceCacheRepository = module.get(BalanceCacheRepository);
-  eip7702DelegationRepository = module.get(Eip7702DelegationRepository);
+    eip7702DelegationRepository = module.get(Eip7702DelegationRepository);
   });
 
   afterEach(() => {

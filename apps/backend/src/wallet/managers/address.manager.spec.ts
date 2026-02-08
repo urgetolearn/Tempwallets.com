@@ -2,16 +2,21 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AddressManager } from './address.manager.js';
 import { SeedManager } from './seed.manager.js';
 import { AccountFactory } from '../factories/account.factory.js';
-import { PimlicoAccountFactory } from '../factories/pimlico-account.factory.js';
+//import { PimlicoAccountFactory } from '../factories/pimlico-account.factory.js';
 import { SubstrateManager } from '../substrate/managers/substrate.manager.js';
 import { AddressCacheRepository } from '../repositories/address-cache.repository.js';
 import { WalletAddresses } from '../interfaces/wallet.interfaces.js';
+import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
+import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { WalletHistoryRepository } from '../repositories/wallet-history.repository.js';
+import { AptosAddressManager } from '../aptos/managers/aptos-address.manager.js';
+import { PimlicoConfigService } from '../config/pimlico.config.js';
 
 describe('AddressManager', () => {
   let addressManager: AddressManager;
   let seedManager: jest.Mocked<SeedManager>;
   let accountFactory: jest.Mocked<AccountFactory>;
-  let pimlicoAccountFactory: jest.Mocked<PimlicoAccountFactory>;
+  //let pimlicoAccountFactory: jest.Mocked<PimlicoAccountFactory>;
   let substrateManager: jest.Mocked<SubstrateManager>;
   let addressCacheRepository: jest.Mocked<AddressCacheRepository>;
 
@@ -21,6 +26,11 @@ describe('AddressManager', () => {
 
   beforeEach(async () => {
     // Create mocks
+    const mockPimlicoConfigService = {
+      isEip7702Enabled: jest.fn().mockReturnValue(false),
+      getEip7702Config: jest.fn().mockReturnValue(undefined),
+    };
+
     const mockSeedManager = {
       hasSeed: jest.fn(),
       createOrImportSeed: jest.fn(),
@@ -30,8 +40,19 @@ describe('AddressManager', () => {
     const mockAccountFactory = {
       createAccount: jest.fn(),
     };
+    const mockWalletHistoryRepository = {
+      save: jest.fn(),
+      find: jest.fn(),
+    };
 
-    const mockPimlicoAccountFactory = {
+    // const mockPimlicoAccountFactory = {
+    //   createAccount: jest.fn(),
+    // };
+    const mockAptosAddressManager = {
+      getAddresses: jest.fn(),
+    };
+
+    const mockEip7702AccountFactory = {
       createAccount: jest.fn(),
     };
 
@@ -57,20 +78,45 @@ describe('AddressManager', () => {
           useValue: mockSeedManager,
         },
         {
+          provide: PimlicoConfigService,
+          useValue: mockPimlicoConfigService,
+        },
+        {
           provide: AccountFactory,
           useValue: mockAccountFactory,
         },
-        {
-          provide: PimlicoAccountFactory,
-          useValue: mockPimlicoAccountFactory,
-        },
+        // {
+        //   provide: PimlicoAccountFactory,
+        //   useValue: mockPimlicoAccountFactory,
+        // },
         {
           provide: SubstrateManager,
           useValue: mockSubstrateManager,
         },
         {
+          provide: AptosAddressManager,
+          useValue: mockAptosAddressManager,
+        },
+        {
           provide: AddressCacheRepository,
           useValue: mockAddressCacheRepository,
+        },
+        {
+          provide: Eip7702AccountFactory,
+          useValue: mockEip7702AccountFactory,
+        },
+        {
+          provide: WalletHistoryRepository,
+          useValue: mockWalletHistoryRepository,
+        },
+        {
+          provide: NativeEoaFactory,
+          useValue: {
+            createAccount: jest.fn().mockResolvedValue({
+              address: '0xmockaddress',
+              privateKey: '0xmockprivatekey',
+            }),
+          },
         },
       ],
     }).compile();
@@ -78,7 +124,7 @@ describe('AddressManager', () => {
     addressManager = module.get<AddressManager>(AddressManager);
     seedManager = module.get(SeedManager);
     accountFactory = module.get(AccountFactory);
-    pimlicoAccountFactory = module.get(PimlicoAccountFactory);
+    //pimlicoAccountFactory = module.get(PimlicoAccountFactory);
     substrateManager = module.get(SubstrateManager);
     addressCacheRepository = module.get(AddressCacheRepository);
   });
@@ -314,7 +360,7 @@ describe('AddressManager', () => {
           .mockResolvedValue('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'),
       };
       accountFactory.createAccount.mockResolvedValue(mockAccount as any);
-      pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
+      //pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
 
       const streamed: Array<{ chain: string; address: string | null }> = [];
       for await (const item of addressManager.streamAddresses(mockUserId)) {
@@ -341,7 +387,7 @@ describe('AddressManager', () => {
           .mockResolvedValue('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'),
       };
       accountFactory.createAccount.mockResolvedValue(mockAccount as any);
-      pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
+      //pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
       substrateManager.getAddresses.mockResolvedValue({
         polkadot: null,
         hydration: null,
