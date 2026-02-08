@@ -17,6 +17,7 @@ import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js';
 import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
 import { PimlicoConfigService } from './config/pimlico.config.js';
 import { WalletMapper } from './mappers/wallet.mapper.js';
+import { WalletIdentityService } from './services/wallet-identity.service.js';
 
 // Mock TokenListService to avoid import.meta.url issues
 jest.mock('./services/token-list.service.js', () => {
@@ -120,6 +121,20 @@ describe('WalletService', () => {
       clearCache: jest.fn(),
       hasCache: jest.fn(),
     };
+    const mockIdentityService = {
+      createOrImportSeed: jest.fn(),
+    };
+    const mockWalletMapper = {
+      buildMetadataSnapshot: jest.fn(),
+      isVisibleChain: jest.fn(),
+      buildUiWalletPayload: jest.fn().mockReturnValue({}),
+    };
+    const mockNativeEoaFactory = {
+      createAccount: jest.fn().mockResolvedValue({
+        address: '0xmockaddress',
+        privateKey: '0xmockprivatekey',
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -140,6 +155,11 @@ describe('WalletService', () => {
           provide: SeedManager,
           useValue: mockSeedManager,
         },
+        {
+          provide: WalletIdentityService,
+          useValue: mockIdentityService,
+        },
+
         {
           provide: AddressManager,
           useValue: mockAddressManager,
@@ -183,20 +203,11 @@ describe('WalletService', () => {
 
         {
           provide: NativeEoaFactory,
-          useValue: {
-            createAccount: jest.fn().mockResolvedValue({
-              address: '0xmockaddress',
-              privateKey: '0xmockprivatekey',
-            }),
-          },
+          useValue: mockNativeEoaFactory,
         },
         {
           provide: WalletMapper,
-          useValue: {
-            buildMetadataSnapshot: jest.fn(),
-            isVisibleChain: jest.fn(),
-            buildUiWalletPayload: jest.fn().mockReturnValue({}),
-          },
+          useValue: mockWalletMapper,
         },
       ],
     }).compile();

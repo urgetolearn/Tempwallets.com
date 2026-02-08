@@ -8,7 +8,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { SeedRepository } from './seed.repository.js';
 import { ZerionService, TokenBalance } from './zerion.service.js';
-import { SeedManager } from './managers/seed.manager.js';
 import { AddressManager } from './managers/address.manager.js';
 import { AccountFactory } from './factories/account.factory.js';
 import { NativeEoaFactory } from './factories/native-eoa.factory.js';
@@ -17,7 +16,6 @@ import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
 import { SubstrateManager } from './substrate/managers/substrate.manager.js';
 import { SubstrateChainKey } from './substrate/config/substrate-chain.config.js';
 import { BalanceCacheRepository } from './repositories/balance-cache.repository.js';
-import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
 import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
 import { IAccount } from './types/account.types.js';
 import { AllChainTypes } from './types/chain.types.js';
@@ -45,6 +43,7 @@ import {
   WALLETCONNECT_CHAIN_CONFIG,
 } from './constants/wallet.constants.js';
 import { WalletMapper } from './mappers/wallet.mapper.js';
+import { WalletIdentityService } from './services/wallet-identity.service.js';
 
 @Injectable()
 export class WalletService {
@@ -68,7 +67,6 @@ export class WalletService {
     private seedRepository: SeedRepository,
     private configService: ConfigService,
     private zerionService: ZerionService,
-    private seedManager: SeedManager,
     private addressManager: AddressManager,
     private accountFactory: AccountFactory,
     private nativeEoaFactory: NativeEoaFactory,
@@ -76,52 +74,13 @@ export class WalletService {
     private polkadotEvmRpcService: PolkadotEvmRpcService,
     private substrateManager: SubstrateManager,
     private balanceCacheRepository: BalanceCacheRepository,
-    private walletHistoryRepository: WalletHistoryRepository,
     private pimlicoConfig: PimlicoConfigService,
     private eip7702DelegationRepository: Eip7702DelegationRepository,
+    private readonly walletIdentityService: WalletIdentityService,
     private readonly walletMapper: WalletMapper,
 
   ) {}
 
-  /**
-   * Create or import a wallet seed phrase
-   * For authenticated users, saves the current wallet to history before creating new one
-   * @param userId - The user ID
-   * @param mode - Either 'random' to generate or 'mnemonic' to import
-   * @param mnemonic - The mnemonic phrase (required if mode is 'mnemonic')
-   * @param saveHistory - Whether to save current wallet to history (default: true for authenticated users)
-   */
-  async createOrImportSeed(
-    userId: string,
-    mode: 'random' | 'mnemonic',
-    mnemonic?: string,
-    saveHistory: boolean = true,
-  ): Promise<void> {
-    // For authenticated users (non-temp IDs), save current wallet to history
-    const isAuthenticatedUser = !userId.startsWith('temp-');
-
-    if (saveHistory && isAuthenticatedUser) {
-      try {
-        // Check if user has an existing seed to save
-        const hasSeed = await this.seedManager.hasSeed(userId);
-        if (hasSeed) {
-          const currentSeed = await this.seedManager.getSeed(userId);
-          await this.walletHistoryRepository.saveToHistory(userId, currentSeed);
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Failed to save wallet history: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        // Continue even if history save fails
-      }
-    }
-
-    // Clear any cached addresses since a new seed means new addresses
-    await this.addressManager.clearAddressCache(userId);
-
-    // Use the SeedManager for all seed operations
-    return this.seedManager.createOrImportSeed(userId, mode, mnemonic);
-  }
 
   /**
    * Get all wallet addresses for all chains
@@ -134,64 +93,7 @@ export class WalletService {
     return this.addressManager.getAddresses(userId);
   }
 
-  /**
-   * Get wallet history for authenticated users
-   * @param userId - The user ID
-   */
-  async getWalletHistory(userId: string) {
-    return this.walletHistoryRepository.getWalletHistory(userId);
-  }
-
-  /**
-   * Switch to a different wallet from history
-   * @param userId - The user ID
-   * @param walletId - The wallet history entry ID to switch to
-   */
-  async switchWallet(userId: string, walletId: string): Promise<boolean> {
-    // Get the seed from history
-    const seedPhrase = await this.walletHistoryRepository.getSeedFromHistory(
-      walletId,
-      userId,
-    );
-
-    if (!seedPhrase) {
-      this.logger.error(`Wallet ${walletId} not found for user ${userId}`);
-      return false;
-    }
-
-    // Save current wallet to history first (don't save again if switching)
-    const hasSeed = await this.seedManager.hasSeed(userId);
-    if (hasSeed) {
-      const currentSeed = await this.seedManager.getSeed(userId);
-      // Only save if it's different from the one we're switching to
-      if (currentSeed !== seedPhrase) {
-        await this.walletHistoryRepository.saveToHistory(userId, currentSeed);
-      }
-    }
-
-    // Clear address cache
-    await this.addressManager.clearAddressCache(userId);
-
-    // Import the selected wallet's seed
-    await this.seedManager.createOrImportSeed(userId, 'mnemonic', seedPhrase);
-
-    // Set this wallet as active
-    await this.walletHistoryRepository.setActiveWallet(walletId, userId);
-
-    return true;
-  }
-
-  /**
-   * Delete a wallet from history
-   * @param userId - The user ID
-   * @param walletId - The wallet history entry ID to delete
-   */
-  async deleteWalletHistory(
-    userId: string,
-    walletId: string,
-  ): Promise<boolean> {
-    return this.walletHistoryRepository.deleteWallet(walletId, userId);
-  }
+  
 
   async getWalletAddressContext(userId: string): Promise<WalletAddressContext> {
     const { addresses, metadata } =
@@ -320,7 +222,7 @@ export class WalletService {
     // Ensure wallet exists
     const hasSeed = await this.seedRepository.hasSeed(userId);
     if (!hasSeed) {
-      await this.createOrImportSeed(userId, 'random');
+      await this.walletIdentityService.createOrImportSeed(userId, 'random');
     }
 
     const addresses = await this.getAddresses(userId);
@@ -529,7 +431,7 @@ export class WalletService {
   > {
     const hasSeed = await this.seedRepository.hasSeed(userId);
     if (!hasSeed) {
-      await this.createOrImportSeed(userId, 'random');
+      await this.walletIdentityService.createOrImportSeed(userId, 'random');
     }
 
     const addresses = await this.getAddresses(userId);
@@ -875,7 +777,7 @@ export class WalletService {
     const hasSeed = await this.seedRepository.hasSeed(userId);
 
     if (!hasSeed) {
-      await this.createOrImportSeed(userId, 'random');
+      await this.walletIdentityService.createOrImportSeed(userId, 'random');
     }
 
     // Get addresses first (using WDK - addresses stay on backend)
@@ -1656,7 +1558,7 @@ export class WalletService {
     const hasSeed = await this.seedRepository.hasSeed(userId);
 
     if (!hasSeed) {
-      await this.createOrImportSeed(userId, 'random');
+      await this.walletIdentityService.createOrImportSeed(userId, 'random');
     }
 
     // Validate amount
@@ -2201,7 +2103,7 @@ export class WalletService {
     const hasSeed = await this.seedRepository.hasSeed(userId);
 
     if (!hasSeed) {
-      await this.createOrImportSeed(userId, 'random');
+      await this.walletIdentityService.createOrImportSeed(userId, 'random');
     }
 
     const chainIdMatch = chainId.match(/^eip155:(\d+)$/);
@@ -2267,7 +2169,7 @@ export class WalletService {
 
     if (!hasSeed) {
       this.logger.debug(`No wallet found for user ${userId}. Auto-creating...`);
-      await this.createOrImportSeed(userId, 'random');
+      await this.walletIdentityService.createOrImportSeed(userId, 'random');
       this.logger.debug(`Successfully auto-created wallet for user ${userId}`);
     }
 
@@ -2688,7 +2590,7 @@ export class WalletService {
 
     if (!hasSeed) {
       this.logger.debug(`No wallet found for user ${userId}. Auto-creating...`);
-      await this.createOrImportSeed(userId, 'random');
+      await this.walletIdentityService.createOrImportSeed(userId, 'random');
       this.logger.debug(`Successfully auto-created wallet for user ${userId}`);
     }
 
