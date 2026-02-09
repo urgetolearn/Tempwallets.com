@@ -2,6 +2,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { WalletService } from './wallet.service.js';
 import { WalletBalanceService } from './services/wallet-balance.service.js';
+import { WalletAddressService } from './services/wallet-address.service.js';
+import { WalletAccountService } from './services/wallet-account.service.js';
+import { WalletConnectService } from './services/wallet-connect.service.js';
+import { WalletTransactionService } from './services/wallet-transaction.service.js';
+import { WalletSendService } from './services/wallet-send.service.js';
+import { WalletSubstrateService } from './services/wallet-substrate.service.js';
 import { ZerionBalanceService } from './services/zerion-balance.service.js';
 import { SubstrateBalanceService } from './services/substrate-balance.service.js';
 import { BalanceValidationService } from './services/balance-validation.service.js';
@@ -154,6 +160,12 @@ describe('WalletService', () => {
       providers: [
         WalletService,
         WalletBalanceService,
+        WalletAddressService,
+        WalletAccountService,
+        WalletConnectService,
+        WalletTransactionService,
+        WalletSendService,
+        WalletSubstrateService,
         ZerionBalanceService,
         ZerionAnyChainService,
         ZerionPortfolioService,

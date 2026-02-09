@@ -3,6 +3,12 @@ import { WalletController } from './wallet.controller.js';
 import { WalletService } from './wallet.service.js';
 import { WalletBalanceService } from './services/wallet-balance.service.js';
 import { WalletIdentityService } from './services/wallet-identity.service.js';
+import { WalletAddressService } from './services/wallet-address.service.js';
+import { WalletAccountService } from './services/wallet-account.service.js';
+import { WalletConnectService } from './services/wallet-connect.service.js';
+import { WalletTransactionService } from './services/wallet-transaction.service.js';
+import { WalletSendService } from './services/wallet-send.service.js';
+import { WalletSubstrateService } from './services/wallet-substrate.service.js';
 import { TokenMetadataService } from './services/token-metadata.service.js';
 import { ZerionBalanceService } from './services/zerion-balance.service.js';
 import { SubstrateBalanceService } from './services/substrate-balance.service.js';
@@ -63,6 +69,12 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     WalletService,
     WalletBalanceService,
     WalletIdentityService,
+    WalletAddressService,
+    WalletAccountService,
+    WalletConnectService,
+    WalletTransactionService,
+    WalletSendService,
+    WalletSubstrateService,
     TokenMetadataService,
     ZerionBalanceService,
     ZerionAnyChainService,
@@ -109,6 +121,12 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     WalletService,
     WalletBalanceService,
     WalletIdentityService,
+    WalletAddressService,
+    WalletAccountService,
+    WalletConnectService,
+    WalletTransactionService,
+    WalletSendService,
+    WalletSubstrateService,
     TokenMetadataService,
     ZerionBalanceService,
     ZerionAnyChainService,
