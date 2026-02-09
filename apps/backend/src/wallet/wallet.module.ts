@@ -1,6 +1,17 @@
 import { Module } from '@nestjs/common';
 import { WalletController } from './wallet.controller.js';
 import { WalletService } from './wallet.service.js';
+import { WalletBalanceService } from './services/wallet-balance.service.js';
+import { WalletIdentityService } from './services/wallet-identity.service.js';
+import { TokenMetadataService } from './services/token-metadata.service.js';
+import { ZerionBalanceService } from './services/zerion-balance.service.js';
+import { SubstrateBalanceService } from './services/substrate-balance.service.js';
+import { BalanceValidationService } from './services/balance-validation.service.js';
+import { ZerionAnyChainService } from './services/zerion-any-chain.service.js';
+import { ZerionPortfolioService } from './services/zerion-portfolio.service.js';
+import { ZerionStreamService } from './services/zerion-stream.service.js';
+import { ZerionChainService } from './services/zerion-chain.service.js';
+import { ZerionTokenLookupService } from './services/zerion-token-lookup.service.js';
 import { SeedRepository } from './seed.repository.js';
 import { ZerionService } from './zerion.service.js';
 import { PrismaModule } from '../database/prisma.module.js';
@@ -50,6 +61,17 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
   controllers: [WalletController],
   providers: [
     WalletService,
+    WalletBalanceService,
+    WalletIdentityService,
+    TokenMetadataService,
+    ZerionBalanceService,
+    ZerionAnyChainService,
+    ZerionPortfolioService,
+    ZerionStreamService,
+    ZerionChainService,
+    ZerionTokenLookupService,
+    SubstrateBalanceService,
+    BalanceValidationService,
     SeedRepository,
     ZerionService,
     // Configuration services
@@ -85,6 +107,17 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
   ],
   exports: [
     WalletService,
+    WalletBalanceService,
+    WalletIdentityService,
+    TokenMetadataService,
+    ZerionBalanceService,
+    ZerionAnyChainService,
+    ZerionPortfolioService,
+    ZerionStreamService,
+    ZerionChainService,
+    ZerionTokenLookupService,
+    SubstrateBalanceService,
+    BalanceValidationService,
     SeedRepository,
     ZerionService,
     // Configuration services

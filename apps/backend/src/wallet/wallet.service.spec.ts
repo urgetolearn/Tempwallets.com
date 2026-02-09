@@ -1,6 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { WalletService } from './wallet.service.js';
+import { WalletBalanceService } from './services/wallet-balance.service.js';
+import { ZerionBalanceService } from './services/zerion-balance.service.js';
+import { SubstrateBalanceService } from './services/substrate-balance.service.js';
+import { BalanceValidationService } from './services/balance-validation.service.js';
+import { TokenMetadataService } from './services/token-metadata.service.js';
+import { ZerionAnyChainService } from './services/zerion-any-chain.service.js';
+import { ZerionPortfolioService } from './services/zerion-portfolio.service.js';
+import { ZerionStreamService } from './services/zerion-stream.service.js';
+import { ZerionChainService } from './services/zerion-chain.service.js';
+import { ZerionTokenLookupService } from './services/zerion-token-lookup.service.js';
 import { SeedRepository } from './seed.repository.js';
 import { ZerionService } from './zerion.service.js';
 import { SeedManager } from './managers/seed.manager.js';
@@ -69,6 +79,7 @@ describe('WalletService', () => {
     const mockZerionService = {
       getPortfolio: jest.fn(),
       getPositionsAnyChain: jest.fn(),
+      invalidateCache: jest.fn(),
     };
 
     const mockSeedManager = {
@@ -96,10 +107,13 @@ describe('WalletService', () => {
 
     const mockPolkadotEvmRpcService = {
       getTokenBalances: jest.fn(),
+      getAssets: jest.fn(),
+      getTransactions: jest.fn(),
     };
 
     const mockSubstrateManager = {
       getBalances: jest.fn(),
+      getChainConfig: jest.fn(),
     };
 
     const mockEip7702DelegationRepository = {
@@ -139,6 +153,16 @@ describe('WalletService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WalletService,
+        WalletBalanceService,
+        ZerionBalanceService,
+        ZerionAnyChainService,
+        ZerionPortfolioService,
+        ZerionStreamService,
+        ZerionChainService,
+        ZerionTokenLookupService,
+        SubstrateBalanceService,
+        BalanceValidationService,
+        TokenMetadataService,
         {
           provide: SeedRepository,
           useValue: mockSeedRepository,
