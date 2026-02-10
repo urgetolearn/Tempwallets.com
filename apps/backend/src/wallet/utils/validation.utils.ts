@@ -205,8 +205,6 @@ export function getExplorerUrl(
     tron: `https://tronscan.org/#/transaction/${txHash}`,
     bitcoin: `https://blockstream.info/tx/${txHash}`,
     solana: `https://solscan.io/tx/${txHash}`,
-    aptos: `https://explorer.aptoslabs.com/?network=mainnet&transaction=${txHash}`,
-    aptosTestnet: `https://explorer.aptoslabs.com/?network=testnet&transaction=${txHash}`,
   };
 
   if (nonEvmExplorers[chainName]) {

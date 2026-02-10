@@ -9,7 +9,6 @@ import { WalletAddresses } from '../interfaces/wallet.interfaces.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
 import { WalletHistoryRepository } from '../repositories/wallet-history.repository.js';
-import { AptosAddressManager } from '../aptos/managers/aptos-address.manager.js';
 import { PimlicoConfigService } from '../config/pimlico.config.js';
 
 describe('AddressManager', () => {
@@ -48,9 +47,6 @@ describe('AddressManager', () => {
     // const mockPimlicoAccountFactory = {
     //   createAccount: jest.fn(),
     // };
-    const mockAptosAddressManager = {
-      getAddresses: jest.fn(),
-    };
 
     const mockEip7702AccountFactory = {
       createAccount: jest.fn(),
@@ -92,10 +88,6 @@ describe('AddressManager', () => {
         {
           provide: SubstrateManager,
           useValue: mockSubstrateManager,
-        },
-        {
-          provide: AptosAddressManager,
-          useValue: mockAptosAddressManager,
         },
         {
           provide: AddressCacheRepository,

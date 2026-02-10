@@ -25,7 +25,6 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@aptos-labs/ts-sdk": "^5.1.5",
     "@erc7824/nitrolite": "^0.5.3",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",

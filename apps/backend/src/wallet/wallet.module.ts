@@ -41,28 +41,17 @@ import { TokenListService } from './services/token-list.service.js';
 import { SubstrateModule } from './substrate/substrate.module.js';
 // Import EVM module
 import { EvmModule } from './evm/evm.module.js';
-// Import Aptos module
-import { AptosModule } from './aptos/aptos.module.js';
 // Import cache repositories
 import { AddressCacheRepository } from './repositories/address-cache.repository.js';
 import { BalanceCacheRepository } from './repositories/balance-cache.repository.js';
 import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
-// Import Aptos managers and services
-import { AptosAddressManager } from './aptos/managers/aptos-address.manager.js';
-import { AptosAccountFactory } from './aptos/factories/aptos-account.factory.js';
-import { AptosRpcService } from './aptos/services/aptos-rpc.service.js';
-import { AptosAccountService } from './aptos/services/aptos-account.service.js';
-import { AptosSequenceManager } from './aptos/managers/aptos-sequence.manager.js';
-import { AptosTransactionService } from './aptos/services/aptos-transaction.service.js';
-import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
-
+import { WalletMapper } from './mappers/wallet.mapper.js';
 @Module({
   imports: [
     PrismaModule,
     CryptoModule,
     SubstrateModule,
     EvmModule,
-    AptosModule,
   ],
   controllers: [WalletController],
   providers: [
@@ -92,20 +81,12 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     // Managers
     SeedManager,
     AddressManager,
-    AptosAddressManager,
-    AptosSequenceManager,
     // Factories
     AccountFactory,
   NativeEoaFactory,
   Eip7702AccountFactory,
-    AptosAccountFactory,
   // Delegation repository for EIP-7702
   Eip7702DelegationRepository,
-    // Aptos Services
-    AptosRpcService,
-    AptosAccountService,
-    AptosTransactionService,
-    AptosFaucetService,
     // Pimlico bundler/paymaster service
     PimlicoService,
     // Polkadot EVM RPC service
@@ -116,6 +97,7 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     AddressCacheRepository,
     BalanceCacheRepository,
     WalletHistoryRepository,
+    WalletMapper,
   ],
   exports: [
     WalletService,
@@ -147,12 +129,6 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     AccountFactory,
   NativeEoaFactory,
   Eip7702AccountFactory,
-    AptosAddressManager,
-    AptosAccountFactory,
-    AptosRpcService,
-    AptosAccountService,
-    AptosTransactionService,
-    AptosSequenceManager,
   Eip7702DelegationRepository,
     // Export Pimlico service
     PimlicoService,
@@ -164,6 +140,7 @@ import { AptosFaucetService } from './aptos/services/aptos-faucet.service.js';
     AddressCacheRepository,
     BalanceCacheRepository,
     WalletHistoryRepository,
+    WalletMapper,
   ],
 })
 export class WalletModule {}

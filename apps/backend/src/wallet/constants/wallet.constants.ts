@@ -38,18 +38,10 @@ export const NON_EVM_CHAIN_KEYS: Array<
   | 'tron'
   | 'bitcoin'
   | 'solana'
-  | 'aptos'
-  | 'aptosMainnet'
-  | 'aptosTestnet'
-  | 'aptosDevnet'
 > = [
   'tron',
   'bitcoin',
   'solana',
-  'aptos',
-  'aptosMainnet',
-  'aptosTestnet',
-  'aptosDevnet',
 ];
 
 export const UI_SMART_ACCOUNT_LABEL = 'EVM Smart Account';

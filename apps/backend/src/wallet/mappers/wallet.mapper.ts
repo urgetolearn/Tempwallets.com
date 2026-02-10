@@ -119,19 +119,13 @@ export class WalletMapper {
       }
     });
 
-    // Non-EVM chains (including Aptos)
+    // Non-EVM chains
     NON_EVM_CHAIN_KEYS.forEach((chain) => {
       const entry = metadata[chain];
       if (entry?.visible && entry.address) {
         // Determine category based on chain
         let category: string | undefined;
-        if (chain.startsWith('aptos')) {
-          category = 'aptos';
-        } else if (
-          chain === 'tron' ||
-          chain === 'bitcoin' ||
-          chain === 'solana'
-        ) {
+        if (chain === 'tron' || chain === 'bitcoin' || chain === 'solana') {
           category = 'non-evm';
         }
 

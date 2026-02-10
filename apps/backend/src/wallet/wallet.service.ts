@@ -13,6 +13,7 @@ import { WalletConnectService } from './services/wallet-connect.service.js';
 import { WalletTransactionService } from './services/wallet-transaction.service.js';
 import { WalletSendService } from './services/wallet-send.service.js';
 import { WalletSubstrateService } from './services/wallet-substrate.service.js';
+import { WalletIdentityService } from './services/wallet-identity.service.js';
 
 @Injectable()
 export class WalletService {
@@ -23,6 +24,7 @@ export class WalletService {
     private readonly walletTransactionService: WalletTransactionService,
     private readonly walletSendService: WalletSendService,
     private readonly walletSubstrateService: WalletSubstrateService,
+    private readonly walletIdentityService: WalletIdentityService,
   ) {}
 
 
@@ -50,6 +52,56 @@ export class WalletService {
     userId: string,
   ): Promise<WalletConnectNamespacePayload[]> {
     return this.walletConnectService.getWalletConnectAccounts(userId);
+  }
+
+  /**
+   * Create or import a wallet seed phrase
+   * @param userId - The user ID
+   * @param mode - Either 'random' to generate or 'mnemonic' to import
+   * @param mnemonic - The mnemonic phrase (required if mode is 'mnemonic')
+   * @param saveHistory - Whether to save current wallet to history (default: true for authenticated users)
+   */
+  async createOrImportSeed(
+    userId: string,
+    mode: 'random' | 'mnemonic',
+    mnemonic?: string,
+    saveHistory: boolean = true,
+  ): Promise<void> {
+    return this.walletIdentityService.createOrImportSeed(
+      userId,
+      mode,
+      mnemonic,
+      saveHistory,
+    );
+  }
+
+  /**
+   * Get wallet history for authenticated users
+   * @param userId - The user ID
+   */
+  async getWalletHistory(userId: string) {
+    return this.walletIdentityService.getWalletHistory(userId);
+  }
+
+  /**
+   * Switch to a different wallet from history
+   * @param userId - The user ID
+   * @param walletId - The wallet history entry ID to switch to
+   */
+  async switchWallet(userId: string, walletId: string): Promise<boolean> {
+    return this.walletIdentityService.switchWallet(userId, walletId);
+  }
+
+  /**
+   * Delete a wallet from history
+   * @param userId - The user ID
+   * @param walletId - The wallet history entry ID to delete
+   */
+  async deleteWalletHistory(
+    userId: string,
+    walletId: string,
+  ): Promise<boolean> {
+    return this.walletIdentityService.deleteWalletHistory(userId, walletId);
   }
 
   /**
