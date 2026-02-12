@@ -174,21 +174,23 @@ export function BalanceView({ onOpenSend, selectedChainId }: BalanceViewProps) {
         })}
       </div>
 
-      {/* 3. Empty State Animation (Always shown below the tab as requested) */}
-      <div className="flex flex-col items-center justify-center pb-4 -mt-10 relative z-0">
-        <div className="pointer-events-none transform scale-75 sm:scale-90 -mb-4">
-          <Image
-            src="/empty-mailbox-illustration-with-spiderweb-and-flie-2025-10-20-04-28-09-utc.gif"
-            alt="No Tokens Available"
-            width={320}
-            height={320}
-            className="object-contain mix-blend-multiply"
-          />
+      {/* 3. Empty State Animation - ✅ FIX: Only show when no tokens with value */}
+      {displayBalances.every(b => !b.valueUsd || b.valueUsd === 0) && (
+        <div className="flex flex-col items-center justify-center pb-4 -mt-10 relative z-0">
+          <div className="pointer-events-none transform scale-75 sm:scale-90 -mb-4">
+            <Image
+              src="/empty-mailbox-illustration-with-spiderweb-and-flie-2025-10-20-04-28-09-utc.gif"
+              alt="No Tokens Available"
+              width={320}
+              height={320}
+              className="object-contain mix-blend-multiply"
+            />
+          </div>
+          <p className="text-gray-500 text-sm font-rubik-normal z-10 -mt-8 relative">
+            No Tokens Available
+          </p>
         </div>
-        <p className="text-gray-500 text-sm font-rubik-normal z-10 -mt-8 relative">
-          No Tokens Available
-        </p>
-      </div>
+      )}
     </div>
   );
 }
