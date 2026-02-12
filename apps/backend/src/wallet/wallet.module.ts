@@ -8,10 +8,8 @@ import { WalletAccountService } from './services/wallet-account.service.js';
 import { WalletConnectService } from './services/wallet-connect.service.js';
 import { WalletTransactionService } from './services/wallet-transaction.service.js';
 import { WalletSendService } from './services/wallet-send.service.js';
-import { WalletSubstrateService } from './services/wallet-substrate.service.js';
 import { TokenMetadataService } from './services/token-metadata.service.js';
 import { ZerionBalanceService } from './services/zerion-balance.service.js';
-import { SubstrateBalanceService } from './services/substrate-balance.service.js';
 import { BalanceValidationService } from './services/balance-validation.service.js';
 import { ZerionAnyChainService } from './services/zerion-any-chain.service.js';
 import { ZerionPortfolioService } from './services/zerion-portfolio.service.js';
@@ -34,11 +32,11 @@ import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.r
 // Import Pimlico service for bundler/paymaster operations
 import { PimlicoService } from './services/pimlico.service.js';
 // Import Polkadot EVM RPC service
-import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
+// import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
 // Import Token List service
 import { TokenListService } from './services/token-list.service.js';
-// Import Substrate module
-import { SubstrateModule } from './substrate/substrate.module.js';
+// // Import Substrate module
+// import { SubstrateModule } from './substrate/substrate.module.js';
 // Import EVM module
 import { EvmModule } from './evm/evm.module.js';
 // Import cache repositories
@@ -50,7 +48,7 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
   imports: [
     PrismaModule,
     CryptoModule,
-    SubstrateModule,
+    // SubstrateModule,
     EvmModule,
   ],
   controllers: [WalletController],
@@ -63,7 +61,6 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     WalletConnectService,
     WalletTransactionService,
     WalletSendService,
-    WalletSubstrateService,
     TokenMetadataService,
     ZerionBalanceService,
     ZerionAnyChainService,
@@ -71,7 +68,6 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     ZerionStreamService,
     ZerionChainService,
     ZerionTokenLookupService,
-    SubstrateBalanceService,
     BalanceValidationService,
     SeedRepository,
     ZerionService,
@@ -90,7 +86,7 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     // Pimlico bundler/paymaster service
     PimlicoService,
     // Polkadot EVM RPC service
-    PolkadotEvmRpcService,
+    // PolkadotEvmRpcService,
     // Token List service
     TokenListService,
     // Cache repositories
@@ -108,7 +104,6 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     WalletConnectService,
     WalletTransactionService,
     WalletSendService,
-    WalletSubstrateService,
     TokenMetadataService,
     ZerionBalanceService,
     ZerionAnyChainService,
@@ -116,7 +111,6 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     ZerionStreamService,
     ZerionChainService,
     ZerionTokenLookupService,
-    SubstrateBalanceService,
     BalanceValidationService,
     SeedRepository,
     ZerionService,
@@ -133,7 +127,7 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     // Export Pimlico service
     PimlicoService,
     // Export Polkadot EVM RPC service
-    PolkadotEvmRpcService,
+    // PolkadotEvmRpcService,
     // Export Token List service
     TokenListService,
     // Export cache repositories

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SeedRepository } from '../seed.repository.js';
 import { ZerionService } from '../zerion.service.js';
 import { AddressManager } from '../managers/address.manager.js';
-import { PolkadotEvmRpcService } from './polkadot-evm-rpc.service.js';
+// import { PolkadotEvmRpcService } from './polkadot-evm-rpc.service.js';
 import { Eip7702DelegationRepository } from '../repositories/eip7702-delegation.repository.js';
 import { WalletAddresses } from '../interfaces/wallet.interfaces.js';
 import { WalletIdentityService } from './wallet-identity.service.js';
@@ -15,7 +15,7 @@ export class ZerionAnyChainService {
     private readonly seedRepository: SeedRepository,
     private readonly zerionService: ZerionService,
     private readonly addressManager: AddressManager,
-    private readonly polkadotEvmRpcService: PolkadotEvmRpcService,
+    // private readonly polkadotEvmRpcService: PolkadotEvmRpcService,
     private readonly eip7702DelegationRepository: Eip7702DelegationRepository,
     private readonly walletIdentityService: WalletIdentityService,
   ) {}
@@ -118,46 +118,46 @@ export class ZerionAnyChainService {
         : [];
 
     // Fetch Polkadot EVM chain assets using RPC
-    const polkadotEvmChains = [
-      'moonbeamTestnet',
-      'astarShibuya',
-      'paseoPassetHub',
-    ];
-    const polkadotResults: Array<{
-      chain: string;
-      address: string | null;
-      symbol: string;
-      balance: string;
-      decimals: number;
-      balanceHuman?: string;
-    }> = [];
+    // const polkadotEvmChains = [
+    //   'moonbeamTestnet',
+    //   'astarShibuya',
+    //   'paseoPassetHub',
+    // ];
+    // const polkadotResults: Array<{
+    //   chain: string;
+    //   address: string | null;
+    //   symbol: string;
+    //   balance: string;
+    //   decimals: number;
+    //   balanceHuman?: string;
+    // }> = [];
 
-    if (polkadotEvmAddress) {
-      // Use Promise.allSettled to ensure RPC errors don't block Zerion results
-      const polkadotAssetResults = await Promise.allSettled(
-        polkadotEvmChains.map(async (chain) => {
-          try {
-            const assets = await this.polkadotEvmRpcService.getAssets(
-              polkadotEvmAddress,
-              chain,
-            );
-            return assets;
-          } catch (error) {
-            this.logger.error(
-              `Error fetching assets for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            );
-            return []; // Return empty array on error
-          }
-        }),
-      );
+    // if (polkadotEvmAddress) {
+    //   // Use Promise.allSettled to ensure RPC errors don't block Zerion results
+    //   const polkadotAssetResults = await Promise.allSettled(
+    //     polkadotEvmChains.map(async (chain) => {
+    //       try {
+    //         const assets = await this.polkadotEvmRpcService.getAssets(
+    //           polkadotEvmAddress,
+    //           chain,
+    //         );
+    //         return assets;
+    //       } catch (error) {
+    //         this.logger.error(
+    //           `Error fetching assets for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    //         );
+    //         return []; // Return empty array on error
+    //       }
+    //     }),
+    //   );
 
-      // Flatten the results
-      for (const result of polkadotAssetResults) {
-        if (result.status === 'fulfilled') {
-          polkadotResults.push(...result.value);
-        }
-      }
-    }
+    //   // Flatten the results
+    //   for (const result of polkadotAssetResults) {
+    //     if (result.status === 'fulfilled') {
+    //       polkadotResults.push(...result.value);
+    //     }
+    //   }
+    // }
 
     // Merge and dedupe across addresses using chain_id + token address/native
     // Preserve Zerion's native balance format (smallest units) and decimals
@@ -205,28 +205,28 @@ export class ZerionAnyChainService {
     }
 
     // Process Polkadot EVM RPC results
-    for (const asset of polkadotResults) {
-      try {
-        // Skip zero balances
-        if (asset.balance === '0' || BigInt(asset.balance) === 0n) continue;
+    // for (const asset of polkadotResults) {
+    //   try {
+    //     // Skip zero balances
+    //     if (asset.balance === '0' || BigInt(asset.balance) === 0n) continue;
 
-        const key = `${asset.chain}:${asset.address ? asset.address.toLowerCase() : 'native'}`;
-        if (!byKey.has(key)) {
-          byKey.set(key, {
-            chain: asset.chain,
-            address: asset.address,
-            symbol: asset.symbol,
-            balance: asset.balance,
-            decimals: asset.decimals,
-            balanceHuman: asset.balanceHuman,
-          });
-        }
-      } catch (e) {
-        this.logger.debug(
-          `Error processing Polkadot EVM asset: ${e instanceof Error ? e.message : 'Unknown error'}`,
-        );
-      }
-    }
+    //     const key = `${asset.chain}:${asset.address ? asset.address.toLowerCase() : 'native'}`;
+    //     if (!byKey.has(key)) {
+    //       byKey.set(key, {
+    //         chain: asset.chain,
+    //         address: asset.address,
+    //         symbol: asset.symbol,
+    //         balance: asset.balance,
+    //         decimals: asset.decimals,
+    //         balanceHuman: asset.balanceHuman,
+    //       });
+    //     }
+    //   } catch (e) {
+    //     this.logger.debug(
+    //       `Error processing Polkadot EVM asset: ${e instanceof Error ? e.message : 'Unknown error'}`,
+    //     );
+    //   }
+    // }
 
     return Array.from(byKey.values());
   }

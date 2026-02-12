@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  UnauthorizedException,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -21,8 +22,8 @@ import {
   SendEip7702Dto,
   WalletConnectSignDto,
 } from './dto/wallet.dto.js';
-import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
-import { SubstrateChainKey } from './substrate/config/substrate-chain.config.js';
+// import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
+// import { SubstrateChainKey } from './substrate/config/substrate-chain.config.js';
 import { AllChainTypes } from './types/chain.types.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OptionalAuth } from '../auth/decorators/optional-auth.decorator.js';
@@ -30,14 +31,13 @@ import { UserId } from '../auth/decorators/user-id.decorator.js';
 import { PimlicoConfigService } from './config/pimlico.config.js';
 
 @Controller('wallet')
-@UseGuards(JwtAuthGuard)
 @OptionalAuth()
 export class WalletController {
   private readonly logger = new Logger(WalletController.name);
 
   constructor(
     private readonly walletService: WalletService,
-    private readonly polkadotEvmRpcService: PolkadotEvmRpcService,
+    // private readonly polkadotEvmRpcService: PolkadotEvmRpcService,
     private readonly pimlicoConfig: PimlicoConfigService,
   ) {}
 
@@ -167,9 +167,10 @@ export class WalletController {
    * GET /wallet/history
    */
   @Get('history')
+  @UseGuards(JwtAuthGuard)
   async getWalletHistory(@UserId() userId?: string) {
     if (!userId) {
-      throw new BadRequestException('Authentication required');
+      throw new UnauthorizedException('Authentication required');
     }
 
     // Only allow for authenticated users (non-temp IDs)
@@ -198,13 +199,14 @@ export class WalletController {
    * POST /wallet/switch
    */
   @Post('switch')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async switchWallet(
     @Body() body: { walletId: string },
     @UserId() userId?: string,
   ) {
     if (!userId) {
-      throw new BadRequestException('Authentication required');
+      throw new UnauthorizedException('Authentication required');
     }
 
     if (!body.walletId) {
@@ -244,13 +246,14 @@ export class WalletController {
    * DELETE /wallet/history/:walletId
    */
   @Delete('history/:walletId')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async deleteWalletHistory(
     @Param('walletId') walletId: string,
     @UserId() userId?: string,
   ) {
     if (!userId) {
-      throw new BadRequestException('Authentication required');
+      throw new UnauthorizedException('Authentication required');
     }
 
     if (!walletId) {
@@ -301,7 +304,9 @@ export class WalletController {
       throw new BadRequestException('userId is required');
     }
 
-    this.logger.warn(`Deprecated endpoint /wallet/walletconnect/accounts called. Use /walletconnect/accounts instead.`);
+    this.logger.warn(
+      `Deprecated endpoint /wallet/walletconnect/accounts called. Use /walletconnect/accounts instead.`,
+    );
 
     try {
       const namespaces =
@@ -412,14 +417,12 @@ export class WalletController {
 
     const chain = dto.chain as AllChainTypes;
 
-    this.logger.log(
-      `Sending crypto for user ${finalUserId} on chain ${chain}`,
-    );
+    this.logger.log(`Sending crypto for user ${finalUserId} on chain ${chain}`);
 
     try {
       const result = await this.walletService.sendCrypto(
         finalUserId,
-  chain,
+        chain,
         dto.recipientAddress,
         dto.amount,
         dto.tokenAddress,
@@ -675,7 +678,9 @@ export class WalletController {
       throw new BadRequestException('userId is required');
     }
 
-    this.logger.warn(`Deprecated endpoint /wallet/walletconnect/sign called. Use /walletconnect/sign instead.`);
+    this.logger.warn(
+      `Deprecated endpoint /wallet/walletconnect/sign called. Use /walletconnect/sign instead.`,
+    );
 
     this.logger.log(
       `Signing WalletConnect transaction for user ${finalUserId} on chain ${dto.chainId}`,
@@ -728,7 +733,15 @@ export class WalletController {
       `Testing RPC balance for user ${finalUserId} on chain ${chain}`,
     );
 
-    const validChains = ['moonbeamTestnet', 'astarShibuya', 'paseoPassetHub'];
+    const validChains = [
+      'ethereum',
+      'polygon',
+      'bnb',
+      'avalanche',
+      'arbitrum',
+      'optimism',
+      'base',
+    ];
     if (!validChains.includes(chain)) {
       throw new BadRequestException(
         `chain must be one of: ${validChains.join(', ')}`,
@@ -743,9 +756,10 @@ export class WalletController {
         throw new BadRequestException('No Ethereum address found for user');
       }
 
-      const balance = await this.polkadotEvmRpcService.getNativeBalance(
-        address,
+      const balance = await this.walletService.getTokenBalances(
+        finalUserId,
         chain,
+        false,
       );
 
       return {
@@ -800,8 +814,8 @@ export class WalletController {
         throw new BadRequestException('No Ethereum address found for user');
       }
 
-      const transactions = await this.polkadotEvmRpcService.getTransactions(
-        address,
+      const transactions = await this.walletService.getTransactionHistory(
+        finalUserId,
         chain,
         limitNum,
       );
@@ -820,203 +834,203 @@ export class WalletController {
     }
   }
 
-  /**
-   * Get Substrate addresses for a user
-   * GET /wallet/substrate/addresses?userId=xxx&useTestnet=false
-   */
-  @Get('substrate/addresses')
-  async getSubstrateAddresses(
-    @UserId() userId?: string,
-    @Query('userId') queryUserId?: string,
-    @Query('useTestnet') useTestnet?: string,
-  ) {
-    const finalUserId = userId || queryUserId;
-    if (!finalUserId) {
-      throw new BadRequestException('userId is required');
-    }
+  // /**
+  //  * Get Substrate addresses for a user
+  //  * GET /wallet/substrate/addresses?userId=xxx&useTestnet=false
+  //  */
+  // @Get('substrate/addresses')
+  // async getSubstrateAddresses(
+  //   @UserId() userId?: string,
+  //   @Query('userId') queryUserId?: string,
+  //   @Query('useTestnet') useTestnet?: string,
+  // ) {
+  //   const finalUserId = userId || queryUserId;
+  //   if (!finalUserId) {
+  //     throw new BadRequestException('userId is required');
+  //   }
 
-    const useTestnetBool = useTestnet === 'true';
+  //   const useTestnetBool = useTestnet === 'true';
 
-    try {
-      // Get Substrate addresses through WalletService
-      const substrateAddresses = await this.walletService.getSubstrateAddresses(
-        finalUserId,
-        useTestnetBool,
-      );
+  //   try {
+  //     // Get Substrate addresses through WalletService
+  //     const substrateAddresses = await this.walletService.getSubstrateAddresses(
+  //       finalUserId,
+  //       useTestnetBool,
+  //     );
 
-      return {
-        userId: finalUserId,
-        useTestnet: useTestnetBool,
-        addresses: substrateAddresses,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to get Substrate addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      throw error;
-    }
-  }
+  //     return {
+  //       userId: finalUserId,
+  //       useTestnet: useTestnetBool,
+  //       addresses: substrateAddresses,
+  //     };
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to get Substrate addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
+  //     );
+  //     throw error;
+  //   }
+  // }
 
   /**
    * Get Substrate balances for a user
    * GET /wallet/substrate/balances?userId=xxx&useTestnet=false&refresh=false
    */
-  @Get('substrate/balances')
-  async getSubstrateBalances(
-    @UserId() userId?: string,
-    @Query('userId') queryUserId?: string,
-    @Query('useTestnet') useTestnet?: string,
-    @Query('refresh') refresh?: string,
-  ) {
-    const finalUserId = userId || queryUserId;
-    if (!finalUserId) {
-      throw new BadRequestException('userId is required');
-    }
+  // @Get('substrate/balances')
+  // async getSubstrateBalances(
+  //   @UserId() userId?: string,
+  //   @Query('userId') queryUserId?: string,
+  //   @Query('useTestnet') useTestnet?: string,
+  //   @Query('refresh') refresh?: string,
+  // ) {
+  //   const finalUserId = userId || queryUserId;
+  //   if (!finalUserId) {
+  //     throw new BadRequestException('userId is required');
+  //   }
 
-    const useTestnetBool = useTestnet === 'true';
-    const forceRefresh = refresh === 'true';
-    this.logger.log(
-      `Getting Substrate balances for user ${finalUserId} (testnet: ${useTestnetBool}${forceRefresh ? ', force refresh' : ''})`,
-    );
+  //   const useTestnetBool = useTestnet === 'true';
+  //   const forceRefresh = refresh === 'true';
+  //   this.logger.log(
+  //     `Getting Substrate balances for user ${finalUserId} (testnet: ${useTestnetBool}${forceRefresh ? ', force refresh' : ''})`,
+  //   );
 
-    try {
-      const balances = await this.walletService.getSubstrateBalances(
-        finalUserId,
-        useTestnetBool,
-        forceRefresh,
-      );
-      this.logger.log(
-        `Successfully retrieved Substrate balances for user ${finalUserId}: ${Object.keys(balances).length} chains`,
-      );
-      return {
-        userId: finalUserId,
-        useTestnet: useTestnetBool,
-        balances,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to get Substrate balances for user ${finalUserId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      throw error;
-    }
-  }
+  //   try {
+  //     const balances = await this.walletService.getSubstrateBalances(
+  //       finalUserId,
+  //       useTestnetBool,
+  //       forceRefresh,
+  //     );
+  //     this.logger.log(
+  //       `Successfully retrieved Substrate balances for user ${finalUserId}: ${Object.keys(balances).length} chains`,
+  //     );
+  //     return {
+  //       userId: finalUserId,
+  //       useTestnet: useTestnetBool,
+  //       balances,
+  //     };
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to get Substrate balances for user ${finalUserId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+  //     );
+  //     throw error;
+  //   }
+  // }
 
   /**
    * Get Substrate transaction history
    * GET /wallet/substrate/transactions?userId=xxx&chain=polkadot&useTestnet=false&limit=10&cursor=xxx
    */
-  @Get('substrate/transactions')
-  async getSubstrateTransactions(
-    @UserId() userId?: string,
-    @Query('userId') queryUserId?: string,
-    @Query('chain') chain?: string,
-    @Query('useTestnet') useTestnet?: string,
-    @Query('limit') limit?: string,
-    @Query('cursor') cursor?: string,
-  ) {
-    const finalUserId = userId || queryUserId;
-    if (!finalUserId) {
-      throw new BadRequestException('userId is required');
-    }
-    if (!chain) {
-      throw new BadRequestException('chain is required');
-    }
+  // @Get('substrate/transactions')
+  // async getSubstrateTransactions(
+  //   @UserId() userId?: string,
+  //   @Query('userId') queryUserId?: string,
+  //   @Query('chain') chain?: string,
+  //   @Query('useTestnet') useTestnet?: string,
+  //   @Query('limit') limit?: string,
+  //   @Query('cursor') cursor?: string,
+  // ) {
+  //   const finalUserId = userId || queryUserId;
+  //   if (!finalUserId) {
+  //     throw new BadRequestException('userId is required');
+  //   }
+  //   if (!chain) {
+  //     throw new BadRequestException('chain is required');
+  //   }
 
-    const useTestnetBool = useTestnet === 'true';
-    const limitNum = limit ? parseInt(limit, 10) : 10;
+  //   const useTestnetBool = useTestnet === 'true';
+  //   const limitNum = limit ? parseInt(limit, 10) : 10;
 
-    try {
-      const history = await this.walletService.getSubstrateTransactions(
-        finalUserId,
-        chain as SubstrateChainKey,
-        useTestnetBool,
-        limitNum,
-        cursor,
-      );
+  //   try {
+  //     const history = await this.walletService.getSubstrateTransactions(
+  //       finalUserId,
+  //       chain as SubstrateChainKey,
+  //       useTestnetBool,
+  //       limitNum,
+  //       cursor,
+  //     );
 
-      return {
-        userId: finalUserId,
-        chain,
-        useTestnet: useTestnetBool,
-        history,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to get Substrate transactions: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      throw error;
-    }
-  }
+  //     return {
+  //       userId: finalUserId,
+  //       chain,
+  //       useTestnet: useTestnetBool,
+  //       history,
+  //     };
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to get Substrate transactions: ${error instanceof Error ? error.message : 'Unknown error'}`,
+  //     );
+  //     throw error;
+  //   }
+  // }
 
   /**
    * Send Substrate transfer
    * POST /wallet/substrate/send
    */
-  @Post('substrate/send')
-  @HttpCode(HttpStatus.OK)
-  async sendSubstrateTransfer(
-    @Body()
-    body: {
-      userId: string;
-      chain: SubstrateChainKey;
-      to: string;
-      amount: string;
-      useTestnet?: boolean;
-      transferMethod?: 'transferAllowDeath' | 'transferKeepAlive';
-    },
-    @UserId() userId?: string,
-  ) {
-    const finalUserId = userId || body.userId;
-    if (!finalUserId || !body.chain || !body.to || !body.amount) {
-      throw new BadRequestException(
-        'userId, chain, to, and amount are required',
-      );
-    }
+  // @Post('substrate/send')
+  // @HttpCode(HttpStatus.OK)
+  // async sendSubstrateTransfer(
+  //   @Body()
+  //   body: {
+  //     userId: string;
+  //     chain: SubstrateChainKey;
+  //     to: string;
+  //     amount: string;
+  //     useTestnet?: boolean;
+  //     transferMethod?: 'transferAllowDeath' | 'transferKeepAlive';
+  //   },
+  //   @UserId() userId?: string,
+  // ) {
+  //   const finalUserId = userId || body.userId;
+  //   if (!finalUserId || !body.chain || !body.to || !body.amount) {
+  //     throw new BadRequestException(
+  //       'userId, chain, to, and amount are required',
+  //     );
+  //   }
 
-    try {
-      const result = await this.walletService.sendSubstrateTransfer(
-        finalUserId,
-        body.chain,
-        body.to,
-        body.amount,
-        body.useTestnet || false,
-        body.transferMethod,
-        0, // accountIndex
-      );
+  //   try {
+  //     const result = await this.walletService.sendSubstrateTransfer(
+  //       finalUserId,
+  //       body.chain,
+  //       body.to,
+  //       body.amount,
+  //       body.useTestnet || false,
+  //       body.transferMethod,
+  //       0, // accountIndex
+  //     );
 
-      return {
-        success: result.status !== 'failed' && result.status !== 'error',
-        txHash: result.txHash,
-        status: result.status,
-        blockHash: result.blockHash,
-        error: result.error,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to send Substrate transfer: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      throw error;
-    }
-  }
+  //     return {
+  //       success: result.status !== 'failed' && result.status !== 'error',
+  //       txHash: result.txHash,
+  //       status: result.status,
+  //       blockHash: result.blockHash,
+  //       error: result.error,
+  //     };
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to send Substrate transfer: ${error instanceof Error ? error.message : 'Unknown error'}`,
+  //     );
+  //     throw error;
+  //   }
+  // }
 
   /**
    * Health check for Substrate functionality
    * GET /wallet/substrate/health
    */
-  @Get('substrate/health')
-  async getSubstrateHealth() {
-    try {
-      // Access through a public method or create a health check method in WalletService
-      // For now, return basic health status
-      return {
-        status: 'ok',
-        message: 'Substrate functionality is available',
-      };
-    } catch (error) {
-      return {
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
-  }
+  // @Get('substrate/health')
+  // async getSubstrateHealth() {
+  //   try {
+  //     // Access through a public method or create a health check method in WalletService
+  //     // For now, return basic health status
+  //     return {
+  //       status: 'ok',
+  //       message: 'Substrate functionality is available',
+  //     };
+  //   } catch (error) {
+  //     return {
+  //       status: 'error',
+  //       error: error instanceof Error ? error.message : 'Unknown error',
+  //     };
+  //   }
+  // }
 }

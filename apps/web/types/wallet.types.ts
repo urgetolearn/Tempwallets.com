@@ -3,7 +3,7 @@ import { ComponentType, SVGProps } from 'react';
 /**
  * Chain types that determine wallet compatibility and functionality
  */
-export type ChainType = 'evm' | 'substrate' | 'bitcoin' | 'solana' | 'tron' | 'aptos';
+export type ChainType = 'evm';
 
 /**
  * Chain category for organizing chains
@@ -17,13 +17,7 @@ export type ChainGroup =
   | 'evm-standard'        // Standard EVM EOA wallets
   | 'evm-smart-account'   // ERC-4337 smart accounts
   | 'evm-testnet'         // EVM testnet chains
-  | 'substrate-mainnet'   // Substrate/Polkadot mainnet parachains
-  | 'substrate-testnet'   // Substrate testnet chains
-  | 'bitcoin'             // Bitcoin chain
-  | 'solana'              // Solana chain
-  | 'tron'                // Tron chain
-  | 'aptos';              // Aptos chain
-
+ 
 /**
  * Wallet capabilities - what actions can be performed
  */

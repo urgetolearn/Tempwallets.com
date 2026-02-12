@@ -98,46 +98,46 @@ export class WalletMapper {
     });
 
     // Substrate chains
-    const substrateChains: WalletAddressKey[] = [
-      'polkadot',
-      'hydrationSubstrate',
-      'bifrostSubstrate',
-      'uniqueSubstrate',
-      'paseo',
-      'paseoAssethub',
-    ];
-    substrateChains.forEach((chain) => {
-      const entry = metadata[chain];
-      if (entry?.visible && entry.address) {
-        entries.push({
-          key: chain,
-          label: entry.label,
-          chain,
-          address: entry.address,
-          category: 'substrate',
-        });
-      }
-    });
+    // const substrateChains: WalletAddressKey[] = [
+    //   'polkadot',
+    //   'hydrationSubstrate',
+    //   'bifrostSubstrate',
+    //   'uniqueSubstrate',
+    //   'paseo',
+    //   'paseoAssethub',
+    // ];
+    // substrateChains.forEach((chain) => {
+    //   const entry = metadata[chain];
+    //   if (entry?.visible && entry.address) {
+    //     entries.push({
+    //       key: chain,
+    //       label: entry.label,
+    //       chain,
+    //       address: entry.address,
+    //       category: 'substrate',
+    //     });
+    //   }
+    // });
 
     // Non-EVM chains
-    NON_EVM_CHAIN_KEYS.forEach((chain) => {
-      const entry = metadata[chain];
-      if (entry?.visible && entry.address) {
-        // Determine category based on chain
-        let category: string | undefined;
-        if (chain === 'tron' || chain === 'bitcoin' || chain === 'solana') {
-          category = 'non-evm';
-        }
+    // NON_EVM_CHAIN_KEYS.forEach((chain) => {
+    //   const entry = metadata[chain];
+    //   if (entry?.visible && entry.address) {
+    //     // Determine category based on chain
+    //     let category: string | undefined;
+    //     if (chain === 'tron' || chain === 'bitcoin' || chain === 'solana') {
+    //       category = 'non-evm';
+    //     }
 
-        entries.push({
-          key: chain,
-          label: entry.label,
-          chain,
-          address: entry.address,
-          category,
-        });
-      }
-    });
+    //     entries.push({
+    //       key: chain,
+    //       label: entry.label,
+    //       chain,
+    //       address: entry.address,
+    //       category,
+    //     });
+    //   }
+    // });
 
     return entries;
   }
@@ -190,36 +190,36 @@ export class WalletMapper {
     NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
 
     // Substrate chains (visible)
-    const substrateChains: WalletAddressKey[] = [
-      'polkadot',
-      'hydrationSubstrate',
-      'bifrostSubstrate',
-      'uniqueSubstrate',
-      'paseo',
-      'paseoAssethub',
-    ];
-    substrateChains.forEach((chain) => assign(chain, 'substrate', true));
+    // const substrateChains: WalletAddressKey[] = [
+    //   'polkadot',
+    //   'hydrationSubstrate',
+    //   'bifrostSubstrate',
+    //   'uniqueSubstrate',
+    //   'paseo',
+    //   'paseoAssethub',
+    // ];
+    // substrateChains.forEach((chain) => assign(chain, 'substrate', true));
 
     return metadata;
   }
 
   public isVisibleChain(chain: WalletAddressKey): boolean {
     // Substrate chains
-    const SUBSTRATE_CHAIN_KEYS: Array<
-      | 'polkadot'
-      | 'hydrationSubstrate'
-      | 'bifrostSubstrate'
-      | 'uniqueSubstrate'
-      | 'paseo'
-      | 'paseoAssethub'
-    > = [
-      'polkadot',
-      'hydrationSubstrate',
-      'bifrostSubstrate',
-      'uniqueSubstrate',
-      'paseo',
-      'paseoAssethub',
-    ];
+    // const SUBSTRATE_CHAIN_KEYS: Array<
+    //   | 'polkadot'
+    //   | 'hydrationSubstrate'
+    //   | 'bifrostSubstrate'
+    //   | 'uniqueSubstrate'
+    //   | 'paseo'
+    //   | 'paseoAssethub'
+    // > = [
+    //   'polkadot',
+    //   // 'hydrationSubstrate',
+    //   // 'bifrostSubstrate',
+    //   // 'uniqueSubstrate',
+    //   'paseo',
+    //   'paseoAssethub',
+    // ];
 
     // Polkadot EVM chains
     const POLKADOT_EVM_CHAIN_KEYS: Array<
@@ -233,9 +233,9 @@ export class WalletMapper {
       NON_EVM_CHAIN_KEYS.includes(
         chain as (typeof NON_EVM_CHAIN_KEYS)[number],
       ) ||
-      SUBSTRATE_CHAIN_KEYS.includes(
-        chain as (typeof SUBSTRATE_CHAIN_KEYS)[number],
-      ) ||
+      // SUBSTRATE_CHAIN_KEYS.includes(
+      //   chain as (typeof SUBSTRATE_CHAIN_KEYS)[number],
+      // ) ||
       POLKADOT_EVM_CHAIN_KEYS.includes(
         chain as (typeof POLKADOT_EVM_CHAIN_KEYS)[number],
       ) ||

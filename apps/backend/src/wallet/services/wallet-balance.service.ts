@@ -1,9 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ZerionBalanceService } from './zerion-balance.service.js';
-import { SubstrateBalanceService } from './substrate-balance.service.js';
 import { BalanceValidationService } from './balance-validation.service.js';
 import { TokenMetadataService } from './token-metadata.service.js';
-import { SubstrateChainKey } from '../substrate/config/substrate-chain.config.js';
 
 @Injectable()
 export class WalletBalanceService {
@@ -11,7 +9,6 @@ export class WalletBalanceService {
 
   constructor(
     private readonly zerionBalanceService: ZerionBalanceService,
-    private readonly substrateBalanceService: SubstrateBalanceService,
     private readonly balanceValidationService: BalanceValidationService,
     private readonly tokenMetadataService: TokenMetadataService,
   ) {}
@@ -158,25 +155,25 @@ export class WalletBalanceService {
     );
   }
 
-  async getSubstrateBalances(
-    userId: string,
-    useTestnet: boolean = false,
-    forceRefresh: boolean = false,
-  ): Promise<
-    Record<
-      SubstrateChainKey,
-      {
-        balance: string;
-        address: string | null;
-        token: string;
-        decimals: number;
-      }
-    >
-  > {
-    return this.substrateBalanceService.getSubstrateBalances(
-      userId,
-      useTestnet,
-      forceRefresh,
-    );
-  }
+  // async getSubstrateBalances(
+  //   userId: string,
+  //   useTestnet: boolean = false,
+  //   forceRefresh: boolean = false,
+  // ): Promise<
+  //   Record<
+  //     SubstrateChainKey,
+  //     {
+  //       balance: string;
+  //       address: string | null;
+  //       token: string;
+  //       decimals: number;
+  //     }
+  //   >
+  // > {
+  //   return this.substrateBalanceService.getSubstrateBalances(
+  //     userId,
+  //     useTestnet,
+  //     forceRefresh,
+  //   );
+  // }
 }

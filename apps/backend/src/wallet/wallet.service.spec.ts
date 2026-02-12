@@ -7,9 +7,7 @@ import { WalletAccountService } from './services/wallet-account.service.js';
 import { WalletConnectService } from './services/wallet-connect.service.js';
 import { WalletTransactionService } from './services/wallet-transaction.service.js';
 import { WalletSendService } from './services/wallet-send.service.js';
-import { WalletSubstrateService } from './services/wallet-substrate.service.js';
 import { ZerionBalanceService } from './services/zerion-balance.service.js';
-import { SubstrateBalanceService } from './services/substrate-balance.service.js';
 import { BalanceValidationService } from './services/balance-validation.service.js';
 import { TokenMetadataService } from './services/token-metadata.service.js';
 import { ZerionAnyChainService } from './services/zerion-any-chain.service.js';
@@ -23,8 +21,8 @@ import { SeedManager } from './managers/seed.manager.js';
 import { AddressManager } from './managers/address.manager.js';
 import { AccountFactory } from './factories/account.factory.js';
 //import { PimlicoAccountFactory } from './factories/pimlico-account.factory.js';
-import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
-import { SubstrateManager } from './substrate/managers/substrate.manager.js';
+// import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
+// import { SubstrateManager } from './substrate/managers/substrate.manager.js';
 import { BalanceCacheRepository } from './repositories/balance-cache.repository.js';
 import { WalletAddresses } from './interfaces/wallet.interfaces.js';
 import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
@@ -54,8 +52,7 @@ describe('WalletService', () => {
   let addressManager: jest.Mocked<AddressManager>;
   let accountFactory: jest.Mocked<AccountFactory>;
   //let pimlicoAccountFactory: jest.Mocked<PimlicoAccountFactory>;
-  let polkadotEvmRpcService: jest.Mocked<PolkadotEvmRpcService>;
-  let substrateManager: jest.Mocked<SubstrateManager>;
+  // let polkadotEvmRpcService: jest.Mocked<PolkadotEvmRpcService>;
   let balanceCacheRepository: jest.Mocked<BalanceCacheRepository>;
   let eip7702DelegationRepository: jest.Mocked<Eip7702DelegationRepository>;
 
@@ -117,10 +114,10 @@ describe('WalletService', () => {
       getTransactions: jest.fn(),
     };
 
-    const mockSubstrateManager = {
-      getBalances: jest.fn(),
-      getChainConfig: jest.fn(),
-    };
+    // const mockSubstrateManager = {
+    //   getBalances: jest.fn(),
+    //   getChainConfig: jest.fn(),
+    // };
 
     const mockEip7702DelegationRepository = {
       getDelegationsForUser: jest.fn().mockResolvedValue([]),
@@ -165,14 +162,12 @@ describe('WalletService', () => {
         WalletConnectService,
         WalletTransactionService,
         WalletSendService,
-        WalletSubstrateService,
         ZerionBalanceService,
         ZerionAnyChainService,
         ZerionPortfolioService,
         ZerionStreamService,
         ZerionChainService,
         ZerionTokenLookupService,
-        SubstrateBalanceService,
         BalanceValidationService,
         TokenMetadataService,
         {
@@ -212,14 +207,14 @@ describe('WalletService', () => {
         //   provide: PimlicoAccountFactory,
         //   useValue: mockPimlicoAccountFactory,
         // },
-        {
-          provide: PolkadotEvmRpcService,
-          useValue: mockPolkadotEvmRpcService,
-        },
-        {
-          provide: SubstrateManager,
-          useValue: mockSubstrateManager,
-        },
+        // {
+        //   provide: PolkadotEvmRpcService,
+        //   useValue: mockPolkadotEvmRpcService,
+        // },
+        // {
+        //   provide: SubstrateManager,
+        //   useValue: mockSubstrateManager,
+        // },
         {
           provide: BalanceCacheRepository,
           useValue: mockBalanceCacheRepository,
@@ -256,8 +251,7 @@ describe('WalletService', () => {
     addressManager = module.get(AddressManager);
     accountFactory = module.get(AccountFactory);
     //pimlicoAccountFactory = module.get(PimlicoAccountFactory);
-    polkadotEvmRpcService = module.get(PolkadotEvmRpcService);
-    substrateManager = module.get(SubstrateManager);
+    // polkadotEvmRpcService = module.get(PolkadotEvmRpcService);
     balanceCacheRepository = module.get(BalanceCacheRepository);
     eip7702DelegationRepository = module.get(Eip7702DelegationRepository);
   });

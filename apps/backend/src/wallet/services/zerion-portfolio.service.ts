@@ -36,14 +36,14 @@ export class ZerionPortfolioService {
   ): Promise<Array<{ chain: string; balance: string }>> {
     // Substrate chains are handled separately by getSubstrateBalances()
     // Skip them here to avoid returning misleading cached values
-    const substrateChains = [
-      'polkadot',
-      'hydrationSubstrate',
-      'bifrostSubstrate',
-      'uniqueSubstrate',
-      'paseo',
-      'paseoAssethub',
-    ];
+    // const substrateChains = [
+    //   'polkadot',
+    //   'hydrationSubstrate',
+    //   'bifrostSubstrate',
+    //   'uniqueSubstrate',
+    //   'paseo',
+    //   'paseoAssethub',
+    // ];
 
     // Fast path: Check database cache first (unless force refresh)
     if (!forceRefresh) {
@@ -54,16 +54,10 @@ export class ZerionPortfolioService {
           `Returning cached balances from DB for user ${userId}`,
         );
         // Convert cached format to response format, excluding Substrate chains
-        return Object.entries(cachedBalances)
-          .filter(
-            ([chain]) =>
-              !substrateChains.includes(chain) &&
-              !chain.startsWith('substrate_'),
-          )
-          .map(([chain, data]) => ({
-            chain,
-            balance: data.balance,
-          }));
+        return Object.entries(cachedBalances).map(([chain, data]) => ({
+          chain,
+          balance: data.balance,
+        }));
       }
     }
 
@@ -85,11 +79,6 @@ export class ZerionPortfolioService {
 
     // For each chain, get balance from Zerion
     for (const [chain, address] of Object.entries(addresses)) {
-      // Skip Substrate chains - they're handled by getSubstrateBalances()
-      if (substrateChains.includes(chain)) {
-        continue;
-      }
-
       if (!address) {
         balances.push({ chain, balance: '0' });
         balancesToCache[chain] = { balance: '0', lastUpdated: Date.now() };

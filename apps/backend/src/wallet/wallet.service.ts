@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { SubstrateChainKey } from './substrate/config/substrate-chain.config.js';
+// import { SubstrateChainKey } from './substrate/config/substrate-chain.config.js';
 import { AllChainTypes } from './types/chain.types.js';
 import {
   WalletAddresses,
@@ -12,7 +12,7 @@ import { WalletAddressService } from './services/wallet-address.service.js';
 import { WalletConnectService } from './services/wallet-connect.service.js';
 import { WalletTransactionService } from './services/wallet-transaction.service.js';
 import { WalletSendService } from './services/wallet-send.service.js';
-import { WalletSubstrateService } from './services/wallet-substrate.service.js';
+// import { WalletSubstrateService } from './services/wallet-substrate.service.js';
 import { WalletIdentityService } from './services/wallet-identity.service.js';
 
 @Injectable()
@@ -23,7 +23,7 @@ export class WalletService {
     private readonly walletConnectService: WalletConnectService,
     private readonly walletTransactionService: WalletTransactionService,
     private readonly walletSendService: WalletSendService,
-    private readonly walletSubstrateService: WalletSubstrateService,
+    // private readonly walletSubstrateService: WalletSubstrateService,
     private readonly walletIdentityService: WalletIdentityService,
   ) {}
 
@@ -377,54 +377,54 @@ export class WalletService {
    * @param userId - User ID
    * @param useTestnet - Whether to use testnet
    * @returns Map of chain -> balance information
-   */
-  async getSubstrateBalances(
-    userId: string,
-    useTestnet: boolean = false,
-    forceRefresh: boolean = false,
-  ): Promise<
-    Record<
-      SubstrateChainKey,
-      {
-        balance: string;
-        address: string | null;
-        token: string;
-        decimals: number;
-      }
-    >
-  > {
-    return this.walletBalanceService.getSubstrateBalances(
-      userId,
-      useTestnet,
-      forceRefresh,
-    );
-  }
+  //  */
+  // async getSubstrateBalances(
+  //   userId: string,
+  //   useTestnet: boolean = false,
+  //   forceRefresh: boolean = false,
+  // ): Promise<
+  //   Record<
+  //     SubstrateChainKey,
+  //     {
+  //       balance: string;
+  //       address: string | null;
+  //       token: string;
+  //       decimals: number;
+  //     }
+  //   >
+  // > {
+  //   return this.walletBalanceService.getSubstrateBalances(
+  //     userId,
+  //     useTestnet,
+  //     forceRefresh,
+  //   );
+  // }
 
   /**
    * Get Substrate transaction history for a user
    *
    * @param userId - User ID
-   * @param chain - Chain key
-   * @param useTestnet - Whether to use testnet
-   * @param limit - Number of transactions to fetch
-   * @param cursor - Pagination cursor
-   * @returns Transaction history
-   */
-  async getSubstrateTransactions(
-    userId: string,
-    chain: SubstrateChainKey,
-    useTestnet: boolean = false,
-    limit: number = 10,
-    cursor?: string,
-  ) {
-    return this.walletSubstrateService.getSubstrateTransactions(
-      userId,
-      chain,
-      useTestnet,
-      limit,
-      cursor,
-    );
-  }
+  //  * @param chain - Chain key
+  //  * @param useTestnet - Whether to use testnet
+  //  * @param limit - Number of transactions to fetch
+  //  * @param cursor - Pagination cursor
+  //  * @returns Transaction history
+  //  */
+  // async getSubstrateTransactions(
+  //   userId: string,
+  //   chain: SubstrateChainKey,
+  //   useTestnet: boolean = false,
+  //   limit: number = 10,
+  //   cursor?: string,
+  // ) {
+  //   return this.walletSubstrateService.getSubstrateTransactions(
+  //     userId,
+  //     chain,
+  //     useTestnet,
+  //     limit,
+  //     cursor,
+  //   );
+  // }
 
   /**
    * Get Substrate addresses for a user
@@ -433,12 +433,12 @@ export class WalletService {
    * @param useTestnet - Whether to use testnet
    * @returns Substrate addresses
    */
-  async getSubstrateAddresses(userId: string, useTestnet: boolean = false) {
-    return this.walletSubstrateService.getSubstrateAddresses(
-      userId,
-      useTestnet,
-    );
-  }
+  // async getSubstrateAddresses(userId: string, useTestnet: boolean = false) {
+  //   return this.walletSubstrateService.getSubstrateAddresses(
+  //     userId,
+  //     useTestnet,
+  //   );
+  // }
 
   /**
    * Send Substrate transfer
@@ -452,23 +452,23 @@ export class WalletService {
    * @param accountIndex - Account index (default: 0)
    * @returns Transaction result
    */
-  async sendSubstrateTransfer(
-    userId: string,
-    chain: SubstrateChainKey,
-    to: string,
-    amount: string,
-    useTestnet: boolean = false,
-    transferMethod?: 'transferAllowDeath' | 'transferKeepAlive',
-    accountIndex: number = 0,
-  ) {
-    return this.walletSubstrateService.sendSubstrateTransfer(
-      userId,
-      chain,
-      to,
-      amount,
-      useTestnet,
-      transferMethod,
-      accountIndex,
-    );
-  }
+  // async sendSubstrateTransfer(
+  //   userId: string,
+  //   chain: SubstrateChainKey,
+  //   to: string,
+  //   amount: string,
+  //   useTestnet: boolean = false,
+  //   transferMethod?: 'transferAllowDeath' | 'transferKeepAlive',
+  //   accountIndex: number = 0,
+  // ) {
+  //   return this.walletSubstrateService.sendSubstrateTransfer(
+  //     userId,
+  //     chain,
+  //     to,
+  //     amount,
+  //     useTestnet,
+  //     transferMethod,
+  //     accountIndex,
+  //   );
+  // }
 }

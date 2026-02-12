@@ -1,7 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { SeedRepository } from '../seed.repository.js';
 import { ZerionService } from '../zerion.service.js';
-import { PolkadotEvmRpcService } from './polkadot-evm-rpc.service.js';
+// import { PolkadotEvmRpcService } from './polkadot-evm-rpc.service.js';
 import { AddressManager } from '../managers/address.manager.js';
 import { WalletIdentityService } from './wallet-identity.service.js';
 import { WalletAddresses } from '../interfaces/wallet.interfaces.js';
@@ -13,7 +13,7 @@ export class WalletTransactionService {
   constructor(
     private readonly seedRepository: SeedRepository,
     private readonly zerionService: ZerionService,
-    private readonly polkadotEvmRpcService: PolkadotEvmRpcService,
+    // private readonly polkadotEvmRpcService: PolkadotEvmRpcService,
     private readonly addressManager: AddressManager,
     private readonly walletIdentityService: WalletIdentityService,
   ) {}
@@ -54,7 +54,7 @@ export class WalletTransactionService {
     );
 
     // Polkadot EVM chains use the same EOA address as ethereum
-    const polkadotEvmAddress = addresses.ethereum;
+    // const polkadotEvmAddress = addresses.ethereum;
 
     // Fetch transactions from Zerion with timeout protection
     const zerionPerAddr =
@@ -89,68 +89,68 @@ export class WalletTransactionService {
         : [];
 
     // Fetch Polkadot EVM chain transactions using RPC
-    const polkadotEvmChains = [
-      'moonbeamTestnet',
-      'astarShibuya',
-      'paseoPassetHub',
-    ];
-    const polkadotTransactions: Array<{
-      txHash: string;
-      from: string;
-      to: string | null;
-      value: string;
-      timestamp: number | null;
-      blockNumber: number | null;
-      status: 'success' | 'failed' | 'pending';
-      chain: string;
-      tokenSymbol?: string;
-      tokenAddress?: string;
-    }> = [];
+    // const polkadotEvmChains = [
+    //   'moonbeamTestnet',
+    //   'astarShibuya',
+    //   'paseoPassetHub',
+    // ];
+    // const polkadotTransactions: Array<{
+    //   txHash: string;
+    //   from: string;
+    //   to: string | null;
+    //   value: string;
+    //   timestamp: number | null;
+    //   blockNumber: number | null;
+    //   status: 'success' | 'failed' | 'pending';
+    //   chain: string;
+    //   tokenSymbol?: string;
+    //   tokenAddress?: string;
+    // }> = [];
 
-    if (polkadotEvmAddress) {
-      // Use Promise.allSettled with timeout to ensure RPC errors don't block Zerion results
-      const polkadotResults = await Promise.allSettled(
-        polkadotEvmChains.map(async (chain) => {
-          try {
-            const txs = await Promise.race([
-              this.polkadotEvmRpcService.getTransactions(
-                polkadotEvmAddress,
-                chain,
-                limit,
-              ),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () => reject(new Error(`RPC timeout for ${chain} after 20s`)),
-                  20000,
-                ),
-              ),
-            ]);
-            return txs.map((tx) => ({
-              txHash: tx.txHash,
-              from: tx.from,
-              to: tx.to,
-              value: tx.value,
-              timestamp: tx.timestamp,
-              blockNumber: tx.blockNumber,
-              status: tx.status,
-              chain: tx.chain,
-            }));
-          } catch (error) {
-            this.logger.warn(
-              `Error fetching transactions for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            );
-            return []; // Return empty array on error
-          }
-        }),
-      );
+    // if (polkadotEvmAddress) {
+    //   // Use Promise.allSettled with timeout to ensure RPC errors don't block Zerion results
+    //   const polkadotResults = await Promise.allSettled(
+    //     polkadotEvmChains.map(async (chain) => {
+    //       try {
+    //         const txs = await Promise.race([
+    //           this.polkadotEvmRpcService.getTransactions(
+    //             polkadotEvmAddress,
+    //             chain,
+    //             limit,
+    //           ),
+    //           new Promise<never>((_, reject) =>
+    //             setTimeout(
+    //               () => reject(new Error(`RPC timeout for ${chain} after 20s`)),
+    //               20000,
+    //             ),
+    //           ),
+    //         ]);
+    //         return txs.map((tx) => ({
+    //           txHash: tx.txHash,
+    //           from: tx.from,
+    //           to: tx.to,
+    //           value: tx.value,
+    //           timestamp: tx.timestamp,
+    //           blockNumber: tx.blockNumber,
+    //           status: tx.status,
+    //           chain: tx.chain,
+    //         }));
+    //       } catch (error) {
+    //         this.logger.warn(
+    //           `Error fetching transactions for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    //         );
+    //         return []; // Return empty array on error
+    //       }
+    //     }),
+    //   );
 
-      // Flatten the results
-      for (const result of polkadotResults) {
-        if (result.status === 'fulfilled') {
-          polkadotTransactions.push(...result.value);
-        }
-      }
-    }
+    //   // Flatten the results
+    //   for (const result of polkadotResults) {
+    //     if (result.status === 'fulfilled') {
+    //       polkadotTransactions.push(...result.value);
+    //     }
+    //   }
+    // }
 
     const perAddr = [...zerionPerAddr];
 
@@ -236,27 +236,27 @@ export class WalletTransactionService {
     }
 
     // Process Polkadot EVM RPC transactions
-    for (const tx of polkadotTransactions) {
-      try {
-        const key = `${tx.chain}:${tx.txHash.toLowerCase()}`;
-        if (!byKey.has(key)) {
-          byKey.set(key, {
-            txHash: tx.txHash,
-            from: tx.from,
-            to: tx.to,
-            value: tx.value,
-            timestamp: tx.timestamp,
-            blockNumber: tx.blockNumber,
-            status: tx.status,
-            chain: tx.chain,
-          });
-        }
-      } catch (e) {
-        this.logger.debug(
-          `Error processing Polkadot EVM transaction: ${e instanceof Error ? e.message : 'Unknown error'}`,
-        );
-      }
-    }
+    // for (const tx of polkadotTransactions) {
+    //   try {
+    //     const key = `${tx.chain}:${tx.txHash.toLowerCase()}`;
+    //     if (!byKey.has(key)) {
+    //       byKey.set(key, {
+    //         txHash: tx.txHash,
+    //         from: tx.from,
+    //         to: tx.to,
+    //         value: tx.value,
+    //         timestamp: tx.timestamp,
+    //         blockNumber: tx.blockNumber,
+    //         status: tx.status,
+    //         chain: tx.chain,
+    //       });
+    //     }
+    //   } catch (e) {
+    //     this.logger.debug(
+    //       `Error processing Polkadot EVM transaction: ${e instanceof Error ? e.message : 'Unknown error'}`,
+    //     );
+    //   }
+    // }
 
     const sorted = Array.from(byKey.values()).sort((a, b) => {
       const timeA = a.timestamp || 0;

@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { AddressManager } from '../managers/address.manager.js';
-import { SubstrateManager } from '../substrate/managers/substrate.manager.js';
+// import { SubstrateManager } from '../substrate/managers/substrate.manager.js';
 import { WALLETCONNECT_CHAIN_CONFIG } from '../constants/wallet.constants.js';
 import { WalletConnectNamespacePayload } from '../interfaces/wallet.interfaces.js';
 import { SeedRepository } from '../seed.repository.js';
@@ -14,7 +14,7 @@ export class WalletConnectService {
 
   constructor(
     private readonly addressManager: AddressManager,
-    private readonly substrateManager: SubstrateManager,
+    // private readonly substrateManager: SubstrateManager,
     private readonly seedRepository: SeedRepository,
     private readonly walletIdentityService: WalletIdentityService,
     private readonly walletAccountService: WalletAccountService,
@@ -52,45 +52,45 @@ export class WalletConnectService {
     }
 
     // Polkadot namespace (Substrate chains) - with error isolation
-    try {
-      const substrateAddresses = await this.substrateManager.getAddresses(
-        userId,
-        false,
-      );
-      const enabledChains = this.substrateManager.getEnabledChains();
+    // try {
+    //   const substrateAddresses = await this.substrateManager.getAddresses(
+    //     userId,
+    //     false,
+    //   );
+    //   const enabledChains = this.substrateManager.getEnabledChains();
 
-      const polkadotNamespace: WalletConnectNamespacePayload = {
-        namespace: 'polkadot',
-        chains: [],
-        accounts: [],
-        addressesByChain: {},
-      };
+    //   const polkadotNamespace: WalletConnectNamespacePayload = {
+    //     namespace: 'polkadot',
+    //     chains: [],
+    //     accounts: [],
+    //     addressesByChain: {},
+    //   };
 
-      for (const chain of enabledChains) {
-        const address = substrateAddresses[chain];
-        if (!address) {
-          continue;
-        }
+    //   for (const chain of enabledChains) {
+    //     const address = substrateAddresses[chain];
+    //     if (!address) {
+    //       continue;
+    //     }
 
-        const chainConfig = this.substrateManager.getChainConfig(chain, false);
-        const genesisHash = chainConfig.genesisHash;
-        const chainTag = `polkadot:${genesisHash}`;
-        const accountId = `polkadot:${genesisHash}:${address}`;
+    //     const chainConfig = this.substrateManager.getChainConfig(chain, false);
+    //     const genesisHash = chainConfig.genesisHash;
+    //     const chainTag = `polkadot:${genesisHash}`;
+    //     const accountId = `polkadot:${genesisHash}:${address}`;
 
-        polkadotNamespace.chains.push(chainTag);
-        polkadotNamespace.accounts.push(accountId);
-        polkadotNamespace.addressesByChain[chainTag] = address;
-      }
+    //     polkadotNamespace.chains.push(chainTag);
+    //     polkadotNamespace.accounts.push(accountId);
+    //     polkadotNamespace.addressesByChain[chainTag] = address;
+    //   }
 
-      if (polkadotNamespace.accounts.length > 0) {
-        namespaces.push(polkadotNamespace);
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to register Polkadot namespace for WalletConnect: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      // Continue with other namespaces - error isolation (Issue #6)
-    }
+    //   if (polkadotNamespace.accounts.length > 0) {
+    //     namespaces.push(polkadotNamespace);
+    //   }
+    // } catch (error) {
+    //   this.logger.error(
+    //     `Failed to register Polkadot namespace for WalletConnect: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    //   );
+    //   // Continue with other namespaces - error isolation (Issue #6)
+    // }
 
     if (namespaces.length === 0) {
       throw new BadRequestException(

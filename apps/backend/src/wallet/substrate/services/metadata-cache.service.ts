@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SubstrateChainKey } from '../config/substrate-chain.config.js';
+// import { SubstrateChainKey } from '../config/substrate-chain.config.js';
 
 /**
  * Metadata Cache Service
@@ -29,7 +29,7 @@ export class MetadataCacheService {
    * @returns Cached or freshly fetched data
    */
   async get<T>(
-    chain: SubstrateChainKey,
+    chain: string,
     key: string,
     fetcher: () => Promise<T>,
   ): Promise<T> {
@@ -70,7 +70,7 @@ export class MetadataCacheService {
    * @param chain - Chain key
    * @param key - Cache key
    */
-  invalidate(chain: SubstrateChainKey, key: string): void {
+  invalidate(chain: string, key: string): void {
     const cacheKey = `${chain}:${key}`;
     this.cache.delete(cacheKey);
     this.logger.debug(`Invalidated cache for ${cacheKey}`);
@@ -81,7 +81,7 @@ export class MetadataCacheService {
    *
    * @param chain - Chain key
    */
-  invalidateChain(chain: SubstrateChainKey): void {
+  invalidateChain(chain: string): void {
     const keysToDelete: string[] = [];
     for (const key of this.cache.keys()) {
       if (key.startsWith(`${chain}:`)) {

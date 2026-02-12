@@ -156,9 +156,9 @@ export class ZerionService {
     avalancheErc4337: 'avalanche',
     // Note: Zerion may not support all chains (tron, bitcoin, solana)
     // We'll handle gracefully
-    tron: 'tron',
-    bitcoin: 'btc',
-    solana: 'sol',
+    // tron: 'tron',
+    // bitcoin: 'btc',
+    // solana: 'sol',
   };
 
   // Zerion only supports EVM chains and Solana
