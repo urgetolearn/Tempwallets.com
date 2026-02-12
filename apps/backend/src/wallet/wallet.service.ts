@@ -735,7 +735,7 @@ export class WalletService {
     // Collect successful results and log failures
     const zerionResults: TokenBalance[][] = [];
     const failedAddresses: string[] = [];
-    
+
     for (let i = 0; i < zerionSettledResults.length; i++) {
       const result = zerionSettledResults[i];
       if (result.status === 'fulfilled') {
