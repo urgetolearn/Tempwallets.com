@@ -136,7 +136,7 @@ export function TransferFundsModal({
         fromAddress: currentParticipant.address,
         toAddress: selectedRecipient,
         amount: amountInSmallestUnits,
-        asset: lightningNode.token,
+        asset: lightningNode.token.toLowerCase(), // ✅ FIX: Normalize asset to lowercase for API consistency
       });
 
       if (response.ok) {

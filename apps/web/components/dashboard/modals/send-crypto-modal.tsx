@@ -366,6 +366,7 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess, 
             symbol: chainBalance.token,
             balance: chainBalance.balance,
             decimals: chainBalance.decimals,
+            chain: chainIdToLoad, // ✅ FIX: Add chain property for Substrate tokens
           }];
           setTokens(tokenList);
           setSelectedToken(tokenList[0] ?? null);
@@ -379,19 +380,19 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess, 
         const balanceData = await walletApi.getAptosBalance(userId, network);
 
         // Create a single token entry for native APT token
+        // ✅ FIX: Backend returns balance in human-readable APT, convert to octas (smallest units)
         const tokenList: TokenBalance[] = [{
           address: null, // Native token
           symbol: "APT",
-          balance: (parseFloat(balanceData.balance) * Math.pow(10, 8)).toString(), // Convert to octas (8 decimals)
+          balance: (parseFloat(balanceData.balance) * Math.pow(10, 8)).toString(), // Convert APT to octas (8 decimals)
           decimals: 8,
+          chain: chainIdToLoad, // ✅ FIX: Add chain property for Aptos tokens
         }];
         setTokens(tokenList);
         setSelectedToken(tokenList[0] ?? null);
       } else {
-        // Load tokens for specific chain using lighter endpoint
-        // Strip 'Gasless' suffix if present for backend compatibility if needed, 
-        // though strictly we should pass the ID. The backend typically handles standard chain IDs.
-        // For 'ethereumGasless', the tokens are on 'ethereum'.
+        // ✅ FIX: Use getAssetsAny to get all chain assets from Zerion (primary balance source)
+        // Strip 'Gasless' suffix if present for backend compatibility
         let targetChain = chainIdToLoad;
         if (chainIdToLoad.endsWith('Gasless')) {
           // Map gasless IDs to underlying chain IDs for token fetching
@@ -402,7 +403,19 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess, 
           else if (chainIdToLoad === 'polygonGasless') targetChain = 'polygon';
         }
 
-        const tokenList = await walletApi.getTokenBalances(userId, targetChain);
+        // ✅ FIX: Use getAssetsAny instead of getTokenBalances to match balance-view data source
+        const allAssets = await walletApi.getAssetsAny(userId, true);
+        
+        // ✅ FIX: Filter assets for the target chain and map to TokenBalance format
+        const tokenList: TokenBalance[] = allAssets
+          .filter(asset => asset.chain === targetChain)
+          .map(asset => ({
+            address: asset.address ?? null,
+            symbol: asset.symbol || 'UNKNOWN',
+            balance: asset.balance || '0',
+            decimals: asset.decimals ?? 18, // Default to 18 for EVM tokens
+            chain: asset.chain, // ✅ FIX: Preserve chain property from asset
+          }));
 
         // Sort: Native first, then alphabetical
         tokenList.sort((a, b) => {
@@ -430,12 +443,23 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess, 
       console.warn("Failed to load tokens, falling back to native token", err);
       // Fallback: If API fails (e.g. timeout), show at least the native token for the chain
       // so the UI is usable.
+      
+      // ✅ FIX: Determine the correct chain name for fallback
+      let fallbackChain = chainIdToLoad;
+      if (chainIdToLoad.endsWith('Gasless')) {
+        if (chainIdToLoad === 'ethereumGasless') fallbackChain = 'ethereum';
+        else if (chainIdToLoad === 'baseGasless') fallbackChain = 'base';
+        else if (chainIdToLoad === 'arbitrumGasless') fallbackChain = 'arbitrum';
+        else if (chainIdToLoad === 'optimismGasless') fallbackChain = 'optimism';
+        else if (chainIdToLoad === 'polygonGasless') fallbackChain = 'polygon';
+      }
+      
       const fallbackToken: TokenBalance = {
         address: null,
         symbol: chainData?.symbol || 'ETH',
         balance: '0',
         decimals: 18,
-        chain: chainIdToLoad
+        chain: fallbackChain // ✅ FIX: Use mapped chain name, not gasless variant
       };
       setTokens([fallbackToken]);
       setSelectedToken(fallbackToken);
