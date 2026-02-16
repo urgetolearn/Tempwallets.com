@@ -378,6 +378,7 @@ const RecentTransactions = ({ showAll = false, transactions: propTransactions, h
                 alt="Empty mailbox illustration"
                 width={320}
                 height={320}
+                priority
                 className="object-contain mix-blend-multiply"
               />
             </div>
@@ -516,6 +517,7 @@ const RecentTransactions = ({ showAll = false, transactions: propTransactions, h
                 alt="Empty mailbox illustration"
                 width={320}
                 height={320}
+                priority
                 className="object-contain mix-blend-multiply"
               />
             </div>

@@ -2,7 +2,7 @@
 
 import { ReactNode } from 'react';
 import { WalletDataProvider } from '@/contexts/wallet-data-context';
-import { useBrowserFingerprint } from '@/hooks/useBrowserFingerprint';
+import { useAuth } from '@/hooks/useAuth';
 import { MixpanelProvider } from '@/components/analytics/mixpanel-provider';
 
 interface ProvidersProps {
@@ -14,14 +14,13 @@ interface ProvidersProps {
  * Ensures providers are mounted only once for the entire application
  */
 export function Providers({ children }: ProvidersProps) {
-  const { fingerprint } = useBrowserFingerprint();
+  const { userId } = useAuth();
 
   return (
     <MixpanelProvider>
-      <WalletDataProvider fingerprint={fingerprint}>
+      <WalletDataProvider userId={userId}>
         {children}
       </WalletDataProvider>
     </MixpanelProvider>
   );
 }
-

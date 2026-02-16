@@ -9,7 +9,7 @@ import {
   useCallback,
   ReactNode,
 } from 'react';
-import { walletApi, AnyChainAsset, Transaction } from '@/lib/api';
+import { walletApi, Transaction } from '@/lib/api';
 import {
   getCache,
   setCache,
@@ -46,7 +46,7 @@ const WalletDataContext = createContext<WalletDataContextValue | null>(null);
 
 interface WalletDataProviderProps {
   children: ReactNode;
-  fingerprint: string | null;
+  userId: string | null;
 }
 
 // TTL constants
@@ -55,7 +55,7 @@ const TRANSACTION_TTL = 30 * 1000; // 30 seconds for transactions
 
 export function WalletDataProvider({
   children,
-  fingerprint,
+  userId,
 }: WalletDataProviderProps) {
   const [balances, setBalances] = useState<NormalizedBalance[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -81,14 +81,14 @@ export function WalletDataProvider({
     showLoading: boolean = false,
     forceRefresh: boolean = false,
   ): Promise<void> => {
-    if (!fingerprint) {
+    if (!userId) {
       setBalances([]);
       setLoading((prev) => ({ ...prev, balances: false }));
       return;
     }
 
     // Check cache first
-    const cacheKey = getCacheKey(fingerprint, 'balances');
+    const cacheKey = getCacheKey(userId, 'balances');
     const cached = getCache<NormalizedBalance[]>(cacheKey);
     
     if (cached && isCacheFresh(cacheKey, BALANCE_TTL)) {
@@ -145,75 +145,17 @@ export function WalletDataProvider({
     const fetchPromise = (async () => {
       try {
         // Fetch EVM and other chain assets
-  const assets = await walletApi.getAssetsAny(fingerprint, forceRefresh);
+  const assets = await walletApi.getAssetsAny(userId, forceRefresh);
 
-        // Fetch Substrate balances
-        let substrateBalances: Record<string, {
+        // Backend currently exposes any-chain balances through /wallet/assets-any.
+        // Substrate/Aptos balance endpoints are not available in this environment.
+        const substrateBalances: Record<string, {
           balance: string;
           address: string | null;
           token: string;
           decimals: number;
         }> = {};
-        
-        try {
-          substrateBalances = await walletApi.getSubstrateBalances(fingerprint, false);
-        } catch (substrateErr) {
-          console.warn('Failed to load Substrate balances:', substrateErr);
-          // Don't fail the whole fetch if Substrate fails
-        }
-
-        // Fetch Aptos balances (testnet and mainnet)
-        const aptosBalances: AnyChainAsset[] = [];
-        try {
-          // Fetch testnet balance
-          try {
-            const testnetBalance = await walletApi.getAptosBalance(fingerprint, 'testnet');
-            // Convert APT to octas (8 decimals) for smallest units
-            const balanceInOctas = (parseFloat(testnetBalance.balance) * Math.pow(10, 8)).toString();
-            aptosBalances.push({
-              chain: 'aptosTestnet',
-              address: null,
-              symbol: 'APT',
-              balance: balanceInOctas,
-              decimals: 8,
-              balanceHuman: testnetBalance.balance,
-            });
-          } catch (testnetErr) {
-            // Silently fail - Aptos testnet is optional
-            if (process.env.NODE_ENV === 'development') {
-              console.debug('Aptos testnet balance unavailable');
-            }
-          }
-
-          // Fetch mainnet balance
-          try {
-            const mainnetBalance = await walletApi.getAptosBalance(fingerprint, 'mainnet');
-            // Convert APT to octas (8 decimals) for smallest units
-            const balanceInOctas = (parseFloat(mainnetBalance.balance) * Math.pow(10, 8)).toString();
-            aptosBalances.push({
-              chain: 'aptos',
-              address: null,
-              symbol: 'APT',
-              balance: balanceInOctas,
-              decimals: 8,
-              balanceHuman: mainnetBalance.balance,
-            });
-          } catch (mainnetErr) {
-            // Silently fail - Aptos mainnet is optional
-            if (process.env.NODE_ENV === 'development') {
-              console.debug('Aptos mainnet balance unavailable');
-            }
-          }
-        } catch (aptosErr) {
-          // Don't fail the whole fetch if Aptos fails
-          // Only log in development
-          if (process.env.NODE_ENV === 'development') {
-            console.debug('Aptos balances unavailable');
-          }
-        }
-
-        // Combine all assets including Aptos
-        const allAssets = [...assets, ...aptosBalances];
+        const allAssets = assets;
 
         // Merge and normalize all balances
         const normalized = mergeAndNormalizeBalances(allAssets, substrateBalances);
@@ -237,18 +179,18 @@ export function WalletDataProvider({
 
     balancesRequestRef.current = fetchPromise;
     return fetchPromise;
-  }, [fingerprint]);
+  }, [userId]);
 
   // Fetch transactions
   const fetchTransactions = useCallback(async (showLoading: boolean = false): Promise<void> => {
-    if (!fingerprint) {
+    if (!userId) {
       setTransactions([]);
       setLoading((prev) => ({ ...prev, transactions: false }));
       return;
     }
 
     // Check cache first
-    const cacheKey = getCacheKey(fingerprint, 'transactions');
+    const cacheKey = getCacheKey(userId, 'transactions');
     const cached = getCache<Transaction[]>(cacheKey);
     
     if (cached && isCacheFresh(cacheKey, TRANSACTION_TTL)) {
@@ -305,69 +247,9 @@ export function WalletDataProvider({
     const fetchPromise = (async () => {
       try {
         // Fetch aggregated any-chain transactions
-        const allTransactions = await walletApi.getTransactionsAny(fingerprint, 100);
+        const allTransactions = await walletApi.getTransactionsAny(userId, 100);
 
-        // Load Substrate transactions for all Substrate chains
-        const SUBSTRATE_CHAINS = [
-          'polkadot',
-          'hydrationSubstrate',
-          'bifrostSubstrate',
-          'uniqueSubstrate',
-          'paseo',
-          'paseoAssethub',
-        ];
-        const substrateTransactions: Transaction[] = [];
-
-        // Fetch Substrate transactions in parallel
-        const substratePromises = SUBSTRATE_CHAINS.map(async (chain) => {
-          try {
-            const history = await walletApi.getSubstrateTransactions(
-              fingerprint,
-              chain,
-              false,
-              10
-            );
-            // Transform Substrate transactions to Transaction format
-            return history.transactions.map(
-              (tx) =>
-                ({
-                  txHash: tx.txHash,
-                  from: tx.from,
-                  to: tx.to || null,
-                  value: tx.amount || '0',
-                  timestamp: tx.timestamp
-                    ? Math.floor(tx.timestamp / 1000)
-                    : null, // Convert ms to seconds if needed
-                  blockNumber: tx.blockNumber || null,
-                  status:
-                    tx.status === 'finalized' || tx.status === 'inBlock'
-                      ? 'success'
-                      : tx.status === 'failed' || tx.status === 'error'
-                      ? 'failed'
-                      : 'pending',
-                  chain: chain,
-                  tokenSymbol: undefined,
-                } as Transaction)
-            );
-          } catch (chainErr) {
-            console.warn(`Failed to load transactions for ${chain}:`, chainErr);
-            return [];
-          }
-        });
-
-        try {
-          const substrateResults = await Promise.allSettled(substratePromises);
-          substrateResults.forEach((result) => {
-            if (result.status === 'fulfilled' && result.value) {
-              substrateTransactions.push(...result.value);
-            }
-          });
-        } catch (substrateErr) {
-          console.warn('Failed to load Substrate transactions:', substrateErr);
-        }
-
-        // Combine EVM and Substrate transactions
-        const combinedTransactions = [...allTransactions, ...substrateTransactions];
+        const combinedTransactions = allTransactions;
 
         // Filter out transactions with invalid/missing data
         const validTransactions = combinedTransactions.filter(
@@ -403,44 +285,44 @@ export function WalletDataProvider({
 
     transactionsRequestRef.current = fetchPromise;
     return fetchPromise;
-  }, [fingerprint]);
+  }, [userId]);
 
   // Refresh function that respects TTL
   const refresh = useCallback(async (): Promise<void> => {
-    if (!fingerprint) return;
+    if (!userId) return;
 
     // Clear cache to force refresh
-    clearAllCache(fingerprint);
+    clearAllCache(userId);
 
     // Fetch both in parallel with loading indicators (manual refresh)
     await Promise.all([fetchBalances(true, true), fetchTransactions(true)]);
-  }, [fingerprint, fetchBalances, fetchTransactions]);
+  }, [userId, fetchBalances, fetchTransactions]);
 
   // Refresh balances only
   const refreshBalances = useCallback(async (): Promise<void> => {
-    if (!fingerprint) return;
+    if (!userId) return;
 
     // Clear balance cache to force refresh
-    const balanceCacheKey = getCacheKey(fingerprint, 'balances');
+    const balanceCacheKey = getCacheKey(userId, 'balances');
     localStorage.removeItem(balanceCacheKey);
     localStorage.removeItem(`${balanceCacheKey}_timestamp`);
 
     // Fetch balances with loading indicator (manual refresh)
     await fetchBalances(true, true);
-  }, [fingerprint, fetchBalances]);
+  }, [userId, fetchBalances]);
 
   // Refresh transactions only
   const refreshTransactions = useCallback(async (): Promise<void> => {
-    if (!fingerprint) return;
+    if (!userId) return;
 
     // Clear transaction cache to force refresh
-    const transactionCacheKey = getCacheKey(fingerprint, 'transactions');
+    const transactionCacheKey = getCacheKey(userId, 'transactions');
     localStorage.removeItem(transactionCacheKey);
     localStorage.removeItem(`${transactionCacheKey}_timestamp`);
 
     // Fetch transactions with loading indicator (manual refresh)
     await fetchTransactions(true);
-  }, [fingerprint, fetchTransactions]);
+  }, [userId, fetchTransactions]);
 
   // Helper to get cache timestamp
   const getCacheTimestamp = useCallback((cacheKey: string): number | null => {
@@ -456,9 +338,9 @@ export function WalletDataProvider({
     return null;
   }, []);
 
-  // Initial fetch and fingerprint change handling
+  // Initial fetch and userId change handling
   useEffect(() => {
-    if (!fingerprint) {
+    if (!userId) {
       setBalances([]);
       setTransactions([]);
       setLoading({ balances: false, transactions: false });
@@ -468,8 +350,8 @@ export function WalletDataProvider({
     }
 
     // Check cache synchronously BEFORE setting loading state
-    const balanceCacheKey = getCacheKey(fingerprint, 'balances');
-    const transactionCacheKey = getCacheKey(fingerprint, 'transactions');
+    const balanceCacheKey = getCacheKey(userId, 'balances');
+    const transactionCacheKey = getCacheKey(userId, 'transactions');
     
     const cachedBalances = getCache<NormalizedBalance[]>(balanceCacheKey);
     const cachedTransactions = getCache<Transaction[]>(transactionCacheKey);
@@ -516,7 +398,7 @@ export function WalletDataProvider({
     // fetchBalances and fetchTransactions will handle setting loading state appropriately
     fetchBalances();
     fetchTransactions();
-  }, [fingerprint, fetchBalances, fetchTransactions, getCacheTimestamp]);
+  }, [userId, fetchBalances, fetchTransactions, getCacheTimestamp]);
 
   const value: WalletDataContextValue = {
     balances,
@@ -545,4 +427,3 @@ export function useWalletDataContext(): WalletDataContextValue {
   }
   return context;
 }
-

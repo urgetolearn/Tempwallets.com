@@ -187,7 +187,7 @@ export class WalletMapper {
     ];
     polkadotEvmChains.forEach((chain) => assign(chain, 'eoa', true));
     SMART_ACCOUNT_CHAIN_KEYS.forEach((chain) => assign(chain, 'eoa', true));
-    NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
+    //NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
 
     // Substrate chains (visible)
     // const substrateChains: WalletAddressKey[] = [
@@ -252,9 +252,9 @@ export class WalletMapper {
       arbitrum: 'Arbitrum',
       polygon: 'Polygon',
       avalanche: 'Avalanche',
-      tron: 'Tron',
-      bitcoin: 'Bitcoin',
-      solana: 'Solana',
+      // tron: 'Tron',
+      // bitcoin: 'Bitcoin',
+      // solana: 'Solana',
       moonbeamTestnet: 'Moonbeam Testnet',
       astarShibuya: 'Astar Shibuya',
       paseoPassetHub: 'Paseo PassetHub',

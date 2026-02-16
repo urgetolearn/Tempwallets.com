@@ -14,9 +14,9 @@ export interface WalletAddresses {
   arbitrum: string;
   polygon: string;
   avalanche: string;
-  tron: string;
-  bitcoin: string;
-  solana: string;
+  // tron: string;
+  // bitcoin: string;
+  // solana: string;
   moonbeamTestnet: string;
   astarShibuya: string;
   paseoPassetHub: string;

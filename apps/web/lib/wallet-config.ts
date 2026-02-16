@@ -259,7 +259,7 @@ const RAW_WALLET_CONFIGS: WalletConfig[] = [
       send: true,
       receive: true,
       copy: true,
-      balanceFetch: true,
+      balanceFetch: false,
       transactionHistory: true,
       nativeToken: true,
       tokenTransfers: true,
@@ -355,7 +355,7 @@ const RAW_WALLET_CONFIGS: WalletConfig[] = [
       send: true,
       receive: true,
       copy: true,
-      balanceFetch: true,
+      balanceFetch: false,
       transactionHistory: false, // TODO: Add transaction history support
       nativeToken: true,
       tokenTransfers: false, // TODO: Add token transfer support
@@ -387,7 +387,7 @@ const RAW_WALLET_CONFIGS: WalletConfig[] = [
       send: true,
       receive: true,
       copy: true,
-      balanceFetch: true,
+      balanceFetch: false,
       transactionHistory: false,
       nativeToken: true,
       tokenTransfers: false,

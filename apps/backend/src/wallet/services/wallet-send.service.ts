@@ -252,11 +252,11 @@ export class WalletSendService {
           } else {
             // Both Zerion AND on-chain say insufficient
             const errorMessage =
-              balanceValidation.error ||
               `Insufficient balance confirmed by both Zerion and on-chain. ` +
-                `Zerion: ${balanceValidation.zerionBalance} smallest units, ` +
-                `On-chain: ${onChainValidation.balance} smallest units, ` +
-                `Requested: ${amountSmallest.toString()} smallest units`;
+              `Zerion: ${balanceValidation.zerionBalance} smallest units` +
+              `${balanceValidation.error ? ` (${balanceValidation.error})` : ''}, ` +
+              `On-chain: ${onChainValidation.balance} smallest units, ` +
+              `Requested: ${amountSmallest.toString()} smallest units`;
 
             this.logger.error(
               `Insufficient balance: ${errorMessage}, token=${tokenAddress || 'native'}, ` +

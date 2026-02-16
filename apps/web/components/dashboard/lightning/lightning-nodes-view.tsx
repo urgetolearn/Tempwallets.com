@@ -429,6 +429,7 @@ export function LightningNodesView() {
               alt="No Lightning Nodes"
               width={320}
               height={320}
+              priority
               className="object-contain mix-blend-multiply"
             />
           </div>

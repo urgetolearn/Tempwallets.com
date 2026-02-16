@@ -49,7 +49,7 @@ export class WalletTransactionService {
     }
 
     const addresses = await this.getAddresses(userId);
-    const targetAddresses = [addresses.ethereum, addresses.solana].filter(
+    const targetAddresses = [addresses.ethereum].filter(
       Boolean,
     );
 

@@ -71,7 +71,7 @@ export class ZerionAnyChainService {
     addTarget(addresses.avalanche);
 
     // Solana address (Zerion supports Solana)
-    addTarget(addresses.solana);
+    //addTarget(addresses.solana);
 
     // Include any recorded EIP-7702 delegated accounts (EOA keeps same address)
     try {
