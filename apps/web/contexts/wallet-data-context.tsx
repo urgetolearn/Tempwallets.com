@@ -96,37 +96,43 @@ export function WalletDataProvider({
       setLoading((prev) => ({ ...prev, balances: false }));
       setErrors((prev) => ({ ...prev, balances: null }));
       
-      // Try to get timestamp from cache entry
-      try {
-        const cacheEntry = localStorage.getItem(cacheKey);
-        if (cacheEntry) {
-          const parsed = JSON.parse(cacheEntry);
-          if (parsed.timestamp) {
-            setLastFetched((prev) => ({ ...prev, balances: parsed.timestamp }));
-          }
-        }
-      } catch {
-        // Ignore cache read errors
-      }
-      
-      // Still refresh in background if cache is getting stale
-      const cacheAge = Date.now() - (getCache(cacheKey) ? 
-        (() => {
-          try {
-            const entry = localStorage.getItem(cacheKey);
-            if (entry) {
-              const parsed = JSON.parse(entry);
-              return parsed.timestamp || 0;
+      if (cached && isCacheFresh(cacheKey, BALANCE_TTL)) {
+        setBalances(cached);
+        setLoading((prev) => ({ ...prev, balances: false }));
+        setErrors((prev) => ({ ...prev, balances: null }));
+        
+        // Try to get timestamp from cache entry
+        try {
+          const cacheEntry = localStorage.getItem(cacheKey);
+          if (cacheEntry) {
+            const parsed = JSON.parse(cacheEntry);
+            if (parsed.timestamp) {
+              setLastFetched((prev) => ({ ...prev, balances: parsed.timestamp }));
             }
-          } catch {}
-          return 0;
-        })() : 0);
-      
-      if (cacheAge > BALANCE_TTL * 0.8) {
-        // Cache is >80% stale, refresh in background
-        // Continue to fetch below
-      } else {
-        return; // Cache is fresh, skip fetch
+          }
+        } catch {
+          // Ignore cache read errors
+        }
+        
+        // Still refresh in background if cache is getting stale
+        const cacheAge = Date.now() - (getCache(cacheKey) ? 
+          (() => {
+            try {
+              const entry = localStorage.getItem(cacheKey);
+              if (entry) {
+                const parsed = JSON.parse(entry);
+                return parsed.timestamp || 0;
+              }
+            } catch {}
+            return 0;
+          })() : 0);
+        
+        if (cacheAge > BALANCE_TTL * 0.8) {
+          // Cache is >80% stale, refresh in background
+          // Continue to fetch below
+        } else {
+          return; // Cache is fresh, skip fetch
+        }
       }
     }
 
@@ -198,37 +204,43 @@ export function WalletDataProvider({
       setLoading((prev) => ({ ...prev, transactions: false }));
       setErrors((prev) => ({ ...prev, transactions: null }));
       
-      // Try to get timestamp from cache entry
-      try {
-        const cacheEntry = localStorage.getItem(cacheKey);
-        if (cacheEntry) {
-          const parsed = JSON.parse(cacheEntry);
-          if (parsed.timestamp) {
-            setLastFetched((prev) => ({ ...prev, transactions: parsed.timestamp }));
-          }
-        }
-      } catch {
-        // Ignore cache read errors
-      }
-      
-      // Still refresh in background if cache is getting stale
-      const cacheAge = Date.now() - (getCache(cacheKey) ? 
-        (() => {
-          try {
-            const entry = localStorage.getItem(cacheKey);
-            if (entry) {
-              const parsed = JSON.parse(entry);
-              return parsed.timestamp || 0;
+      if (cached && isCacheFresh(cacheKey, TRANSACTION_TTL)) {
+        setTransactions(cached);
+        setLoading((prev) => ({ ...prev, transactions: false }));
+        setErrors((prev) => ({ ...prev, transactions: null }));
+        
+        // Try to get timestamp from cache entry
+        try {
+          const cacheEntry = localStorage.getItem(cacheKey);
+          if (cacheEntry) {
+            const parsed = JSON.parse(cacheEntry);
+            if (parsed.timestamp) {
+              setLastFetched((prev) => ({ ...prev, transactions: parsed.timestamp }));
             }
-          } catch {}
-          return 0;
-        })() : 0);
-      
-      if (cacheAge > TRANSACTION_TTL * 0.8) {
-        // Cache is >80% stale, refresh in background
-        // Continue to fetch below
-      } else {
-        return; // Cache is fresh, skip fetch
+          }
+        } catch {
+          // Ignore cache read errors
+        }
+        
+        // Still refresh in background if cache is getting stale
+        const cacheAge = Date.now() - (getCache(cacheKey) ? 
+          (() => {
+            try {
+              const entry = localStorage.getItem(cacheKey);
+              if (entry) {
+                const parsed = JSON.parse(entry);
+                return parsed.timestamp || 0;
+              }
+            } catch {}
+            return 0;
+          })() : 0);
+        
+        if (cacheAge > TRANSACTION_TTL * 0.8) {
+          // Cache is >80% stale, refresh in background
+          // Continue to fetch below
+        } else {
+          return; // Cache is fresh, skip fetch
+        }
       }
     }
 

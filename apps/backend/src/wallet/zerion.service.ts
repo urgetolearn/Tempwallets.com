@@ -16,6 +16,8 @@ interface ZerionToken {
       float?: number;
       numeric?: string;
     };
+    value?: number; // USD value
+    price?: number; // USD price per token
     fungible_info?: {
       name?: string;
       symbol?: string;
@@ -119,6 +121,7 @@ export interface TokenBalance {
   decimals: number | null;
   balanceSmallest: string;
   balanceHuman: number;
+  valueUsd?: number;
   name?: string;
 }
 
@@ -177,12 +180,15 @@ export class ZerionService {
     // Check Zerion docs: https://developers.zerion.io for exact format
     this.apiKey = this.configService.get<string>('ZERION_API_KEY') || '';
 
-    if (!this.apiKey) {
-      this.logger.warn(
-        'ZERION_API_KEY not found in environment variables. Zerion API calls will fail.',
+    if (!this.apiKey || this.apiKey.trim() === '') {
+      this.logger.error(
+        'ZERION_API_KEY not found or empty in environment variables. Zerion API calls will fail.',
       );
-      this.logger.warn(
+      this.logger.error(
         'Get your API key from: https://zerion.io/api or https://developers.zerion.io',
+      );
+      this.logger.error(
+        'Set the ZERION_API_KEY environment variable to enable Zerion integration.',
       );
     }
   }
@@ -247,10 +253,19 @@ export class ZerionService {
       const res = await this.makeRequest<ZerionPositionsArray>(url);
 
       if (!res || !Array.isArray(res.data)) {
-        this.logger.warn(
-          `Positions (any-chain) response invalid for ${address}`,
+        const errorMsg = `Positions (any-chain) response invalid for ${this.maskAddress(address)}`;
+        this.logger.error(errorMsg);
+        // Invalidate any stale cache
+        this.balanceCache.delete(cacheKey);
+        // Throw error instead of returning empty array to surface the issue
+        throw new Error(errorMsg);
+      }
+
+      // Log if response is empty to help diagnose issues
+      if (res.data.length === 0) {
+        this.logger.debug(
+          `Zerion returned 0 positions for ${this.maskAddress(address)} (wallet may be empty or not indexed yet)`,
         );
-        return [];
       }
 
       // Parse Zerion positions into TokenBalance objects using KISS principle
@@ -283,6 +298,7 @@ export class ZerionService {
           decimals,
           balanceSmallest: quantity?.int || '0',
           balanceHuman: Number(quantity?.float || 0),
+          valueUsd: attributes?.value, // Map USD value
           name: fungibleInfo?.name,
         };
       });
@@ -290,16 +306,19 @@ export class ZerionService {
       // Remove duplicates by chain + address/symbol
       const dedupedTokens = this.dedupeParsedTokens(parsedTokens);
 
+      // Cache the result (including legitimate empty arrays from successful API calls)
       this.setCache(cacheKey, dedupedTokens, 'balance');
       this.logger.debug(
         `Fetched ${dedupedTokens.length} positions for ${this.maskAddress(address)}`,
       );
       return dedupedTokens;
     } catch (e) {
-      this.logger.error(
-        `Positions (any-chain) failed for ${address}: ${e instanceof Error ? e.message : 'Unknown error'}`,
-      );
-      return [];
+      const errorMsg = `Positions (any-chain) failed for ${this.maskAddress(address)}: ${e instanceof Error ? e.message : 'Unknown error'}`;
+      this.logger.error(errorMsg);
+      // Invalidate any stale cache
+      this.balanceCache.delete(cacheKey);
+      // Re-throw error to propagate to caller instead of silently returning empty array
+      throw new Error(errorMsg);
     }
   }
 
@@ -328,6 +347,7 @@ export class ZerionService {
       const res = await this.makeRequest<ZerionTransactionsResponse>(url);
       const data = Array.isArray(res?.data) ? res.data : [];
       const deduped = this.dedupeTransactions(data);
+      // Cache the result (including legitimate empty arrays from successful API calls)
       this.setCache(cacheKey, deduped, 'transaction');
       this.logger.debug(
         `Fetched ${deduped.length} transactions for ${this.maskAddress(address)}`,
@@ -337,6 +357,8 @@ export class ZerionService {
       this.logger.error(
         `Transactions (any-chain) failed for ${address}: ${e instanceof Error ? e.message : 'Unknown error'}`,
       );
+      // Invalidate any stale cache and return empty array without caching
+      this.transactionCache.delete(cacheKey);
       return [];
     }
   }
@@ -459,8 +481,8 @@ export class ZerionService {
     retries = 3,
     timeoutMs = 60000, // Increased from 30s to 60s for production
   ): Promise<T> {
-    if (!this.apiKey) {
-      throw new Error('Zerion API key not configured');
+    if (!this.apiKey || this.apiKey.trim() === '') {
+      throw new Error('Zerion API key not configured. Set ZERION_API_KEY environment variable.');
     }
 
     // Zerion API authentication format

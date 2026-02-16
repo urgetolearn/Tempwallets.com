@@ -39,7 +39,7 @@ export class WalletController {
     private readonly walletService: WalletService,
     // private readonly polkadotEvmRpcService: PolkadotEvmRpcService,
     private readonly pimlicoConfig: PimlicoConfigService,
-  ) {}
+  ) { }
 
   @Post('eip7702/send')
   @HttpCode(HttpStatus.OK)
@@ -93,13 +93,13 @@ export class WalletController {
       errors: validation.errors,
       config: validation.config
         ? {
-            chainId: validation.config.chainId,
-            bundlerUrl: validation.config.bundlerUrl,
-            paymasterUrl: validation.config.paymasterUrl,
-            delegationAddress: validation.config.delegationAddress,
-            entryPointAddress: validation.config.entryPointAddress,
-            hasApiKey: this.pimlicoConfig.hasPimlicoApiKey(),
-          }
+          chainId: validation.config.chainId,
+          bundlerUrl: validation.config.bundlerUrl,
+          paymasterUrl: validation.config.paymasterUrl,
+          delegationAddress: validation.config.delegationAddress,
+          entryPointAddress: validation.config.entryPointAddress,
+          hasApiKey: this.pimlicoConfig.hasPimlicoApiKey(),
+        }
         : undefined,
       enabled: this.pimlicoConfig.isEip7702Enabled(chain),
     };
@@ -479,6 +479,7 @@ export class WalletController {
 
   @Get('assets-any')
   async getAssetsAny(
+    @Res({ passthrough: true }) res: Response,
     @UserId() userId?: string,
     @Query('userId') queryUserId?: string,
     @Query('refresh') refresh?: string,
@@ -493,6 +494,13 @@ export class WalletController {
       `Getting any-chain assets for user ${finalUserId}${forceRefresh ? ' (force refresh)' : ''}`,
     );
 
+    // Add Cache-Control headers to prevent browser caching issues
+    if (forceRefresh) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+
     try {
       const assets = await this.walletService.getTokenBalancesAny(
         finalUserId,
@@ -500,9 +508,24 @@ export class WalletController {
       );
       return assets;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `Failed to get any-chain assets: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to get any-chain assets for user ${finalUserId}: ${errorMessage}`,
       );
+      
+      // Provide user-friendly error messages
+      if (errorMessage.includes('API key not configured')) {
+        throw new ServiceUnavailableException(
+          'Asset data service is not configured. Please contact support.',
+        );
+      }
+      
+      if (errorMessage.includes('Zerion API error') || errorMessage.includes('failed for')) {
+        throw new ServiceUnavailableException(
+          'Unable to fetch asset data at this time. Please try again later.',
+        );
+      }
+      
       throw error;
     }
   }
