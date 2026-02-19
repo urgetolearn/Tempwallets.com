@@ -36,7 +36,7 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
                 if (!config.features.showInWalletList) return false;
 
                 // Remove "Coming Soon" chains (unless Aptos)
-                if (!config.capabilities.walletConnect && config.type !== 'aptos') {
+                if (!config.capabilities.walletConnect && config.type === 'evm') {
                     return false;
                 }
 

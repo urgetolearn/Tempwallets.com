@@ -92,14 +92,32 @@ export function TokenBalanceItem({
         </div>
       </div>
 
-      {/* Right side: Amount and Value */}
+      {/* Right side: Amount and Value
+           When the API returns no USD pricing (valueUsd is undefined/0 and balance is non-zero)
+           we promote the token amount to primary so the user doesn't read "$0.00" and think
+           their wallet is empty. When USD value IS available, show it as the primary figure. */}
       <div className="flex flex-col items-end gap-0.5">
-        <span className="text-sm font-bold text-gray-900">
-          {isHidden ? '••••••' : displayValue}
-        </span>
-        <span className="text-xs font-medium text-gray-500">
-          {isHidden ? '••••' : displayBalance} <span className="text-gray-400">{symbol}</span>
-        </span>
+        {valueUsd ? (
+          // USD value known — show it as primary
+          <>
+            <span className="text-sm font-bold text-gray-900">
+              {isHidden ? '••••••' : displayValue}
+            </span>
+            <span className="text-xs font-medium text-gray-500">
+              {isHidden ? '••••' : displayBalance} <span className="text-gray-400">{symbol}</span>
+            </span>
+          </>
+        ) : (
+          // No USD pricing — lead with the actual token amount so the wallet doesn't look empty
+          <>
+            <span className="text-sm font-bold text-gray-900">
+              {isHidden ? '••••••' : `${displayBalance} ${symbol}`}
+            </span>
+            <span className="text-xs font-medium text-gray-400">
+              No price data
+            </span>
+          </>
+        )}
       </div>
     </button>
   );

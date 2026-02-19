@@ -164,7 +164,7 @@ export function WalletDataProvider({
         const allAssets = assets;
 
         // Merge and normalize all balances
-        const normalized = mergeAndNormalizeBalances(allAssets, substrateBalances);
+        const normalized = mergeAndNormalizeBalances(allAssets);
 
         setBalances(normalized);
         setLastFetched((prev) => ({ ...prev, balances: Date.now() }));
@@ -352,6 +352,13 @@ export function WalletDataProvider({
 
   // Initial fetch and userId change handling
   useEffect(() => {
+    // When userId changes (e.g., fingerprint → Google login, or logout), cancel any
+    // in-flight requests for the OLD userId. Without this, the deduplication guard
+    // (`if (balancesRequestRef.current) return balancesRequestRef.current`) would
+    // return the stale old-user promise instead of fetching for the new userId.
+    balancesRequestRef.current = null;
+    transactionsRequestRef.current = null;
+
     if (!userId) {
       setBalances([]);
       setTransactions([]);

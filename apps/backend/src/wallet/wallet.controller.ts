@@ -11,6 +11,7 @@ import {
   HttpStatus,
   BadRequestException,
   UnauthorizedException,
+  ServiceUnavailableException,
   Res,
   UseGuards,
 } from '@nestjs/common';

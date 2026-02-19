@@ -277,110 +277,110 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
           }
         }
 
-        // Fetch balances for Substrate chains
-        const substrateConfigs = configs.filter((config) => config.type === 'substrate');
-        
-        if (substrateConfigs.length > 0) {
-          try {
-            const substrateBalances = await walletApi.getSubstrateBalances(userId, false);
-            
-            Object.entries(substrateBalances).forEach(([chain, balanceInfo]) => {
-              // Map chain name to config ID
-              const configId = mapChainNameToConfigId(chain);
-              const config = substrateConfigs.find((c) => c.id === configId);
-              
-              if (config && balanceInfo.balance) {
-                const balanceData: BalanceData = {
-                  configId: config.id,
-                  native: {
-                    balance: balanceInfo.balance,
-                    formatted: balanceInfo.balance, // TODO: Format properly
-                    symbol: balanceInfo.token,
-                    decimals: balanceInfo.decimals,
-                    usdValue: undefined,
-                  },
-                  tokens: [],
-                  totalUsdValue: undefined,
-                  lastUpdated: new Date(),
-                  error: null,
-                };
+        // Fetch balances for Substrate chains - DISABLED (no substrate type in config)
+        // const substrateConfigs = configs.filter((config) => config.type === 'substrate');
+        // 
+        // if (substrateConfigs.length > 0) {
+        //   try {
+        //     const substrateBalances = await walletApi.getSubstrateBalances(userId, false);
+        //     
+        //     Object.entries(substrateBalances).forEach(([chain, balanceInfo]) => {
+        //       // Map chain name to config ID
+        //       const configId = mapChainNameToConfigId(chain);
+        //       const config = substrateConfigs.find((c) => c.id === configId);
+        //       
+        //       if (config && balanceInfo.balance) {
+        //         const balanceData: BalanceData = {
+        //           configId: config.id,
+        //           native: {
+        //             balance: balanceInfo.balance,
+        //             formatted: balanceInfo.balance, // TODO: Format properly
+        //             symbol: balanceInfo.token,
+        //             decimals: balanceInfo.decimals,
+        //             usdValue: undefined,
+        //           },
+        //           tokens: [],
+        //           totalUsdValue: undefined,
+        //           lastUpdated: new Date(),
+        //           error: null,
+        //         };
+        // 
+        //         updateBalance(config.id, {
+        //           loading: false,
+        //           balanceData,
+        //           error: null,
+        //           lastUpdated: new Date(),
+        //           cacheTTL: DEFAULT_CACHE_TTL,
+        //         });
+        //       }
+        //     });
+        //   } catch (err) {
+        //     console.error('Error fetching Substrate balances:', err);
+        //     substrateConfigs.forEach((config) => {
+        //       updateBalance(config.id, {
+        //         loading: false,
+        //         error: err instanceof Error ? err.message : 'Failed to fetch balance',
+        //       });
+        //     });
+        //   }
+        // }
 
-                updateBalance(config.id, {
-                  loading: false,
-                  balanceData,
-                  error: null,
-                  lastUpdated: new Date(),
-                  cacheTTL: DEFAULT_CACHE_TTL,
-                });
-              }
-            });
-          } catch (err) {
-            console.error('Error fetching Substrate balances:', err);
-            substrateConfigs.forEach((config) => {
-              updateBalance(config.id, {
-                loading: false,
-                error: err instanceof Error ? err.message : 'Failed to fetch balance',
-              });
-            });
-          }
-        }
-
-        // Fetch balances for Aptos chains
-        const aptosConfigs = configs.filter((config) => config.type === 'aptos');
-        
-        if (aptosConfigs.length > 0) {
-          try {
-            // Fetch balance for each Aptos config (mainnet/testnet)
-            await Promise.all(
-              aptosConfigs.map(async (config) => {
-                try {
-                  const network = config.isTestnet ? 'testnet' : 'mainnet';
-                  const balanceData = await walletApi.getAptosBalance(userId, network);
-                  
-                  // Convert balance from string to octas (8 decimals)
-                  const balanceInOctas = (parseFloat(balanceData.balance) * Math.pow(10, 8)).toString();
-                  
-                  const balance: BalanceData = {
-                    configId: config.id,
-                    native: {
-                      balance: balanceInOctas,
-                      formatted: balanceData.balance,
-                      symbol: 'APT',
-                      decimals: 8,
-                      usdValue: undefined,
-                    },
-                    tokens: [],
-                    totalUsdValue: undefined,
-                    lastUpdated: new Date(),
-                    error: null,
-                  };
-
-                  updateBalance(config.id, {
-                    loading: false,
-                    balanceData: balance,
-                    error: null,
-                    lastUpdated: new Date(),
-                    cacheTTL: DEFAULT_CACHE_TTL,
-                  });
-                } catch (err) {
-                  console.error(`Error fetching Aptos balance for ${config.id}:`, err);
-                  updateBalance(config.id, {
-                    loading: false,
-                    error: err instanceof Error ? err.message : 'Failed to fetch balance',
-                  });
-                }
-              })
-            );
-          } catch (err) {
-            console.error('Error fetching Aptos balances:', err);
-            aptosConfigs.forEach((config) => {
-              updateBalance(config.id, {
-                loading: false,
-                error: err instanceof Error ? err.message : 'Failed to fetch balance',
-              });
-            });
-          }
-        }
+        // Fetch balances for Aptos chains - DISABLED (no aptos type in config)
+        // const aptosConfigs = configs.filter((config) => config.type === 'aptos');
+        // 
+        // if (aptosConfigs.length > 0) {
+        //   try {
+        //     // Fetch balance for each Aptos config (mainnet/testnet)
+        //     await Promise.all(
+        //       aptosConfigs.map(async (config) => {
+        //         try {
+        //           const network = config.isTestnet ? 'testnet' : 'mainnet';
+        //           const balanceData = await walletApi.getAptosBalance(userId, network);
+        //           
+        //           // Convert balance from string to octas (8 decimals)
+        //           const balanceInOctas = (parseFloat(balanceData.balance) * Math.pow(10, 8)).toString();
+        //           
+        //           const balance: BalanceData = {
+        //             configId: config.id,
+        //             native: {
+        //               balance: balanceInOctas,
+        //               formatted: balanceData.balance,
+        //               symbol: 'APT',
+        //               decimals: 8,
+        //               usdValue: undefined,
+        //             },
+        //             tokens: [],
+        //             totalUsdValue: undefined,
+        //             lastUpdated: new Date(),
+        //             error: null,
+        //           };
+        // 
+        //           updateBalance(config.id, {
+        //             loading: false,
+        //             balanceData: balance,
+        //             error: null,
+        //             lastUpdated: new Date(),
+        //             cacheTTL: DEFAULT_CACHE_TTL,
+        //           });
+        //         } catch (err) {
+        //           console.error(`Error fetching Aptos balance for ${config.id}:`, err);
+        //           updateBalance(config.id, {
+        //             loading: false,
+        //             error: err instanceof Error ? err.message : 'Failed to fetch balance',
+        //           });
+        //         }
+        //       })
+        //     );
+        //   } catch (err) {
+        //     console.error('Error fetching Aptos balances:', err);
+        //     aptosConfigs.forEach((config) => {
+        //       updateBalance(config.id, {
+        //         loading: false,
+        //         error: err instanceof Error ? err.message : 'Failed to fetch balance',
+        //       });
+        //     });
+        //   }
+        // }
 
         // Mark remaining as complete (for chains without balance support)
         configs.forEach((config) => {
