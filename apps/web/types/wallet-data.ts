@@ -23,36 +23,36 @@ export type { Transaction } from '@/lib/api';
 /**
  * Substrate balance data from API
  */
-export interface SubstrateBalanceData {
-  balance: string;
-  address: string | null;
-  token: string;
-  decimals: number;
-}
+// export interface SubstrateBalanceData {
+//   balance: string;
+//   address: string | null;
+//   token: string;
+//   decimals: number;
+// }
 
 /**
  * Map backend chain keys to frontend chain keys for Substrate chains
  */
-const SUBSTRATE_CHAIN_KEY_MAP: Record<string, string> = {
-  polkadot: 'polkadot',
-  hydration: 'hydrationSubstrate',
-  bifrost: 'bifrostSubstrate',
-  unique: 'uniqueSubstrate',
-  paseo: 'paseo',
-  paseoAssethub: 'paseoAssethub',
-};
+// const SUBSTRATE_CHAIN_KEY_MAP: Record<string, string> = {
+//   polkadot: 'polkadot',
+//   hydration: 'hydrationSubstrate',
+//   bifrost: 'bifrostSubstrate',
+//   unique: 'uniqueSubstrate',
+//   paseo: 'paseo',
+//   paseoAssethub: 'paseoAssethub',
+// };
 
 /**
  * Default decimals for Substrate chains (used when creating zero balances)
  */
-const SUBSTRATE_DEFAULT_DECIMALS: Record<string, number> = {
-  polkadot: 10,
-  hydrationSubstrate: 12,
-  bifrostSubstrate: 12,
-  uniqueSubstrate: 18,
-  paseo: 10,
-  paseoAssethub: 10,
-};
+// const SUBSTRATE_DEFAULT_DECIMALS: Record<string, number> = {
+//   polkadot: 10,
+//   hydrationSubstrate: 12,
+//   bifrostSubstrate: 12,
+//   uniqueSubstrate: 18,
+//   paseo: 10,
+//   paseoAssethub: 10,
+// };
 
 /**
  * Native token symbols for all chains
@@ -73,12 +73,12 @@ const NATIVE_TOKEN_SYMBOLS: Record<string, string> = {
   astarShibuya: 'SBY',
   paseoPassetHub: 'PAS',
   // Substrate/Polkadot chains
-  polkadot: 'DOT',
-  hydrationSubstrate: 'HDX',
-  bifrostSubstrate: 'BFC',
-  uniqueSubstrate: 'UNQ',
-  paseo: 'PAS',
-  paseoAssethub: 'PAS',
+  // polkadot: 'DOT',
+  // hydrationSubstrate: 'HDX',
+  // bifrostSubstrate: 'BFC',
+  // uniqueSubstrate: 'UNQ',
+  // paseo: 'PAS',
+  // paseoAssethub: 'PAS',
 };
 
 /**
@@ -97,11 +97,11 @@ export const FEATURED_CHAINS = [
   'tron',
   'polkadot',
   // Substrate parachains
-  'hydrationSubstrate',
-  'bifrostSubstrate',
-  'uniqueSubstrate',
-  'paseo',
-  'paseoAssethub',
+  // 'hydrationSubstrate',
+  // 'bifrostSubstrate',
+  // 'uniqueSubstrate',
+  // 'paseo',
+  // 'paseoAssethub',
   // Polkadot EVM compatible
   'moonbeamTestnet',
   'astarShibuya',
@@ -127,34 +127,34 @@ export function normalizeAssets(assets: AnyChainAsset[]): NormalizedBalance[] {
 /**
  * Normalize SubstrateBalances to NormalizedBalance[]
  */
-export function normalizeSubstrateBalances(
-  substrateBalances: Record<string, SubstrateBalanceData>
-): NormalizedBalance[] {
-  const normalized: NormalizedBalance[] = [];
+// export function normalizeSubstrateBalances(
+//   substrateBalances: Record<string, SubstrateBalanceData>
+// ): NormalizedBalance[] {
+//   const normalized: NormalizedBalance[] = [];
 
-  for (const [backendChain, balanceData] of Object.entries(substrateBalances)) {
-    if (!balanceData.address) {
-      continue; // Skip if no address
-    }
+//   for (const [backendChain, balanceData] of Object.entries(substrateBalances)) {
+//     if (!balanceData.address) {
+//       continue; // Skip if no address
+//     }
 
-    // Map backend chain key to frontend chain key
-    const frontendChain = SUBSTRATE_CHAIN_KEY_MAP[backendChain] || backendChain;
+//     // Map backend chain key to frontend chain key
+//     const frontendChain = SUBSTRATE_CHAIN_KEY_MAP[backendChain] || backendChain;
 
-    normalized.push({
-      chain: frontendChain,
-      symbol: balanceData.token || NATIVE_TOKEN_SYMBOLS[frontendChain] || 'TOKEN',
-      balance: balanceData.balance,
-      decimals: balanceData.decimals,
-      balanceHuman: parseFloat(balanceData.balance) > 0
-        ? formatBalance(balanceData.balance, balanceData.decimals)
-        : undefined,
-      isNative: true,
-      address: null,
-    });
-  }
+//     normalized.push({
+//       chain: frontendChain,
+//       symbol: balanceData.token || NATIVE_TOKEN_SYMBOLS[frontendChain] || 'TOKEN',
+//       balance: balanceData.balance,
+//       decimals: balanceData.decimals,
+//       balanceHuman: parseFloat(balanceData.balance) > 0
+//         ? formatBalance(balanceData.balance, balanceData.decimals)
+//         : undefined,
+//       isNative: true,
+//       address: null,
+//     });
+//   }
 
-  return normalized;
-}
+//   return normalized;
+// }
 
 /**
  * Format balance from smallest units to human-readable
@@ -178,10 +178,7 @@ export function createZeroBalancesForFeaturedChains(
   for (const chain of FEATURED_CHAINS) {
     if (!existingChains.has(chain)) {
       const symbol = NATIVE_TOKEN_SYMBOLS[chain] || 'TOKEN';
-      const decimals =
-        chain in SUBSTRATE_DEFAULT_DECIMALS
-          ? (SUBSTRATE_DEFAULT_DECIMALS[chain as keyof typeof SUBSTRATE_DEFAULT_DECIMALS] ?? 18)
-          : 18;
+      const decimals = 18;
 
       zeroBalances.push({
         chain,
@@ -203,16 +200,16 @@ export function createZeroBalancesForFeaturedChains(
  */
 export function mergeAndNormalizeBalances(
   assets: AnyChainAsset[],
-  substrateBalances: Record<string, SubstrateBalanceData>
+  // substrateBalances: Record<string, SubstrateBalanceData>
 ): NormalizedBalance[] {
   // Normalize EVM/other chain assets
   const normalizedAssets = normalizeAssets(assets);
 
   // Normalize Substrate balances
-  const normalizedSubstrate = normalizeSubstrateBalances(substrateBalances);
+  // const normalizedSubstrate = normalizeSubstrateBalances(substrateBalances);
 
   // Combine all balances
-  const allBalances = [...normalizedAssets, ...normalizedSubstrate];
+  const allBalances = [...normalizedAssets];
 
   // Track which chains we have data for
   const existingChains = new Set(allBalances.map((b) => b.chain));

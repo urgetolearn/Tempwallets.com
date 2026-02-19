@@ -14,7 +14,7 @@ const Base = Ethereum;
 /**
  * Chain types that determine wallet compatibility and functionality
  */
-export type ChainType = 'evm' | 'bitcoin' | 'substrate' | 'solana' | 'tron' | 'aptos';
+export type ChainType = 'evm' | 'bitcoin' | 'substrate' | 'solana' | 'tron' | 'aptos' | 'polkadot';
 
 /**
  * Chain category for organizing chains

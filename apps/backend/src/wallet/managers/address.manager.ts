@@ -11,9 +11,7 @@ import { SeedManager } from './seed.manager.js';
 import { AccountFactory } from '../factories/account.factory.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
-import { SubstrateManager } from '../substrate/managers/substrate.manager.js';
 import { AddressCacheRepository } from '../repositories/address-cache.repository.js';
-import { AptosAddressManager } from '../aptos/managers/aptos-address.manager.js';
 import { PimlicoConfigService } from '../config/pimlico.config.js';
 
 /**
@@ -50,23 +48,16 @@ export class AddressManager implements IAddressManager {
     'bifrostTestnet',
   ];
 
-  private readonly nonEvmChains: WalletAddressKey[] = [
-    'tron',
-    'bitcoin',
-    'solana',
-  ];
+ 
 
   constructor(
     private seedManager: SeedManager,
     private accountFactory: AccountFactory,
     private nativeEoaFactory: NativeEoaFactory,
     private eip7702AccountFactory: Eip7702AccountFactory,
-    @Inject(forwardRef(() => SubstrateManager))
-    private substrateManager: SubstrateManager,
     private addressCacheRepository: AddressCacheRepository,
-    private aptosAddressManager: AptosAddressManager,
     private pimlicoConfig: PimlicoConfigService,
-  ) { }
+  ) {}
 
   /**
    * Clear all cached addresses for a user (both in-memory and database)
@@ -150,7 +141,12 @@ export class AddressManager implements IAddressManager {
       try {
         // Use EIP-7702 factory for enabled chains (same address as EOA), else native EOA
         // Only enable EIP-7702 for supported chains: ethereum, base, arbitrum, optimism
-        const supportedEip7702Chains = ['ethereum', 'base', 'arbitrum', 'optimism'];
+        const supportedEip7702Chains = [
+          'ethereum',
+          'base',
+          'arbitrum',
+          'optimism',
+        ];
         const useEip7702 =
           this.pimlicoConfig.isEip7702Enabled(chain) &&
           supportedEip7702Chains.includes(chain);
@@ -158,21 +154,39 @@ export class AddressManager implements IAddressManager {
         let account;
         try {
           if (useEip7702) {
-            account = await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'base' | 'arbitrum' | 'optimism', 0);
+            account = await this.eip7702AccountFactory.createAccount(
+              seedPhrase,
+              chain as 'ethereum' | 'base' | 'arbitrum' | 'optimism',
+              0,
+            );
           } else {
-            account = await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
+            account = await this.nativeEoaFactory.createAccount(
+              seedPhrase,
+              chain,
+              0,
+            );
           }
         } catch (innerError) {
           // If EIP-7702 fails, fall back to native EOA (addresses are the same)
           if (useEip7702) {
-            this.logger.warn(`EIP-7702 creation failed for ${chain}, falling back to Native EOA: ${innerError instanceof Error ? innerError.message : 'Unknown error'}`);
-            account = await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
+            this.logger.warn(
+              `EIP-7702 creation failed for ${chain}, falling back to Native EOA: ${innerError instanceof Error ? innerError.message : 'Unknown error'}`,
+            );
+            account = await this.nativeEoaFactory.createAccount(
+              seedPhrase,
+              chain,
+              0,
+            );
           } else {
             throw innerError;
           }
         }
 
-        const address = await account.getAddress();
+        const address =
+          typeof account.getAddress === 'function'
+            ? await account.getAddress()
+            : account.address;
+
         addresses[chain] = address as any;
         addressesToSave[chain] = address as string;
         await this.addressCacheRepository.saveAddress(userId, chain, address);
@@ -182,123 +196,6 @@ export class AddressManager implements IAddressManager {
         );
         addresses[chain] = null as any;
       }
-    }
-
-    // Non-EVM chains via WDK factories
-    const nonEvmChains: AllChainTypes[] = ['tron', 'bitcoin', 'solana'];
-    for (const chain of nonEvmChains) {
-      if (addresses[chain as keyof WalletAddresses]) {
-        continue;
-      }
-
-      try {
-        const account = await this.accountFactory.createAccount(
-          seedPhrase,
-          chain,
-          0,
-        );
-        const address = await account.getAddress();
-        addresses[chain as keyof WalletAddresses] = address;
-        addressesToSave[chain] = address;
-        await this.addressCacheRepository.saveAddress(userId, chain, address);
-      } catch (error) {
-        this.logger.error(
-          `Error getting non-EVM address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        addresses[chain as keyof WalletAddresses] = null as any;
-      }
-    }
-
-    // Get Substrate addresses (parallel with EVM addresses)
-    try {
-      const substrateAddresses = await this.substrateManager.getAddresses(
-        userId,
-        false,
-      );
-
-      // Map Substrate addresses to WalletAddresses format
-      const substrateMappings: Array<{
-        key: keyof WalletAddresses;
-        value: string | null;
-      }> = [
-          { key: 'polkadot', value: substrateAddresses.polkadot ?? null },
-          {
-            key: 'hydrationSubstrate',
-            value: substrateAddresses.hydration ?? null,
-          },
-          { key: 'bifrostSubstrate', value: substrateAddresses.bifrost ?? null },
-          { key: 'uniqueSubstrate', value: substrateAddresses.unique ?? null },
-          { key: 'paseo', value: substrateAddresses.paseo ?? null },
-          {
-            key: 'paseoAssethub',
-            value: substrateAddresses.paseoAssethub ?? null,
-          },
-        ];
-
-      for (const { key, value } of substrateMappings) {
-        // Only update if not already cached or if cached value is null
-        if (addresses[key] === undefined || addresses[key] === null) {
-          addresses[key] = value as any;
-          if (value) {
-            addressesToSave[key] = value;
-            // Save to database immediately
-            await this.addressCacheRepository.saveAddress(userId, key, value);
-          }
-        }
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error getting Substrate addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      // Set defaults only if not already set
-      if (addresses.polkadot === undefined) addresses.polkadot = null;
-      if (addresses.hydrationSubstrate === undefined)
-        addresses.hydrationSubstrate = null;
-      if (addresses.bifrostSubstrate === undefined)
-        addresses.bifrostSubstrate = null;
-      if (addresses.uniqueSubstrate === undefined)
-        addresses.uniqueSubstrate = null;
-      if (addresses.paseo === undefined) addresses.paseo = null;
-      if (addresses.paseoAssethub === undefined) addresses.paseoAssethub = null;
-    }
-
-    // Get Aptos addresses
-    try {
-      // Derive Aptos address (same address for all networks, but we store separately)
-      const aptosAddress = await this.aptosAddressManager.deriveAddress(
-        seedPhrase,
-        0,
-      );
-
-      // Set Aptos addresses (same address for all networks)
-      const aptosMappings: Array<{
-        key: keyof WalletAddresses;
-        value: string;
-      }> = [
-          { key: 'aptos', value: aptosAddress },
-          { key: 'aptosMainnet', value: aptosAddress },
-          { key: 'aptosTestnet', value: aptosAddress },
-          { key: 'aptosDevnet', value: aptosAddress },
-        ];
-
-      for (const { key, value } of aptosMappings) {
-        // Only update if not already cached
-        if (addresses[key] === undefined) {
-          addresses[key] = value as any;
-          addressesToSave[key] = value;
-          // Save to database immediately
-          await this.addressCacheRepository.saveAddress(userId, key, value);
-        }
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error getting Aptos addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      // Set defaults only if not already set
-      if (addresses.aptos === undefined) addresses.aptos = '';
-      if (addresses.aptosMainnet === undefined) addresses.aptosMainnet = '';
-      if (addresses.aptosTestnet === undefined) addresses.aptosTestnet = '';
-      if (addresses.aptosDevnet === undefined) addresses.aptosDevnet = '';
     }
 
     const result = addresses as WalletAddresses;
@@ -342,6 +239,17 @@ export class AddressManager implements IAddressManager {
     }
 
     return address;
+  }
+  private async resolveEvmAddress(account: any): Promise<string> {
+    if (account && typeof account.getAddress === 'function') {
+      return await account.getAddress();
+    }
+
+    if (account && typeof account.address === 'string') {
+      return account.address;
+    }
+
+    throw new Error('Invalid EVM account object');
   }
 
   /**
@@ -392,42 +300,11 @@ export class AddressManager implements IAddressManager {
     // Step 4: Generate missing addresses
     const seedPhrase = await this.seedManager.getSeed(userId);
 
-    // Process non-EVM chains via WDK (keep for Tron, Bitcoin, Solana, and Polkadot EVM chains)
-    const nonEvmWdkChains: { name: string; chain: AllChainTypes }[] = [
-      { name: 'moonbeamTestnet', chain: 'moonbeamTestnet' },
-      { name: 'astarShibuya', chain: 'astarShibuya' },
-      { name: 'paseoPassetHub', chain: 'paseoPassetHub' },
-      { name: 'tron', chain: 'tron' },
-      { name: 'bitcoin', chain: 'bitcoin' },
-      { name: 'solana', chain: 'solana' },
-    ];
-
-    for (const { name, chain } of nonEvmWdkChains) {
-      // Skip if already cached
-      if (cachedAddresses[name]) {
-        continue;
-      }
-
-      try {
-        const account = await this.accountFactory.createAccount(
-          seedPhrase,
-          chain,
-          0,
-        );
-        const address = await account.getAddress();
-        // Save to database BEFORE streaming
-        await this.addressCacheRepository.saveAddress(userId, name, address);
-        yield { chain: name, address };
-      } catch (error) {
-        this.logger.error(
-          `Error streaming address for ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        yield { chain: name, address: null };
-      }
-    }
-
     // Process EVM chains (native/EIP-7702)
-    const evmChains: { name: WalletAddressKey; chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche' }[] = [
+    const evmChains: {
+      name: WalletAddressKey;
+      chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche';
+    }[] = [
       { name: 'ethereum', chain: 'ethereum' },
       { name: 'base', chain: 'base' },
       { name: 'arbitrum', chain: 'arbitrum' },
@@ -442,7 +319,12 @@ export class AddressManager implements IAddressManager {
 
       try {
         // Only enable EIP-7702 for supported chains: ethereum, base, arbitrum, optimism
-        const supportedEip7702Chains = ['ethereum', 'base', 'arbitrum', 'optimism'];
+        const supportedEip7702Chains = [
+          'ethereum',
+          'base',
+          'arbitrum',
+          'optimism',
+        ];
         const useEip7702 =
           this.pimlicoConfig.isEip7702Enabled(chain) &&
           supportedEip7702Chains.includes(chain);
@@ -450,21 +332,35 @@ export class AddressManager implements IAddressManager {
         let account;
         try {
           if (useEip7702) {
-            account = await this.eip7702AccountFactory.createAccount(seedPhrase, chain as 'ethereum' | 'base' | 'arbitrum' | 'optimism', 0);
+            account = await this.eip7702AccountFactory.createAccount(
+              seedPhrase,
+              chain as 'ethereum' | 'base' | 'arbitrum' | 'optimism',
+              0,
+            );
           } else {
-            account = await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
+            account = await this.nativeEoaFactory.createAccount(
+              seedPhrase,
+              chain,
+              0,
+            );
           }
         } catch (innerError) {
           // If EIP-7702 fails, fall back to native EOA (addresses are the same)
           if (useEip7702) {
-            this.logger.warn(`EIP-7702 streaming failed for ${name}, falling back to Native EOA: ${innerError instanceof Error ? innerError.message : 'Unknown error'}`);
-            account = await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
+            this.logger.warn(
+              `EIP-7702 streaming failed for ${name}, falling back to Native EOA: ${innerError instanceof Error ? innerError.message : 'Unknown error'}`,
+            );
+            account = await this.nativeEoaFactory.createAccount(
+              seedPhrase,
+              chain,
+              0,
+            );
           } else {
             throw innerError;
           }
         }
 
-        const address = await account.getAddress();
+        const address = await this.resolveEvmAddress(account);
         await this.addressCacheRepository.saveAddress(userId, name, address);
         yield { chain: name, address };
       } catch (error) {
@@ -472,108 +368,6 @@ export class AddressManager implements IAddressManager {
           `Error streaming address for ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         yield { chain: name, address: null };
-      }
-    }
-
-    // Process Substrate chains
-    try {
-      const substrateAddresses = await this.substrateManager.getAddresses(
-        userId,
-        false,
-      );
-
-      // Map Substrate addresses to WalletAddresses format
-      const substrateChains: { name: string; address: string | null }[] = [
-        { name: 'polkadot', address: substrateAddresses.polkadot ?? null },
-        {
-          name: 'hydrationSubstrate',
-          address: substrateAddresses.hydration ?? null,
-        },
-        {
-          name: 'bifrostSubstrate',
-          address: substrateAddresses.bifrost ?? null,
-        },
-        { name: 'uniqueSubstrate', address: substrateAddresses.unique ?? null },
-        { name: 'paseo', address: substrateAddresses.paseo ?? null },
-        {
-          name: 'paseoAssethub',
-          address: substrateAddresses.paseoAssethub ?? null,
-        },
-      ];
-
-      for (const { name, address } of substrateChains) {
-        // Skip if already cached
-        if (cachedAddresses[name]) {
-          continue;
-        }
-
-        if (address) {
-          // Save to database BEFORE streaming
-          await this.addressCacheRepository.saveAddress(userId, name, address);
-        }
-        yield { chain: name, address };
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error streaming Substrate addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      // Yield null addresses for all Substrate chains on error (only if not cached)
-      const substrateChainNames = [
-        'polkadot',
-        'hydrationSubstrate',
-        'bifrostSubstrate',
-        'uniqueSubstrate',
-        'paseo',
-        'paseoAssethub',
-      ];
-      for (const name of substrateChainNames) {
-        if (!cachedAddresses[name]) {
-          yield { chain: name, address: null };
-        }
-      }
-    }
-
-    // Process Aptos chains
-    try {
-      // Derive Aptos address (same address for all networks)
-      const aptosAddress = await this.aptosAddressManager.deriveAddress(
-        seedPhrase,
-        0,
-      );
-
-      // Map Aptos addresses
-      const aptosChains: { name: string; address: string }[] = [
-        { name: 'aptos', address: aptosAddress },
-        { name: 'aptosMainnet', address: aptosAddress },
-        { name: 'aptosTestnet', address: aptosAddress },
-        { name: 'aptosDevnet', address: aptosAddress },
-      ];
-
-      for (const { name, address } of aptosChains) {
-        // Skip if already cached
-        if (cachedAddresses[name]) {
-          continue;
-        }
-
-        // Save to database BEFORE streaming
-        await this.addressCacheRepository.saveAddress(userId, name, address);
-        yield { chain: name, address };
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error streaming Aptos addresses: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-      // Yield null addresses for all Aptos chains on error (only if not cached)
-      const aptosChainNames = [
-        'aptos',
-        'aptosMainnet',
-        'aptosTestnet',
-        'aptosDevnet',
-      ];
-      for (const name of aptosChainNames) {
-        if (!cachedAddresses[name]) {
-          yield { chain: name, address: null };
-        }
       }
     }
   }
@@ -611,73 +405,27 @@ export class AddressManager implements IAddressManager {
   }
 
   private buildMetadata(addresses: WalletAddresses): WalletAddressMetadataMap {
-    const metadata = {} as WalletAddressMetadataMap;
+  const metadata = {} as WalletAddressMetadataMap;
 
-    const assign = (
-      chain: WalletAddressKey,
-      kind: WalletAddressKind,
-      visible: boolean,
-    ) => {
-      metadata[chain] = {
-        chain,
-        address: addresses[chain],
-        kind,
-        visible,
-        label: this.getLabelForChain(chain, kind),
-      };
+  const assign = (
+    chain: WalletAddressKey,
+    kind: WalletAddressKind,
+    visible: boolean,
+  ) => {
+    metadata[chain] = {
+      chain,
+      address: addresses[chain],
+      kind,
+      visible,
+      label: this.getLabelForChain(chain, kind),
     };
+  };
 
-    // Standard EOA chains (not visible by default)
-    const standardEoaChains = this.eoaChains.filter(
-      (chain) =>
-        ![
-          'moonbeamTestnet',
-          'astarShibuya',
-          'paseoPassetHub',
-          'hydration',
-          'unique',
-          'bifrost',
-          'bifrostTestnet',
-        ].includes(chain),
-    );
-    standardEoaChains.forEach((chain) => assign(chain, 'eoa', false));
+  this.eoaChains.forEach((chain) => assign(chain, 'eoa', true));
 
-    // Polkadot EVM chains (visible)
-    const polkadotEvmChains: WalletAddressKey[] = [
-      'moonbeamTestnet',
-      'astarShibuya',
-      'paseoPassetHub',
-      'hydration',
-      'unique',
-      'bifrost',
-      'bifrostTestnet',
-    ];
-    polkadotEvmChains.forEach((chain) => assign(chain, 'eoa', true));
+  return metadata;
+}
 
-    // Substrate chains (visible)
-    const substrateChains: WalletAddressKey[] = [
-      'polkadot',
-      'hydrationSubstrate',
-      'bifrostSubstrate',
-      'uniqueSubstrate',
-      'paseo',
-      'paseoAssethub',
-    ];
-    substrateChains.forEach((chain) => assign(chain, 'substrate', true));
-
-    this.nonEvmChains.forEach((chain) => assign(chain, 'nonEvm', true));
-
-    // Aptos chains (visible)
-    const aptosChains: WalletAddressKey[] = [
-      'aptos',
-      'aptosMainnet',
-      'aptosTestnet',
-      'aptosDevnet',
-    ];
-    aptosChains.forEach((chain) => assign(chain, 'aptos', true));
-
-    return metadata;
-  }
 
   private getLabelForChain(
     chain: WalletAddressKey,
@@ -689,28 +437,6 @@ export class AddressManager implements IAddressManager {
       arbitrum: 'Arbitrum',
       polygon: 'Polygon',
       avalanche: 'Avalanche',
-      tron: 'Tron',
-      bitcoin: 'Bitcoin',
-      solana: 'Solana',
-      moonbeamTestnet: 'Moonbeam Testnet',
-      astarShibuya: 'Astar Shibuya',
-      paseoPassetHub: 'Paseo PassetHub',
-      hydration: 'Hydration',
-      unique: 'Unique',
-      bifrost: 'Bifrost Mainnet',
-      bifrostTestnet: 'Bifrost Testnet',
-      // Substrate chains
-      polkadot: 'Polkadot',
-      hydrationSubstrate: 'Hydration (Substrate)',
-      bifrostSubstrate: 'Bifrost (Substrate)',
-      uniqueSubstrate: 'Unique (Substrate)',
-      paseo: 'Paseo',
-      paseoAssethub: 'Paseo AssetHub',
-      // Aptos chains
-      aptos: 'Aptos',
-      aptosMainnet: 'Aptos Mainnet',
-      aptosTestnet: 'Aptos Testnet',
-      aptosDevnet: 'Aptos Devnet',
     };
 
     const label = baseLabels[chain];
@@ -734,28 +460,6 @@ export class AddressManager implements IAddressManager {
       'arbitrum',
       'polygon',
       'avalanche',
-      'moonbeamTestnet',
-      'astarShibuya',
-      'paseoPassetHub',
-      'tron',
-      'bitcoin',
-      'solana',
-      'hydration',
-      'unique',
-      'bifrost',
-      'bifrostTestnet',
-      // Substrate chains
-      'polkadot',
-      'hydrationSubstrate',
-      'bifrostSubstrate',
-      'uniqueSubstrate',
-      'paseo',
-      'paseoAssethub',
-      // Aptos chains
-      'aptos',
-      'aptosMainnet',
-      'aptosTestnet',
-      'aptosDevnet',
     ];
   }
 
@@ -797,21 +501,6 @@ export class AddressManager implements IAddressManager {
       'arbitrum',
       'polygon',
       'avalanche',
-      'tron',
-      'bitcoin',
-      'solana',
-      'moonbeamTestnet',
-      'astarShibuya',
-      'paseoPassetHub',
-      'hydration',
-      'unique',
-      'bifrost',
-      'bifrostTestnet',
-      // Aptos chains
-      'aptos',
-      'aptosMainnet',
-      'aptosTestnet',
-      'aptosDevnet',
     ];
 
     for (const field of stringFields) {
@@ -820,23 +509,6 @@ export class AddressManager implements IAddressManager {
       }
     }
 
-    // Substrate fields can be null
-    const nullableFields: (keyof WalletAddresses)[] = [
-      'polkadot',
-      'hydrationSubstrate',
-      'bifrostSubstrate',
-      'uniqueSubstrate',
-      'paseo',
-      'paseoAssethub',
-    ];
-
-    for (const field of nullableFields) {
-      if (complete[field] === undefined) {
-        complete[field] = null;
-      }
-    }
-
     return complete as WalletAddresses;
   }
-
 }

@@ -26,6 +26,7 @@ import { WalletCard } from "./wallet-card";
 import { ChainSelector } from "../ui/chain-selector";
 import { DEFAULT_CHAIN, getChainById } from "@/lib/chains";
 import { useWalletConfig } from "@/hooks/useWalletConfig";
+import { useWalletData } from "@/hooks/useWalletData";
 import {
   trackButtonClick,
   trackChangeButton,
@@ -50,6 +51,8 @@ const WalletInfo = ({ onOpenSend, selectedChainId, onChainChange }: WalletInfoPr
   const [signInPromptOpen, setSignInPromptOpen] = useState(false);
   const { wallets, loading, error, loadWallets, getWalletByChainType } = useWalletV2();
   const walletConfig = useWalletConfig();
+  // Used to force-refresh balances after a new wallet seed is created
+  const { refreshBalances } = useWalletData();
 
   // Auth - use Google user ID when authenticated
   const { user, isAuthenticated, userId: authUserId, loading: authLoading, login } = useAuth();
@@ -207,6 +210,10 @@ const WalletInfo = ({ onOpenSend, selectedChainId, onChainChange }: WalletInfoPr
 
         // Force refresh to fetch new wallets immediately
         await loadWallets(walletIdToUse, true);
+
+        // The new seed means a new wallet address — the old cached balance no longer
+        // belongs to this user. Clear and re-fetch so Balance View shows current data.
+        await refreshBalances();
 
         // Track successful wallet generation
         const duration = Date.now() - startTime;

@@ -263,7 +263,9 @@ function SelectedTokenDisplay({ token }: SelectedTokenDisplayProps) {
     <div className="flex items-center gap-2">
       <NetworkIcon className="h-4 w-4 flex-shrink-0" />
       <span>
-        {token.symbol} - {formatBalance(token.balance, token.decimals)}
+        {token.symbol}{' '}
+        <span className="text-white/50 text-[10px]">({CHAIN_NAMES[token.chain || ''] || token.chain})</span>
+        {' '}- {formatBalance(token.balance, token.decimals)}
       </span>
     </div>
   );
@@ -293,7 +295,9 @@ function TokenSelectItem({ value, token }: TokenSelectItemProps) {
       <div className="flex items-center gap-2">
         <NetworkIcon className="h-4 w-4 flex-shrink-0" />
         <span className="flex-1">
-          {token.symbol} - {formatBalance(token.balance, token.decimals)}
+          {token.symbol}{' '}
+          <span className="text-white/50 text-[10px]">({CHAIN_NAMES[token.chain || ''] || token.chain})</span>
+          {' '}- {formatBalance(token.balance, token.decimals)}
         </span>
       </div>
     </SelectItem>
@@ -391,34 +395,23 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess, 
         setTokens(tokenList);
         setSelectedToken(tokenList[0] ?? null);
       } else {
-        // ✅ FIX: Use getAssetsAny to get all chain assets from Zerion (primary balance source)
-        // Strip 'Gasless' suffix if present for backend compatibility
-        let targetChain = chainIdToLoad;
-        if (chainIdToLoad.endsWith('Gasless')) {
-          // Map gasless IDs to underlying chain IDs for token fetching
-          if (chainIdToLoad === 'ethereumGasless') targetChain = 'ethereum';
-          else if (chainIdToLoad === 'baseGasless') targetChain = 'base';
-          else if (chainIdToLoad === 'arbitrumGasless') targetChain = 'arbitrum';
-          else if (chainIdToLoad === 'optimismGasless') targetChain = 'optimism';
-          else if (chainIdToLoad === 'polygonGasless') targetChain = 'polygon';
-        }
-
-        // ✅ FIX: Use getAssetsAny instead of getTokenBalances to match balance-view data source
+        // Load all assets from all networks from Zerion (no chain filter)
         const allAssets = await walletApi.getAssetsAny(userId, true);
-        
-        // ✅ FIX: Filter assets for the target chain and map to TokenBalance format
+
+        // Map all assets across all networks to TokenBalance format
         const tokenList: TokenBalance[] = allAssets
-          .filter(asset => asset.chain === targetChain)
           .map(asset => ({
             address: asset.address ?? null,
             symbol: asset.symbol || 'UNKNOWN',
             balance: asset.balance || '0',
-            decimals: asset.decimals ?? 18, // Default to 18 for EVM tokens
-            chain: asset.chain, // ✅ FIX: Preserve chain property from asset
+            decimals: asset.decimals ?? 18,
+            chain: asset.chain,
           }));
 
-        // Sort: Native first, then alphabetical
+        // Sort: by chain name, then native first, then alphabetical symbol
         tokenList.sort((a, b) => {
+          const chainComp = (a.chain || '').localeCompare(b.chain || '');
+          if (chainComp !== 0) return chainComp;
           if (a.address === null && b.address !== null) return -1;
           if (a.address !== null && b.address === null) return 1;
           return a.symbol.localeCompare(b.symbol);
@@ -509,8 +502,8 @@ export function SendCryptoModal({ open, onOpenChange, chain, userId, onSuccess, 
       }
     }
 
-    // Validate recipient address
-    const addressError = validateAddress(recipientAddress, currentChainId);
+    // Validate recipient address using the selected token's chain
+    const addressError = validateAddress(recipientAddress, selectedToken?.chain || currentChainId);
     if (addressError) {
       errors.address = addressError;
     }

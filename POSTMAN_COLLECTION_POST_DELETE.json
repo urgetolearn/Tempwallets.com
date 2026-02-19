@@ -1,0 +1,762 @@
+{
+  "info": {
+    "name": "Tempwallets.com API - POST & DELETE Endpoints",
+    "description": "Complete POST and DELETE API endpoints for Tempwallets.com wallet platform. Import this into Postman for testing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0",
+    "updated": "2026-02-13"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Logout",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Logout current user and invalidate session"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wallet - Seed Management",
+      "item": [
+        {
+          "name": "Create or Import Seed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"mode\": \"random\",\n  \"mnemonic\": null\n}\n\n// For importing existing seed:\n// {\n//   \"userId\": \"temp-user-fingerprint-here\",\n//   \"mode\": \"mnemonic\",\n//   \"mnemonic\": \"your twelve word seed phrase goes here like this one two three\"\n// }"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/seed",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "seed"]
+            },
+            "description": "Create a new random seed phrase or import existing one. Private keys are derived on-demand and never stored."
+          }
+        },
+        {
+          "name": "Switch Wallet",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletId\": \"wallet-id-from-history\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/switch",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "switch"]
+            },
+            "description": "Switch to a different wallet from user's history (with JWT required)"
+          }
+        },
+        {
+          "name": "Delete Wallet from History",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/wallet/history/{{wallet_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "history", "{{wallet_id}}"]
+            },
+            "description": "Delete a wallet from user's history by wallet ID (with JWT required)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wallet - Send Transactions",
+      "item": [
+        {
+          "name": "Send Crypto (Standard Transaction)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"chain\": \"ethereum\",\n  \"tokenAddress\": null,\n  \"tokenDecimals\": null,\n  \"amount\": \"1000000000000000000\",\n  \"recipientAddress\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\"\n}\n\n// For sending ERC-20 tokens:\n// {\n//   \"userId\": \"temp-user-fingerprint-here\",\n//   \"chain\": \"ethereum\",\n//   \"tokenAddress\": \"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48\",\n//   \"tokenDecimals\": 6,\n//   \"amount\": \"1000000\",\n//   \"recipientAddress\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\"\n// }"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/send",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "send"]
+            },
+            "description": "Send native tokens or ERC-20 tokens to recipient address. Amounts should be in smallest units (wei for ETH, satoshi for BTC, etc.)"
+          }
+        },
+        {
+          "name": "Send EIP-7702 Gasless Transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"chainId\": 1,\n  \"recipientAddress\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\",\n  \"amount\": \"1000000000000000000\",\n  \"tokenAddress\": null,\n  \"tokenDecimals\": null\n}\n\n// For token transfers:\n// {\n//   \"userId\": \"temp-user-fingerprint-here\",\n//   \"chainId\": 8453,\n//   \"recipientAddress\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\",\n//   \"amount\": \"1000000\",\n//   \"tokenAddress\": \"0x833589fCD6eDb6E08f4c7C32D4f71b1566469c3\",\n//   \"tokenDecimals\": 6\n// }"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/eip7702/send",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "eip7702", "send"]
+            },
+            "description": "Send gasless transaction via EIP-7702 with gas sponsorship from Pimlico. Supported chains: ethereum, base, arbitrum, polygon, avalanche. Returns UserOp hash (not tx hash)."
+          }
+        },
+        {
+          "name": "Refresh Balances",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/wallet/balances/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["wallet", "balances", "refresh"]
+            },
+            "description": "Force refresh wallet balances across all chains (bypass cache)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wallet - WalletConnect",
+      "item": [
+        {
+          "name": "Save WalletConnect Proposal",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"user-id-or-fingerprint\",\n  \"proposalId\": 12345,\n  \"proposer\": {\n    \"publicKey\": \"public-key-from-wc\",\n    \"metadata\": {\n      \"name\": \"Uniswap\",\n      \"description\": \"Swap tokens\",\n      \"url\": \"https://app.uniswap.org\",\n      \"icons\": [\"https://app.uniswap.org/icon.png\"]\n    }\n  },\n  \"requiredNamespaces\": {\n    \"eip155\": {\n      \"chains\": [\"eip155:1\", \"eip155:8453\"],\n      \"methods\": [\"eth_sign\", \"eth_signTransaction\", \"eth_signTypedData\", \"eth_sendTransaction\"],\n      \"events\": [\"chainChanged\", \"accountsChanged\"]\n    }\n  },\n  \"optionalNamespaces\": {},\n  \"expiresAt\": \"2026-02-14T10:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/walletconnect/save-proposal",
+              "host": ["{{base_url}}"],
+              "path": ["walletconnect", "save-proposal"]
+            },
+            "description": "Save WalletConnect proposal to database before user approves/rejects"
+          }
+        },
+        {
+          "name": "Approve WalletConnect Proposal",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"user-id-or-fingerprint\",\n  \"proposalId\": 12345,\n  \"approvedChains\": [1, 8453, 42161]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/walletconnect/approve-proposal",
+              "host": ["{{base_url}}"],
+              "path": ["walletconnect", "approve-proposal"]
+            },
+            "description": "Approve WalletConnect proposal. Returns namespaces and session info for dApp"
+          }
+        },
+        {
+          "name": "Reject WalletConnect Proposal",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"user-id-or-fingerprint\",\n  \"proposalId\": 12345,\n  \"reason\": \"User rejected\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/walletconnect/reject-proposal",
+              "host": ["{{base_url}}"],
+              "path": ["walletconnect", "reject-proposal"]
+            },
+            "description": "Reject WalletConnect proposal"
+          }
+        },
+        {
+          "name": "Save WalletConnect Session",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"user-id-or-fingerprint\",\n  \"session\": {\n    \"topic\": \"session-topic-uuid\",\n    \"expiry\": 1739524800,\n    \"acknowledged\": true,\n    \"pairingTopic\": \"pairing-topic-uuid\",\n    \"relay\": {\"protocol\": \"irn\"},\n    \"controller\": \"public-key\",\n    \"namespaces\": {}\n  },\n  \"namespaces\": {\n    \"eip155\": {\n      \"chains\": [\"eip155:1\", \"eip155:8453\"],\n      \"methods\": [\"eth_sign\", \"eth_signTransaction\", \"eth_signTypedData\", \"eth_sendTransaction\"],\n      \"events\": [\"chainChanged\", \"accountsChanged\"],\n      \"accounts\": [\"eip155:1:0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\", \"eip155:8453:0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\"]\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/walletconnect/save-session",
+              "host": ["{{base_url}}"],
+              "path": ["walletconnect", "save-session"]
+            },
+            "description": "Persist approved WalletConnect session to database"
+          }
+        },
+        {
+          "name": "Sign WalletConnect Request",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"user-id-or-fingerprint\",\n  \"topic\": \"session-topic-uuid\",\n  \"requestId\": 1234,\n  \"method\": \"eth_sendTransaction\",\n  \"params\": [\n    {\n      \"from\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\",\n      \"to\": \"0x0000000000000000000000000000000000000000\",\n      \"value\": \"1000000000000000000\",\n      \"data\": \"0x\",\n      \"gas\": \"21000\"\n    }\n  ],\n  \"chainId\": \"eip155:1\"\n}\n\n// For personal_sign:\n// {\n//   \"userId\": \"user-id-or-fingerprint\",\n//   \"topic\": \"session-topic-uuid\",\n//   \"requestId\": 1234,\n//   \"method\": \"personal_sign\",\n//   \"params\": [\"0xHexEncodedMessage\", \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\"],\n//   \"chainId\": \"eip155:1\"\n// }\n\n// For eth_signTypedData:\n// {\n//   \"userId\": \"user-id-or-fingerprint\",\n//   \"topic\": \"session-topic-uuid\",\n//   \"requestId\": 1234,\n//   \"method\": \"eth_signTypedData\",\n//   \"params\": [\n//     \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\",\n//     {\"types\": {}, \"primaryType\": \"\", \"domain\": {}, \"message\": {}}\n//   ],\n//   \"chainId\": \"eip155:1\"\n// }"
+            },
+            "url": {
+              "raw": "{{base_url}}/walletconnect/sign",
+              "host": ["{{base_url}}"],
+              "path": ["walletconnect", "sign"]
+            },
+            "description": "Sign WalletConnect request (transaction, message, or typed data). Method determines signing type."
+          }
+        },
+        {
+          "name": "Disconnect WalletConnect Session",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/walletconnect/sessions/{{session_topic}}?userId={{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["walletconnect", "sessions", "{{session_topic}}"],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "{{user_id}}"
+                }
+              ]
+            },
+            "description": "Disconnect WalletConnect session with dApp"
+          }
+        }
+      ]
+    },
+    {
+      "name": "User - Profile",
+      "item": [
+        {
+          "name": "Update User Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"bio\": \"Crypto enthusiast\",\n  \"picture\": \"https://example.com/avatar.jpg\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/user/profile",
+              "host": ["{{base_url}}"],
+              "path": ["user", "profile"]
+            },
+            "description": "Update user profile name, bio, and picture (with JWT required)"
+          }
+        },
+        {
+          "name": "Award XP to User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100,\n  \"reason\": \"first_transaction\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/user/xp/award",
+              "host": ["{{base_url}}"],
+              "path": ["user", "xp", "award"]
+            },
+            "description": "Award XP to user for achievements (with JWT required). Reasons: first_transaction, wallet_created, etc."
+          }
+        },
+        {
+          "name": "Delete User Account",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{auth_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/user/account",
+              "host": ["{{base_url}}"],
+              "path": ["user", "account"]
+            },
+            "description": "Permanently delete user account and all associated data (with JWT required)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lightning Node - Management",
+      "item": [
+        {
+          "name": "Authenticate Wallet with Yellow Network",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"chain\": \"base\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/authenticate",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "authenticate"]
+            },
+            "description": "Authenticate wallet with Yellow Network (Step 1 of Lightning Node flow). Creates WebSocket connection and performs 3-step auth. Timeout: 90s"
+          }
+        },
+        {
+          "name": "Search Lightning Node Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"sessionId\": \"app_session_id_or_lightning_uri\",\n  \"chain\": \"base\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/search",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "search"]
+            },
+            "description": "Search for specific Lightning Node session by ID (Step 2a of Lightning Node flow). User must be authenticated first."
+          }
+        },
+        {
+          "name": "Create Lightning Node",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"token\": \"USDC\",\n  \"chain\": \"base\",\n  \"participants\": [\"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\"],\n  \"weights\": [100],\n  \"quorum\": 50,\n  \"sessionData\": \"Optional metadata\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/create",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "create"]
+            },
+            "description": "Create new Lightning Node (state channel). Timeout: 90s (WebSocket + auth)"
+          }
+        },
+        {
+          "name": "Fund Lightning Channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"chain\": \"base\",\n  \"asset\": \"USDC\",\n  \"amount\": \"10000000\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/fund-channel",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "fund-channel"]
+            },
+            "description": "Fund channel by moving funds from on-chain wallet to unified balance (requires on-chain transaction). Timeout: 120s"
+          }
+        },
+        {
+          "name": "Deposit to Lightning Node",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"appSessionId\": \"yellow-network-app-session-id\",\n  \"participantAddress\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\",\n  \"amount\": \"5000000\",\n  \"asset\": \"USDC\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/deposit",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "deposit"]
+            },
+            "description": "Deposit funds from unified balance to Lightning Node (gasless). Timeout: 60s"
+          }
+        },
+        {
+          "name": "Transfer Funds in Lightning Node",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"appSessionId\": \"yellow-network-app-session-id\",\n  \"fromAddress\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\",\n  \"toAddress\": \"0xRecipient0000000000000000000000000000000\",\n  \"amount\": \"1000000\",\n  \"asset\": \"USDC\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/transfer",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "transfer"]
+            },
+            "description": "Transfer funds between participants in Lightning Node (gasless). Timeout: 60s"
+          }
+        },
+        {
+          "name": "Withdraw from Lightning Node",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"appSessionId\": \"yellow-network-app-session-id\",\n  \"participantAddress\": \"0x742d35Cc6634C0532925a3b844Bc9e7595f42bE\",\n  \"amount\": \"2000000\",\n  \"asset\": \"USDC\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/withdraw",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "withdraw"]
+            },
+            "description": "Withdraw funds from Lightning Node back to unified balance (gasless). Timeout: 60s"
+          }
+        },
+        {
+          "name": "Close Lightning Node",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"appSessionId\": \"yellow-network-app-session-id\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/close",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "close"]
+            },
+            "description": "Close Lightning Node and settle funds on-chain. Timeout: 90s (may involve on-chain settlement)"
+          }
+        },
+        {
+          "name": "Lightning Node Heartbeat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/lightning-node/presence/{{app_session_id}}/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": [
+                "lightning-node",
+                "presence",
+                "{{app_session_id}}",
+                "{{user_id}}"
+              ]
+            },
+            "description": "Send presence heartbeat to Yellow Network (call every 30 seconds while viewing node)"
+          }
+        },
+        {
+          "name": "Join Lightning Node (DEPRECATED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"temp-user-fingerprint-here\",\n  \"uri\": \"lightning://app_session_id_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/lightning-node/join",
+              "host": ["{{base_url}}"],
+              "path": ["lightning-node", "join"]
+            },
+            "description": "DEPRECATED - Use authenticate + search instead. Kept for backward compatibility."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001",
+      "type": "string",
+      "description": "Backend API base URL. Change to production URL as needed."
+    },
+    {
+      "key": "auth_token",
+      "value": "your_jwt_token_here",
+      "type": "string",
+      "description": "JWT token from auth/google/callback. Used for authenticated endpoints."
+    },
+    {
+      "key": "user_id",
+      "value": "temp-user-fingerprint-or-google-id",
+      "type": "string",
+      "description": "User ID or device fingerprint. Used in WalletConnect endpoints."
+    },
+    {
+      "key": "wallet_id",
+      "value": "wallet-id-from-history",
+      "type": "string",
+      "description": "Wallet ID from wallet history. Used for switching/deleting wallets."
+    },
+    {
+      "key": "session_topic",
+      "value": "wc-session-topic-uuid",
+      "type": "string",
+      "description": "WalletConnect session topic UUID. Used for disconnecting sessions."
+    },
+    {
+      "key": "app_session_id",
+      "value": "yellow-network-app-session-id",
+      "type": "string",
+      "description": "Yellow Network app session ID. Used for Lightning Node operations."
+    }
+  ]
+}

@@ -14,9 +14,9 @@ export interface WalletAddresses {
   arbitrum: string;
   polygon: string;
   avalanche: string;
-  tron: string;
-  bitcoin: string;
-  solana: string;
+  // tron: string;
+  // bitcoin: string;
+  // solana: string;
   moonbeamTestnet: string;
   astarShibuya: string;
   paseoPassetHub: string;
@@ -31,11 +31,6 @@ export interface WalletAddresses {
   uniqueSubstrate: string | null; // Note: Different from EVM unique
   paseo: string | null;
   paseoAssethub: string | null;
-  // Aptos chains
-  aptos: string;
-  aptosMainnet: string;
-  aptosTestnet: string;
-  aptosDevnet: string;
 }
 
 export type WalletAddressKey = keyof WalletAddresses;
@@ -44,8 +39,7 @@ export type WalletAddressKind =
   | 'eoa'
   | 'erc4337'
   | 'nonEvm'
-  | 'substrate'
-  | 'aptos';
+  | 'substrate';
 
 export interface WalletAddressMetadata {
   chain: WalletAddressKey;

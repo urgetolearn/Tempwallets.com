@@ -71,7 +71,20 @@ export function BalanceView({ onOpenSend, selectedChainId }: BalanceViewProps) {
 
   // LOGIC: "Unless and until someanother token is there i want you to use native token of repesctive blockchain"
   // 1. Get real tokens for this chain
-  const chainGroup = groupedBalances.find(g => g.chain === selectedChainId);
+  //
+  // The backend (Zerion) uses canonical chain keys: 'ethereum', 'base', 'arbitrum', etc.
+  // The chain selector uses wallet-config keys: 'ethereumErc4337', 'baseErc4337', etc.
+  // We must map the selected config ID → the Zerion chain key before looking up balances,
+  // otherwise this find() never matches and the UI always shows a zero-balance fallback.
+  const CONFIG_ID_TO_CHAIN: Record<string, string> = {
+    ethereumErc4337: 'ethereum',
+    baseErc4337: 'base',
+    arbitrumErc4337: 'arbitrum',
+    polygonErc4337: 'polygon',
+    avalancheErc4337: 'avalanche',
+  };
+  const backendChainKey = CONFIG_ID_TO_CHAIN[selectedChainId] ?? selectedChainId;
+  const chainGroup = groupedBalances.find(g => g.chain === backendChainKey);
   const realChainTokens = chainGroup ? chainGroup.balances : [];
 
   // 2. Decide what to display
@@ -103,7 +116,11 @@ export function BalanceView({ onOpenSend, selectedChainId }: BalanceViewProps) {
     }).format(value);
   };
 
-  if (loading.balances && realBalances.length === 0) {
+  // Show loading spinner while the FIRST fetch is in-flight.
+  // The context only sets loading.balances=true when showLoading=true (manual refresh).
+  // For the initial load we infer "fetching" by: no balances AND no explicit loading flag.
+  // We show a subtle spinner instead of the empty mailbox so the user knows data is coming.
+  if (realBalances.length === 0) {
     return (
       <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col items-center justify-center py-16">
         <Loader2 className="h-8 w-8 animate-spin text-gray-400 mb-4" />
@@ -113,50 +130,44 @@ export function BalanceView({ onOpenSend, selectedChainId }: BalanceViewProps) {
   }
 
   return (
-    <div className="bg-white rounded-3xl p-3 border border-gray-100 shadow-sm">
-      {/* 1. Header Section: Total Balance & Amount */}
-      <div className="flex items-end justify-between px-1">
-        <div className="space-y-1">
-          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wide">
-            Total Balance
-          </h2>
-          <div className="flex items-center gap-2">
-            <span className="text-3xl font-bold text-gray-900 tracking-tight">
-              {hideBalance ? '••••••••' : formatCurrency(totalBalanceUsd)}
-            </span>
-            <span className="flex items-center text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              <TrendingUp className="w-3 h-3 mr-1" />
-              +0.00%
-            </span>
+    <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+      {/* 1. Total Balance Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-sm text-gray-500 font-rubik-normal">Total Balance</h2>
+            <button
+              onClick={() => setHideBalance(!hideBalance)}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label={hideBalance ? 'Show balance' : 'Hide balance'}
+            >
+              {hideBalance ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
           </div>
+          <p className="text-3xl font-rubik-semibold text-gray-900">
+            {hideBalance ? '••••••' : formatCurrency(totalBalanceUsd)}
+          </p>
         </div>
-
-        <div className="text-right">
-          {/* Hide Balance Toggle */}
-          <button
-            onClick={() => setHideBalance(!hideBalance)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-100 hover:border-gray-200 transition-all text-gray-600 hover:text-gray-900"
-            title={hideBalance ? "Show Balance" : "Hide Balance"}
-          >
-            {hideBalance ? (
-              <>
-                <span className="text-xs font-medium">Show</span>
-                <Eye className="w-3.5 h-3.5" />
-              </>
-            ) : (
-              <>
-                <span className="text-xs font-medium">Hide</span>
-                <EyeOff className="w-3.5 h-3.5" />
-              </>
-            )}
-          </button>
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1 text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">
+                <TrendingUp className="h-4 w-4" />
+                <span className="text-sm font-rubik-medium">Live</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Balance updates in real-time</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       {/* 2. Asset List - Forced Single Item for Selected Chain */}
       <div className="space-y-3 mt-4 relative z-10">
         {displayBalances.map((balance, index) => {
-          const key = `${balance.chain}-native`;
+          // Use contract address for ERC-20 tokens; 'native' suffix for native tokens
+          const key = `${balance.chain}-${balance.address ?? 'native'}`;
           return (
             <TokenBalanceItem
               key={key}
@@ -174,8 +185,11 @@ export function BalanceView({ onOpenSend, selectedChainId }: BalanceViewProps) {
         })}
       </div>
 
-      {/* 3. Empty State Animation - ✅ FIX: Only show when no tokens with value */}
-      {displayBalances.length > 0 && displayBalances.every(b => !b.valueUsd) && (
+      {/* 3. Empty State — shown ONLY when the chain has no real token data (i.e., we are
+           showing the 0-balance placeholder). Previously this fired whenever valueUsd was
+           undefined, which is always true because the API does not return USD pricing.
+           That caused "No Tokens Available" to appear on top of real token rows. */}
+      {realChainTokens.length === 0 && (
         <div className="flex flex-col items-center justify-center pb-4 -mt-10 relative z-0">
           <div className="pointer-events-none transform scale-75 sm:scale-90 -mb-4">
             <Image

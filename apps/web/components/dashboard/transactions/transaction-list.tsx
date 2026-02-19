@@ -96,30 +96,45 @@ export function TransactionList() {
     // 1. Process Real Transactions
     const processedRealTransactions: Transaction[] = useMemo(() => {
         return realTransactions
-            .filter((tx: any) => tx.type !== 'swap') // Explicitly exclude swaps
             .map((tx: any) => {
-                const type = tx.type === 'receive' ? 'receive' :
-                    tx.type === 'send' ? 'send' : 'unknown';
+                // The actual Transaction type from api.ts has: txHash, from, to, value (string),
+                // timestamp, blockNumber, status ('success'|'failed'|'pending'), chain, tokenSymbol.
+                // It does NOT have: type, quantity, symbol, asset, hash, minedAt.
 
-                const status = tx.status === 'failed' ? 'failed' : 'confirmed';
+                // Derive direction from status; we don't have a real from/to vs user-address check here
+                const type: 'receive' | 'send' | 'approve' | 'unknown' = 'unknown';
 
-                const amount = tx.quantity ? `${type === 'receive' ? '+' : '-'} ${parseFloat(tx.quantity).toFixed(4)} ${tx.symbol}` : '';
-                const amountValue = tx.value ? `$${tx.value.toFixed(2)}` : '';
+                // Map backend status → UI status ('success' → 'confirmed')
+                const status: 'confirmed' | 'failed' | 'pending' =
+                    tx.status === 'failed' ? 'failed' :
+                    tx.status === 'pending' ? 'pending' : 'confirmed';
+
+                // tx.value is a string (wei or human-readable from backend) — parseFloat before toFixed
+                const parsedValue = tx.value ? parseFloat(String(tx.value)) : NaN;
+                const amount = !isNaN(parsedValue) && parsedValue > 0
+                    ? `${parsedValue.toFixed(6)} ${tx.tokenSymbol || ''}`
+                    : '';
+                // USD value is not in the backend type; omit rather than crash
+                const amountValue = '';
+
+                // Use txHash (correct field name), not tx.hash (doesn't exist)
+                const hash = tx.txHash || '';
+                const ts = tx.timestamp ? Number(tx.timestamp) * (tx.timestamp > 1e12 ? 1 : 1000) : 0;
 
                 return {
-                    id: tx.hash || tx.id || Math.random().toString(),
-                    type: type as 'receive' | 'send' | 'approve' | 'unknown',
-                    status: status as 'confirmed' | 'failed' | 'pending',
-                    assetName: tx.asset?.name || tx.symbol || 'Unknown Asset',
-                    assetSymbol: tx.symbol || '',
-                    assetIcon: tx.asset?.icon?.url,
+                    id: hash || Math.random().toString(),
+                    type,
+                    status,
+                    assetName: tx.tokenSymbol || 'Unknown Asset',
+                    assetSymbol: tx.tokenSymbol || '',
+                    assetIcon: undefined, // not provided by backend
                     chain: tx.chain || 'Unknown Chain',
-                    hash: tx.hash,
-                    addressDisplay: tx.hash ? `${tx.hash.slice(0, 6)}...${tx.hash.slice(-4)}` : 'Unknown',
+                    hash,
+                    addressDisplay: hash ? `${hash.slice(0, 6)}...${hash.slice(-4)}` : 'Unknown',
                     amount,
                     amountValue,
-                    date: new Date(tx.minedAt || tx.timestamp).toLocaleDateString(),
-                    timestamp: new Date(tx.minedAt || tx.timestamp).getTime(),
+                    date: ts ? new Date(ts).toLocaleDateString() : 'Unknown',
+                    timestamp: ts,
                 };
             }).sort((a, b) => b.timestamp - a.timestamp);
     }, [realTransactions]);

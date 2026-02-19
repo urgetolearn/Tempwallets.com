@@ -38,9 +38,9 @@ export function ChainSelector({
           return false;
         }
 
-        // Remove chains that show "Coming Soon" (no walletConnect AND not Aptos)
-        // Exception: Aptos doesn't have walletConnect but we want to keep it
-        if (!config.capabilities.walletConnect && config.type !== 'aptos') {
+        // Remove chains that show "Coming Soon" (no walletConnect AND EVM type)
+        // Exception: Non-EVM chains like Aptos are handled separately
+        if (!config.capabilities.walletConnect && config.type === 'evm') {
           return false; // Remove "Coming Soon" chains
         }
 
@@ -218,14 +218,14 @@ export function ChainSelector({
                           EOA
                         </span>
                       )}
-                      {(!chain.capabilities?.walletConnect && chain.type !== 'aptos' && chain.type !== 'evm') && (
+                      {(!chain.capabilities?.walletConnect && chain.type === 'evm') && (
                         <span className="px-1 py-0 text-[8px] bg-orange-500/20 text-orange-400 rounded-full font-rubik-medium leading-tight border border-orange-500/30">
                           Coming Soon
                         </span>
                       )}
                       {/* Spacer for alignment - only show if NO other tags are shown */}
                       {!chain.isSmartAccount &&
-                        (chain.capabilities?.walletConnect || chain.type === 'aptos') &&
+                        chain.capabilities?.walletConnect &&
                         chain.type !== 'evm' && (
                           <span className="h-[14px]" />
                         )}

@@ -2,17 +2,20 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AddressManager } from './address.manager.js';
 import { SeedManager } from './seed.manager.js';
 import { AccountFactory } from '../factories/account.factory.js';
-import { PimlicoAccountFactory } from '../factories/pimlico-account.factory.js';
-import { SubstrateManager } from '../substrate/managers/substrate.manager.js';
+//import { PimlicoAccountFactory } from '../factories/pimlico-account.factory.js';
 import { AddressCacheRepository } from '../repositories/address-cache.repository.js';
 import { WalletAddresses } from '../interfaces/wallet.interfaces.js';
+import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
+import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { WalletHistoryRepository } from '../repositories/wallet-history.repository.js';
+import { PimlicoConfigService } from '../config/pimlico.config.js';
 
 describe('AddressManager', () => {
   let addressManager: AddressManager;
   let seedManager: jest.Mocked<SeedManager>;
   let accountFactory: jest.Mocked<AccountFactory>;
-  let pimlicoAccountFactory: jest.Mocked<PimlicoAccountFactory>;
-  let substrateManager: jest.Mocked<SubstrateManager>;
+  let nativeFactory: jest.Mocked<NativeEoaFactory>;
+  //let pimlicoAccountFactory: jest.Mocked<PimlicoAccountFactory>;
   let addressCacheRepository: jest.Mocked<AddressCacheRepository>;
 
   const mockUserId = 'test-fingerprint-123';
@@ -21,6 +24,11 @@ describe('AddressManager', () => {
 
   beforeEach(async () => {
     // Create mocks
+    const mockPimlicoConfigService = {
+      isEip7702Enabled: jest.fn().mockReturnValue(false),
+      getEip7702Config: jest.fn().mockReturnValue(undefined),
+    };
+
     const mockSeedManager = {
       hasSeed: jest.fn(),
       createOrImportSeed: jest.fn(),
@@ -30,14 +38,17 @@ describe('AddressManager', () => {
     const mockAccountFactory = {
       createAccount: jest.fn(),
     };
-
-    const mockPimlicoAccountFactory = {
-      createAccount: jest.fn(),
+    const mockWalletHistoryRepository = {
+      save: jest.fn(),
+      find: jest.fn(),
     };
 
-    const mockSubstrateManager = {
-      getAddress: jest.fn(),
-      getAddresses: jest.fn().mockResolvedValue({}),
+    // const mockPimlicoAccountFactory = {
+    //   createAccount: jest.fn(),
+    // };
+
+    const mockEip7702AccountFactory = {
+      createAccount: jest.fn(),
     };
 
     const mockAddressCacheRepository = {
@@ -57,20 +68,38 @@ describe('AddressManager', () => {
           useValue: mockSeedManager,
         },
         {
+          provide: PimlicoConfigService,
+          useValue: mockPimlicoConfigService,
+        },
+        {
           provide: AccountFactory,
           useValue: mockAccountFactory,
         },
-        {
-          provide: PimlicoAccountFactory,
-          useValue: mockPimlicoAccountFactory,
-        },
-        {
-          provide: SubstrateManager,
-          useValue: mockSubstrateManager,
-        },
+        // {
+        //   provide: PimlicoAccountFactory,
+        //   useValue: mockPimlicoAccountFactory,
+        // },
+
         {
           provide: AddressCacheRepository,
           useValue: mockAddressCacheRepository,
+        },
+        {
+          provide: Eip7702AccountFactory,
+          useValue: mockEip7702AccountFactory,
+        },
+        {
+          provide: WalletHistoryRepository,
+          useValue: mockWalletHistoryRepository,
+        },
+        {
+          provide: NativeEoaFactory,
+          useValue: {
+            createAccount: jest.fn().mockResolvedValue({
+              address: '0xmockaddress',
+              privateKey: '0xmockprivatekey',
+            }),
+          },
         },
       ],
     }).compile();
@@ -78,8 +107,8 @@ describe('AddressManager', () => {
     addressManager = module.get<AddressManager>(AddressManager);
     seedManager = module.get(SeedManager);
     accountFactory = module.get(AccountFactory);
-    pimlicoAccountFactory = module.get(PimlicoAccountFactory);
-    substrateManager = module.get(SubstrateManager);
+    nativeFactory = module.get(NativeEoaFactory);
+    //pimlicoAccountFactory = module.get(PimlicoAccountFactory);
     addressCacheRepository = module.get(AddressCacheRepository);
   });
 
@@ -104,10 +133,7 @@ describe('AddressManager', () => {
         unique: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         bifrost: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         bifrostTestnet: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        // Non-EVM chains
-        tron: 'TXYZabcdefghijklmnopqrstuvwxyz123456',
-        bitcoin: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
-        solana: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+        
         // ERC-4337 chains
         ethereumErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         baseErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
@@ -134,7 +160,7 @@ describe('AddressManager', () => {
         mockUserId,
       );
       // Note: hasSeed might be called to check, but createAccount should not be called
-      expect(accountFactory.createAccount).not.toHaveBeenCalled();
+      expect(nativeFactory.createAccount).not.toHaveBeenCalled();
       expect(result).toBeDefined();
     });
 
@@ -163,7 +189,7 @@ describe('AddressManager', () => {
       // Should get seed
       expect(seedManager.getSeed).toHaveBeenCalledWith(mockUserId);
       // Should generate addresses
-      expect(accountFactory.createAccount).toHaveBeenCalled();
+      expect(nativeFactory.createAccount).toHaveBeenCalled();
       // Should save addresses to DB
       expect(addressCacheRepository.saveAddress).toHaveBeenCalled();
       expect(result).toBeDefined();
@@ -208,18 +234,12 @@ describe('AddressManager', () => {
         unique: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         bifrost: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         bifrostTestnet: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        tron: 'TXYZabcdefghijklmnopqrstuvwxyz123456',
-        bitcoin: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
-        solana: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
         ethereumErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         baseErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         arbitrumErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         polygonErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         avalancheErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         polkadot: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-        hydrationSubstrate: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-        bifrostSubstrate: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-        uniqueSubstrate: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
         paseo: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
         paseoAssethub: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
       };
@@ -238,7 +258,7 @@ describe('AddressManager', () => {
         2,
       );
       // Note: hasSeed might be called, but createAccount should not be called
-      expect(accountFactory.createAccount).not.toHaveBeenCalled();
+      expect(nativeFactory.createAccount).not.toHaveBeenCalled();
       expect(result1).toBeDefined();
       expect(result2).toBeDefined();
     });
@@ -299,14 +319,6 @@ describe('AddressManager', () => {
       addressCacheRepository.getCachedAddresses.mockResolvedValue({});
       seedManager.hasSeed.mockResolvedValue(true);
       seedManager.getSeed.mockResolvedValue(mockSeedPhrase);
-      substrateManager.getAddresses.mockResolvedValue({
-        polkadot: null,
-        hydration: null,
-        bifrost: null,
-        unique: null,
-        paseo: null,
-        paseoAssethub: null,
-      });
 
       const mockAccount = {
         getAddress: jest
@@ -314,7 +326,7 @@ describe('AddressManager', () => {
           .mockResolvedValue('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'),
       };
       accountFactory.createAccount.mockResolvedValue(mockAccount as any);
-      pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
+      //pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
 
       const streamed: Array<{ chain: string; address: string | null }> = [];
       for await (const item of addressManager.streamAddresses(mockUserId)) {
@@ -341,15 +353,7 @@ describe('AddressManager', () => {
           .mockResolvedValue('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'),
       };
       accountFactory.createAccount.mockResolvedValue(mockAccount as any);
-      pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
-      substrateManager.getAddresses.mockResolvedValue({
-        polkadot: null,
-        hydration: null,
-        bifrost: null,
-        unique: null,
-        paseo: null,
-        paseoAssethub: null,
-      });
+      //pimlicoAccountFactory.createAccount.mockResolvedValue(mockAccount as any);
 
       await addressManager.getAddresses(mockUserId);
 
@@ -373,9 +377,6 @@ describe('AddressManager', () => {
         unique: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         bifrost: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         bifrostTestnet: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        tron: 'TXYZabcdefghijklmnopqrstuvwxyz123456',
-        bitcoin: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
-        solana: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
         ethereumErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         baseErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         arbitrumErc4337: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
@@ -395,7 +396,7 @@ describe('AddressManager', () => {
       await addressManager.getAddresses(mockUserId);
 
       // Should not generate again (createAccount should not be called in second request)
-      expect(accountFactory.createAccount).not.toHaveBeenCalled();
+      expect(nativeFactory.createAccount).not.toHaveBeenCalled();
     });
   });
 });

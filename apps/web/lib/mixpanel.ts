@@ -16,9 +16,11 @@ const getToken = () => {
     process.env.NEXT_PUBLIC_MIXPANEL_TOKEN_DEV;
 
   if (!token) {
-    // Only warn once
+    // Only log once in development when Mixpanel is intentionally disabled
     if (!tokenWarningShown) {
-      console.warn("Mixpanel token is not configured.");
+      if (process.env.NODE_ENV === "development") {
+        console.debug("Mixpanel token is not configured.");
+      }
       tokenWarningShown = true;
     }
     return undefined;
