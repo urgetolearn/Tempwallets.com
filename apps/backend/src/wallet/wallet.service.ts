@@ -122,6 +122,7 @@ export class WalletService {
       balance: string;
       decimals: number;
       balanceHuman?: string;
+      valueUsd?: number;
     }>
   > {
     return this.walletBalanceService.getTokenBalancesAny(

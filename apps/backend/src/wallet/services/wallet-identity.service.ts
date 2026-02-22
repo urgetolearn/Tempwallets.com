@@ -86,7 +86,15 @@ export class WalletIdentityService {
       const currentSeed = await this.seedManager.getSeed(userId);
       // Only save if it's different from the one we're switching to
       if (currentSeed !== seedPhrase) {
-        await this.walletHistoryRepository.saveToHistory(userId, currentSeed);
+        const existsInHistory =
+          await this.walletHistoryRepository.hasSeedInHistory(
+            userId,
+            currentSeed,
+          );
+
+        if (!existsInHistory) {
+          await this.walletHistoryRepository.saveToHistory(userId, currentSeed);
+        }
       }
     }
 

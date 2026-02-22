@@ -24,6 +24,7 @@ export class WalletBalanceService {
       balance: string;
       decimals: number;
       balanceHuman?: string;
+      valueUsd?: number;
     }>
   > {
     return this.zerionBalanceService.getTokenBalancesAny(

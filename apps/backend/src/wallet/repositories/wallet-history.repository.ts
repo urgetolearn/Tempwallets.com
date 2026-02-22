@@ -104,6 +104,35 @@ export class WalletHistoryRepository {
   }
 
   /**
+   * Check whether a seed phrase already exists in a user's wallet history.
+   * This prevents duplicate history rows when switching back and forth.
+   */
+  async hasSeedInHistory(userId: string, seedPhrase: string): Promise<boolean> {
+    const wallets = await this.prisma.walletHistory.findMany({
+      where: { userId },
+      select: {
+        ciphertext: true,
+        iv: true,
+        authTag: true,
+      },
+    });
+
+    for (const wallet of wallets) {
+      const decrypted = this.encryptionService.decrypt({
+        ciphertext: wallet.ciphertext,
+        iv: wallet.iv,
+        authTag: wallet.authTag,
+      });
+
+      if (decrypted === seedPhrase) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Set a wallet as active (deactivates all others)
    * @param walletId - The wallet history entry ID
    * @param userId - The user ID

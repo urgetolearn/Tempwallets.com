@@ -42,6 +42,7 @@ export class ZerionAnyChainService {
       balance: string;
       decimals: number;
       balanceHuman?: string;
+      valueUsd?: number;
     }>
   > {
     // Ensure wallet exists
@@ -170,6 +171,7 @@ export class ZerionAnyChainService {
         balance: string;
         decimals: number;
         balanceHuman?: string;
+        valueUsd?: number;
       }
     >();
 
@@ -194,6 +196,7 @@ export class ZerionAnyChainService {
               balance: balanceSmallest, // Keep smallest units as primary balance
               decimals: token.decimals || 18, // Use Zerion's decimals with fallback
               balanceHuman: token.balanceHuman.toString(), // Add human-readable for UI
+              valueUsd: token.valueUsd,
             });
           }
         } catch (e) {

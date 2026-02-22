@@ -247,7 +247,7 @@ export class ZerionService {
       return cached;
     }
 
-    const url = `${this.baseUrl}/wallets/${address}/positions/?sort=value`;
+    const url = `${this.baseUrl}/wallets/${address}/positions/?sort=value&currency=usd`;
 
     try {
       const res = await this.makeRequest<ZerionPositionsArray>(url);
