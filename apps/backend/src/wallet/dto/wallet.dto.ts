@@ -35,6 +35,11 @@ const SUPPORTED_CHAINS = [
   'polygon',
   'avalanche',
   'bnb',
+  'ethereumErc4337',
+  'baseErc4337',
+  'arbitrumErc4337',
+  'polygonErc4337',
+  'avalancheErc4337',
   // Non-EVM
   'tron',
   'bitcoin',
@@ -103,6 +108,54 @@ export class SendEip7702Dto {
   @ValidateIf((o) => o.tokenAddress !== undefined && o.tokenAddress !== null)
   @IsNotEmpty({
     message: 'tokenDecimals is required when tokenAddress is provided. This should come from Zerion token data.'
+  })
+  @Min(0, { message: 'tokenDecimals must be between 0 and 36' })
+  @Max(36, { message: 'tokenDecimals must be between 0 and 36' })
+  tokenDecimals?: number;
+}
+
+export class SendErc4337Dto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @IsIn([
+    'ethereum',
+    'base',
+    'arbitrum',
+    'optimism',
+    'polygon',
+    'avalanche',
+    'bnb',
+    'ethereumErc4337',
+    'baseErc4337',
+    'arbitrumErc4337',
+    'polygonErc4337',
+    'avalancheErc4337',
+  ])
+  chain: string;
+
+  @IsString()
+  @IsNotEmpty()
+  recipientAddress: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[0-9]+(\.[0-9]+)?$/, {
+    message: 'Amount must be a positive number',
+  })
+  amount: string;
+
+  @IsString()
+  @IsOptional()
+  tokenAddress?: string;
+
+  @IsNumber()
+  @ValidateIf((o) => o.tokenAddress !== undefined && o.tokenAddress !== null)
+  @IsNotEmpty({
+    message:
+      'tokenDecimals is required when tokenAddress is provided. This should come from Zerion token data.',
   })
   @Min(0, { message: 'tokenDecimals must be between 0 and 36' })
   @Max(36, { message: 'tokenDecimals must be between 0 and 36' })

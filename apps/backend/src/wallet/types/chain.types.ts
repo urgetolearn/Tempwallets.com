@@ -32,9 +32,19 @@ export type ChainType =
   | 'bifrostTestnet';
 
 /**
+ * ERC-4337 smart account chain keys (internal)
+ */
+export type Erc4337ChainKey =
+  | 'ethereumErc4337'
+  | 'baseErc4337'
+  | 'arbitrumErc4337'
+  | 'polygonErc4337'
+  | 'avalancheErc4337';
+
+/**
  * All chain types including Substrate chains
  */
-export type AllChainTypes = ChainType | SubstrateChain;
+export type AllChainTypes = ChainType | SubstrateChain | Erc4337ChainKey;
 
 /**
  * Chain configuration for EVM chains
@@ -60,6 +70,7 @@ export interface Erc4337Config {
   bundlerUrl: string;
   paymasterUrl?: string;
   entryPointAddress: string;
+  entryPointVersion: '0.6' | '0.7' | '0.8';
   factoryAddress: string;
   paymasterAddress?: string;
 }

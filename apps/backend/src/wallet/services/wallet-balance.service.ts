@@ -71,7 +71,7 @@ export class WalletBalanceService {
     userId: string,
   ): Promise<Array<{ chain: string; balance: string }>> {
     this.logger.warn(
-      'EIP-7702 migration: paymaster balances for legacy ERC-4337 are disabled.',
+      'ERC-4337 paymaster balance lookup is not implemented yet.',
     );
     return [];
   }

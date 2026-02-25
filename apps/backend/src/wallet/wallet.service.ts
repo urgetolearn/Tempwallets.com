@@ -247,7 +247,11 @@ export class WalletService {
     amount: string,
     tokenAddress?: string,
     tokenDecimals?: number,
-    options?: { forceEip7702?: boolean },
+    options?: {
+      forceEip7702?: boolean;
+      forceErc4337?: boolean;
+      bypassGaslessRouting?: boolean;
+    },
   ): Promise<{ txHash: string }> {
     return this.walletSendService.sendCrypto(
       userId,
@@ -257,6 +261,36 @@ export class WalletService {
       tokenAddress,
       tokenDecimals,
       options,
+    );
+  }
+
+  async sendErc4337Gasless(
+    userId: string,
+    chain:
+      | 'ethereum'
+      | 'base'
+      | 'arbitrum'
+      | 'polygon'
+      | 'avalanche'
+      | 'optimism'
+      | 'bnb',
+    recipientAddress: string,
+    amount: string,
+    tokenAddress?: string,
+    tokenDecimals?: number,
+  ): Promise<{
+    success: boolean;
+    userOpHash: string;
+    transactionHash?: string;
+    explorerUrl?: string;
+  }> {
+    return this.walletSendService.sendErc4337Gasless(
+      userId,
+      chain,
+      recipientAddress,
+      amount,
+      tokenAddress,
+      tokenDecimals,
     );
   }
 

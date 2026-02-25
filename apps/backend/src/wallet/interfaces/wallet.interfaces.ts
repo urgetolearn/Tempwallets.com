@@ -14,6 +14,11 @@ export interface WalletAddresses {
   arbitrum: string;
   polygon: string;
   avalanche: string;
+  ethereumErc4337: string;
+  baseErc4337: string;
+  arbitrumErc4337: string;
+  polygonErc4337: string;
+  avalancheErc4337: string;
   // tron: string;
   // bitcoin: string;
   // solana: string;
@@ -173,7 +178,11 @@ export interface ITransactionManager {
     amount: string,
     tokenAddress?: string,
     tokenDecimals?: number,
-    options?: { forceEip7702?: boolean },
+    options?: {
+      forceEip7702?: boolean;
+      forceErc4337?: boolean;
+      bypassGaslessRouting?: boolean;
+    },
   ): Promise<{ txHash: string }>;
 
   signWalletConnectTransaction(

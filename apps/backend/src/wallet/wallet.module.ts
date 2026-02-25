@@ -28,9 +28,12 @@ import { AddressManager } from './managers/address.manager.js';
 import { AccountFactory } from './factories/account.factory.js';
 import { NativeEoaFactory } from './factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from './factories/erc4337-account.factory.js';
 import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
+import { Erc4337AccountRepository } from './repositories/erc4337-account.repository.js';
 // Import Pimlico service for bundler/paymaster operations
 import { PimlicoService } from './services/pimlico.service.js';
+import { GaslessRateLimitService } from './services/gasless-rate-limit.service.js';
 // Import Polkadot EVM RPC service
 // import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
 // Import Token List service
@@ -79,12 +82,15 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     AddressManager,
     // Factories
     AccountFactory,
-  NativeEoaFactory,
-  Eip7702AccountFactory,
-  // Delegation repository for EIP-7702
-  Eip7702DelegationRepository,
+    NativeEoaFactory,
+    Eip7702AccountFactory,
+    Erc4337AccountFactory,
+    // Delegation repository for EIP-7702
+    Eip7702DelegationRepository,
+    Erc4337AccountRepository,
     // Pimlico bundler/paymaster service
     PimlicoService,
+    GaslessRateLimitService,
     // Polkadot EVM RPC service
     // PolkadotEvmRpcService,
     // Token List service
@@ -121,11 +127,14 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     SeedManager,
     AddressManager,
     AccountFactory,
-  NativeEoaFactory,
-  Eip7702AccountFactory,
-  Eip7702DelegationRepository,
+    NativeEoaFactory,
+    Eip7702AccountFactory,
+    Erc4337AccountFactory,
+    Eip7702DelegationRepository,
+    Erc4337AccountRepository,
     // Export Pimlico service
     PimlicoService,
+    GaslessRateLimitService,
     // Export Polkadot EVM RPC service
     // PolkadotEvmRpcService,
     // Export Token List service

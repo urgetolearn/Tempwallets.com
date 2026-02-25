@@ -3,6 +3,7 @@ import { PimlicoConfigService } from '../config/pimlico.config.js';
 import { AccountFactory } from '../factories/account.factory.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from '../factories/erc4337-account.factory.js';
 import { AllChainTypes } from '../types/chain.types.js';
 import { IAccount } from '../types/account.types.js';
 
@@ -15,6 +16,7 @@ export class WalletAccountService {
     private readonly accountFactory: AccountFactory,
     private readonly nativeEoaFactory: NativeEoaFactory,
     private readonly eip7702AccountFactory: Eip7702AccountFactory,
+    private readonly erc4337AccountFactory: Erc4337AccountFactory,
   ) {}
 
   /**
@@ -27,7 +29,9 @@ export class WalletAccountService {
     seedPhrase: string,
     chain: AllChainTypes,
     userId?: string,
+    options?: { forceEip7702?: boolean; forceErc4337?: boolean },
   ): Promise<IAccount> {
+    const { baseChain, isErc4337Alias } = this.normalizeChain(chain);
     const eip7702Chains: AllChainTypes[] = [
       'ethereum',
       'base',
@@ -35,14 +39,51 @@ export class WalletAccountService {
       'optimism',
     ];
 
+    const forceEip7702 = options?.forceEip7702 === true;
+    const forceErc4337 = options?.forceErc4337 === true;
+
     const isEip7702 =
-      this.pimlicoConfig.isEip7702Enabled(chain) &&
-      eip7702Chains.includes(chain);
+      !forceErc4337 &&
+      (forceEip7702 ||
+        (this.pimlicoConfig.isEip7702Enabled(baseChain) &&
+          eip7702Chains.includes(baseChain)));
 
     if (isEip7702) {
       return this.eip7702AccountFactory.createAccount(
         seedPhrase,
-        chain as 'ethereum' | 'base' | 'arbitrum' | 'optimism',
+        baseChain as 'ethereum' | 'base' | 'arbitrum' | 'optimism',
+        0,
+        userId,
+      );
+    }
+
+    const erc4337Chains: AllChainTypes[] = [
+      'ethereum',
+      'base',
+      'arbitrum',
+      'polygon',
+      'avalanche',
+      'optimism',
+      'bnb',
+    ];
+
+    const isErc4337 =
+      forceErc4337 ||
+      isErc4337Alias ||
+      (this.pimlicoConfig.isErc4337Enabled(baseChain) &&
+        erc4337Chains.includes(baseChain));
+
+    if (isErc4337) {
+      return this.erc4337AccountFactory.createAccount(
+        seedPhrase,
+        baseChain as
+          | 'ethereum'
+          | 'base'
+          | 'arbitrum'
+          | 'polygon'
+          | 'avalanche'
+          | 'optimism'
+          | 'bnb',
         0,
         userId,
       );
@@ -58,20 +99,34 @@ export class WalletAccountService {
       'bnb',
     ];
 
-    if (evmChains.includes(chain)) {
+    if (evmChains.includes(baseChain)) {
       return this.nativeEoaFactory.createAccount(
         seedPhrase,
-        chain as
+        baseChain as
           | 'ethereum'
           | 'base'
           | 'arbitrum'
           | 'polygon'
-          | 'avalanche',
+          | 'avalanche'
+          | 'optimism'
+          | 'bnb',
         0,
       );
     }
 
     return this.accountFactory.createAccount(seedPhrase, chain, 0);
+  }
+
+  private normalizeChain(chain: AllChainTypes): {
+    baseChain: AllChainTypes;
+    isErc4337Alias: boolean;
+  } {
+    const chainString = String(chain);
+    const isErc4337Alias = /Erc4337$/i.test(chainString);
+    const baseChain = chainString
+      .replace(/Erc4337$/i, '')
+      .toLowerCase() as AllChainTypes;
+    return { baseChain, isErc4337Alias };
   }
 
   /**

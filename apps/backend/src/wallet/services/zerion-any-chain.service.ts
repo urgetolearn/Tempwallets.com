@@ -71,6 +71,13 @@ export class ZerionAnyChainService {
     addTarget(addresses.polygon);
     addTarget(addresses.avalanche);
 
+    // ERC-4337 smart accounts (counterfactual or deployed)
+    addTarget(addresses.ethereumErc4337);
+    addTarget(addresses.baseErc4337);
+    addTarget(addresses.arbitrumErc4337);
+    addTarget(addresses.polygonErc4337);
+    addTarget(addresses.avalancheErc4337);
+
     // Solana address (Zerion supports Solana)
     //addTarget(addresses.solana);
 

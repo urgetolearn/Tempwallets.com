@@ -21,6 +21,7 @@ import {
   CreateOrImportSeedDto,
   SendCryptoDto,
   SendEip7702Dto,
+  SendErc4337Dto,
   WalletConnectSignDto,
 } from './dto/wallet.dto.js';
 // import { PolkadotEvmRpcService } from './services/polkadot-evm-rpc.service.js';
@@ -56,6 +57,40 @@ export class WalletController {
     const result = await this.walletService.sendEip7702Gasless(
       finalUserId,
       dto.chainId,
+      dto.recipientAddress,
+      dto.amount,
+      dto.tokenAddress,
+      dto.tokenDecimals,
+    );
+
+    return result;
+  }
+
+  @Post('erc4337/send')
+  @HttpCode(HttpStatus.OK)
+  async sendErc4337Gasless(
+    @Body() dto: SendErc4337Dto,
+    @UserId() userId?: string,
+  ) {
+    const finalUserId = userId || dto.userId;
+    if (!finalUserId) {
+      throw new BadRequestException('userId is required');
+    }
+
+    const chain = dto.chain
+      .replace(/Erc4337$/i, '')
+      .toLowerCase() as
+      | 'ethereum'
+      | 'base'
+      | 'arbitrum'
+      | 'optimism'
+      | 'polygon'
+      | 'avalanche'
+      | 'bnb';
+
+    const result = await this.walletService.sendErc4337Gasless(
+      finalUserId,
+      chain,
       dto.recipientAddress,
       dto.amount,
       dto.tokenAddress,

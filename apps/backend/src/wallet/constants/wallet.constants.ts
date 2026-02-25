@@ -2,9 +2,21 @@ import { WalletAddressKey } from '../interfaces/wallet.interfaces.js';
 
 export const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-export const SMART_ACCOUNT_CHAIN_KEYS: Array<
-  'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche'
-> = ['ethereum', 'base', 'arbitrum', 'polygon', 'avalanche'];
+export const ERC4337_CHAIN_KEYS: Array<
+  | 'ethereumErc4337'
+  | 'baseErc4337'
+  | 'arbitrumErc4337'
+  | 'polygonErc4337'
+  | 'avalancheErc4337'
+> = [
+  'ethereumErc4337',
+  'baseErc4337',
+  'arbitrumErc4337',
+  'polygonErc4337',
+  'avalancheErc4337',
+];
+
+export const SMART_ACCOUNT_CHAIN_KEYS = ERC4337_CHAIN_KEYS;
 
 export const EOA_CHAIN_KEYS: Array<
   | 'ethereum'

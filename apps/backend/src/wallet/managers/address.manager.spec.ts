@@ -7,6 +7,7 @@ import { AddressCacheRepository } from '../repositories/address-cache.repository
 import { WalletAddresses } from '../interfaces/wallet.interfaces.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from '../factories/erc4337-account.factory.js';
 import { WalletHistoryRepository } from '../repositories/wallet-history.repository.js';
 import { PimlicoConfigService } from '../config/pimlico.config.js';
 
@@ -26,6 +27,7 @@ describe('AddressManager', () => {
     // Create mocks
     const mockPimlicoConfigService = {
       isEip7702Enabled: jest.fn().mockReturnValue(false),
+      isErc4337Enabled: jest.fn().mockReturnValue(false),
       getEip7702Config: jest.fn().mockReturnValue(undefined),
     };
 
@@ -49,6 +51,12 @@ describe('AddressManager', () => {
 
     const mockEip7702AccountFactory = {
       createAccount: jest.fn(),
+    };
+    const mockErc4337AccountFactory = {
+      createAccount: jest.fn(),
+      getSmartAccountAddress: jest
+        .fn()
+        .mockResolvedValue('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'),
     };
 
     const mockAddressCacheRepository = {
@@ -87,6 +95,10 @@ describe('AddressManager', () => {
         {
           provide: Eip7702AccountFactory,
           useValue: mockEip7702AccountFactory,
+        },
+        {
+          provide: Erc4337AccountFactory,
+          useValue: mockErc4337AccountFactory,
         },
         {
           provide: WalletHistoryRepository,

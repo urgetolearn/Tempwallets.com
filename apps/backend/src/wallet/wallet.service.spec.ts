@@ -28,10 +28,12 @@ import { WalletAddresses } from './interfaces/wallet.interfaces.js';
 import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
 import { NativeEoaFactory } from './factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from './factories/erc4337-account.factory.js';
 import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
 import { PimlicoConfigService } from './config/pimlico.config.js';
 import { WalletMapper } from './mappers/wallet.mapper.js';
 import { WalletIdentityService } from './services/wallet-identity.service.js';
+import { GaslessRateLimitService } from './services/gasless-rate-limit.service.js';
 
 // Mock TokenListService to avoid import.meta.url issues
 jest.mock('./services/token-list.service.js', () => {
@@ -76,6 +78,7 @@ describe('WalletService', () => {
     };
     const mockPimlicoConfigService = {
       isEip7702Enabled: jest.fn().mockReturnValue(false),
+      isErc4337Enabled: jest.fn().mockReturnValue(false),
       getEip7702Config: jest.fn().mockReturnValue(undefined),
     };
 
@@ -126,6 +129,10 @@ describe('WalletService', () => {
       createAccount: jest.fn(),
       createFromSeed: jest.fn(),
     };
+    const mockErc4337AccountFactory = {
+      createAccount: jest.fn(),
+      getSmartAccountAddress: jest.fn(),
+    };
     const mockWalletHistoryRepository = {
       save: jest.fn(),
       find: jest.fn(),
@@ -151,6 +158,9 @@ describe('WalletService', () => {
         address: '0xmockaddress',
         privateKey: '0xmockprivatekey',
       }),
+    };
+    const mockGaslessRateLimitService = {
+      checkOrThrow: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -228,6 +238,10 @@ describe('WalletService', () => {
           useValue: mockEip7702AccountFactory,
         },
         {
+          provide: Erc4337AccountFactory,
+          useValue: mockErc4337AccountFactory,
+        },
+        {
           provide: WalletHistoryRepository,
           useValue: mockWalletHistoryRepository,
         },
@@ -239,6 +253,10 @@ describe('WalletService', () => {
         {
           provide: WalletMapper,
           useValue: mockWalletMapper,
+        },
+        {
+          provide: GaslessRateLimitService,
+          useValue: mockGaslessRateLimitService,
         },
       ],
     }).compile();

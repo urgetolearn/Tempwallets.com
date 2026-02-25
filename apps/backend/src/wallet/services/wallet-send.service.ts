@@ -12,9 +12,12 @@ import { Eip7702DelegationRepository } from '../repositories/eip7702-delegation.
 import { WalletIdentityService } from './wallet-identity.service.js';
 import { WalletBalanceService } from './wallet-balance.service.js';
 import { WalletAccountService } from './wallet-account.service.js';
+import { GaslessRateLimitService } from './gasless-rate-limit.service.js';
 import { AllChainTypes } from '../types/chain.types.js';
-import { getExplorerUrl } from '../utils/validation.utils.js';
+import { getExplorerUrl, validateEthereumAddress } from '../utils/validation.utils.js';
 import { convertToSmallestUnits } from '../utils/conversion.utils.js';
+import { createPimlicoClient } from 'permissionless/clients/pimlico';
+import { http, type Address } from 'viem';
 
 @Injectable()
 export class WalletSendService {
@@ -28,6 +31,7 @@ export class WalletSendService {
     private readonly walletIdentityService: WalletIdentityService,
     private readonly walletBalanceService: WalletBalanceService,
     private readonly walletAccountService: WalletAccountService,
+    private readonly gaslessRateLimiter: GaslessRateLimitService,
   ) {}
 
   /**
@@ -47,7 +51,11 @@ export class WalletSendService {
     amount: string,
     tokenAddress?: string,
     tokenDecimals?: number,
-    options?: { forceEip7702?: boolean },
+    options?: {
+      forceEip7702?: boolean;
+      forceErc4337?: boolean;
+      bypassGaslessRouting?: boolean;
+    },
   ): Promise<{ txHash: string }> {
     this.logger.log(
       `Sending crypto for user ${userId} on chain ${chain}: ${amount} to ${recipientAddress}`,
@@ -66,17 +74,43 @@ export class WalletSendService {
       throw new BadRequestException('Amount must be a positive number');
     }
 
+    const { baseChain, isErc4337Alias } = this.normalizeChain(chain);
     const forceEip7702 = options?.forceEip7702 === true;
-    const isEip7702Chain = this.pimlicoConfig.isEip7702Enabled(chain);
-    const accountType = isEip7702Chain ? 'EIP-7702' : 'EOA';
+    const forceErc4337 = options?.forceErc4337 === true;
+    const bypassGaslessRouting = options?.bypassGaslessRouting === true;
+
+    if (isErc4337Alias && !forceErc4337) {
+      throw new BadRequestException(
+        `chain ${chain} requires ERC-4337 method. Use /wallet/erc4337/send.`,
+      );
+    }
+
+    const isEip7702Chain = this.pimlicoConfig.isEip7702Enabled(baseChain);
+    const isErc4337Chain =
+      this.pimlicoConfig.isErc4337Enabled(baseChain) || isErc4337Alias;
+    const accountType = forceEip7702
+      ? 'EIP-7702'
+      : forceErc4337
+        ? 'ERC-4337'
+        : isEip7702Chain
+          ? 'EIP-7702'
+          : isErc4337Chain
+            ? 'ERC-4337'
+            : 'EOA';
 
     try {
       const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
 
       // Auto-route native sends on EIP-7702 enabled chains to the gasless flow to avoid zeroed gas fields
-      if (isEip7702Chain && !tokenAddress && !forceEip7702) {
+      if (
+        !bypassGaslessRouting &&
+        isEip7702Chain &&
+        !tokenAddress &&
+        !forceEip7702 &&
+        !forceErc4337
+      ) {
         const chainId = this.pimlicoConfig.getEip7702Config(
-          chain as
+          baseChain as
             | 'ethereum'
             | 'base'
             | 'arbitrum'
@@ -88,7 +122,7 @@ export class WalletSendService {
 
         this.logger.warn(
           `[Auto-Route] Chain ${chain} has EIP-7702 enabled but sendCrypto() was called. ` +
-            `Routing to sendEip7702Gasless() for proper user operation flow.`,
+          `Routing to sendEip7702Gasless() for proper user operation flow.`,
         );
 
         const result = await this.sendEip7702Gasless(
@@ -103,11 +137,43 @@ export class WalletSendService {
         return { txHash: result.transactionHash || result.userOpHash };
       }
 
+      if (
+        !bypassGaslessRouting &&
+        (forceErc4337 || isErc4337Chain) &&
+        !forceEip7702
+      ) {
+        const result = await this.sendErc4337Gasless(
+          userId,
+          baseChain as
+            | 'ethereum'
+            | 'base'
+            | 'arbitrum'
+            | 'polygon'
+            | 'avalanche'
+            | 'optimism'
+            | 'bnb',
+          recipientAddress,
+          amount,
+          tokenAddress,
+          tokenDecimals,
+        );
+
+        return { txHash: result.transactionHash || result.userOpHash };
+      }
+
+      if (this.isEvmChain(baseChain)) {
+        validateEthereumAddress(recipientAddress);
+        if (tokenAddress) {
+          validateEthereumAddress(tokenAddress);
+        }
+      }
+
       // Create account using appropriate factory
       const account = await this.walletAccountService.createAccountForChain(
         seedPhrase,
-        chain,
+        baseChain,
         userId,
+        { forceEip7702, forceErc4337 },
       );
       const walletAddress = await account.getAddress();
 
@@ -553,6 +619,8 @@ export class WalletSendService {
       );
     }
 
+    this.gaslessRateLimiter.check(userId, chain, 'eip7702');
+
     // Determine if this is the first delegation/transaction before sending
     const isFirstTransaction =
       !(await this.eip7702DelegationRepository.hasDelegation(userId, chainId));
@@ -577,5 +645,124 @@ export class WalletSendService {
       isFirstTransaction,
       explorerUrl,
     };
+  }
+
+  async sendErc4337Gasless(
+    userId: string,
+    chain:
+      | 'ethereum'
+      | 'base'
+      | 'arbitrum'
+      | 'polygon'
+      | 'avalanche'
+      | 'optimism'
+      | 'bnb',
+    recipientAddress: string,
+    amount: string,
+    tokenAddress?: string,
+    tokenDecimals?: number,
+  ): Promise<{
+    success: boolean;
+    userOpHash: string;
+    transactionHash?: string;
+    explorerUrl?: string;
+  }> {
+    if (!this.pimlicoConfig.isErc4337Enabled(chain)) {
+      throw new BadRequestException(
+        `ERC-4337 is not enabled for chain ${chain}. Enable via config before sending gasless transactions.`,
+      );
+    }
+
+    this.gaslessRateLimiter.check(userId, chain, 'erc4337');
+
+    const { txHash } = await this.sendCrypto(
+      userId,
+      chain,
+      recipientAddress,
+      amount,
+      tokenAddress,
+      tokenDecimals,
+      { forceErc4337: true, bypassGaslessRouting: true },
+    );
+
+    const userOpHash = txHash;
+    const { transactionHash, explorerUrl } =
+      await this.tryResolveUserOperation(chain, userOpHash);
+
+    return {
+      success: true,
+      userOpHash,
+      transactionHash,
+      explorerUrl,
+    };
+  }
+
+  private async tryResolveUserOperation(
+    chain:
+      | 'ethereum'
+      | 'base'
+      | 'arbitrum'
+      | 'polygon'
+      | 'avalanche'
+      | 'optimism'
+      | 'bnb',
+    userOpHash: string,
+  ): Promise<{ transactionHash?: string; explorerUrl?: string }> {
+    try {
+      const config = this.pimlicoConfig.getErc4337Config(chain);
+      const entryPoint = {
+        address: config.entryPointAddress as Address,
+        version: config.entryPointVersion,
+      };
+      const pimlicoClient = createPimlicoClient({
+        transport: http(config.bundlerUrl),
+        entryPoint,
+      });
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const status = await pimlicoClient.getUserOperationStatus({
+          hash: userOpHash as `0x${string}`,
+        });
+
+        if (status?.transactionHash) {
+          return {
+            transactionHash: status.transactionHash,
+            explorerUrl: getExplorerUrl(status.transactionHash, chain),
+          };
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to resolve ERC-4337 user operation: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+
+    return {};
+  }
+
+  private normalizeChain(chain: AllChainTypes): {
+    baseChain: AllChainTypes;
+    isErc4337Alias: boolean;
+  } {
+    const chainString = String(chain);
+    const isErc4337Alias = /Erc4337$/i.test(chainString);
+    const baseChain = chainString
+      .replace(/Erc4337$/i, '')
+      .toLowerCase() as AllChainTypes;
+    return { baseChain, isErc4337Alias };
+  }
+
+  private isEvmChain(chain: AllChainTypes): boolean {
+    return [
+      'ethereum',
+      'base',
+      'arbitrum',
+      'optimism',
+      'polygon',
+      'avalanche',
+      'bnb',
+    ].includes(chain);
   }
 }

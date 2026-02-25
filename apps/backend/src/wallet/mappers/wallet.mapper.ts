@@ -19,11 +19,11 @@ export class WalletMapper {
     metadata: WalletAddressMetadataMap,
   ): UiWalletPayload {
     const chainsRecord = {
-      ethereum: metadata.ethereum?.address ?? null,
-      base: metadata.base?.address ?? null,
-      arbitrum: metadata.arbitrum?.address ?? null,
-      polygon: metadata.polygon?.address ?? null,
-      avalanche: metadata.avalanche?.address ?? null,
+      ethereum: metadata.ethereumErc4337?.address ?? null,
+      base: metadata.baseErc4337?.address ?? null,
+      arbitrum: metadata.arbitrumErc4337?.address ?? null,
+      polygon: metadata.polygonErc4337?.address ?? null,
+      avalanche: metadata.avalancheErc4337?.address ?? null,
     };
 
     const canonicalChainKey = SMART_ACCOUNT_CHAIN_KEYS.find(
@@ -33,7 +33,14 @@ export class WalletMapper {
     const canonicalAddress = canonicalChainKey
       ? (metadata[canonicalChainKey]?.address ?? null)
       : null;
-    const canonicalChain = canonicalChainKey ? canonicalChainKey : null;
+    const canonicalChain = canonicalChainKey
+      ? (canonicalChainKey.replace(/Erc4337$/i, '') as
+          | 'ethereum'
+          | 'base'
+          | 'arbitrum'
+          | 'polygon'
+          | 'avalanche')
+      : null;
 
     const smartAccount: SmartAccountSummary | null = canonicalAddress
       ? {
@@ -186,7 +193,7 @@ export class WalletMapper {
       'bifrostTestnet',
     ];
     polkadotEvmChains.forEach((chain) => assign(chain, 'eoa', true));
-    SMART_ACCOUNT_CHAIN_KEYS.forEach((chain) => assign(chain, 'eoa', true));
+    SMART_ACCOUNT_CHAIN_KEYS.forEach((chain) => assign(chain, 'erc4337', true));
     //NON_EVM_CHAIN_KEYS.forEach((chain) => assign(chain, 'nonEvm', true));
 
     // Substrate chains (visible)
@@ -264,10 +271,14 @@ export class WalletMapper {
       bifrostTestnet: 'Bifrost Testnet',
     };
 
-    const label = baseLabels[chain];
+    const normalizedChain = chain.replace(/Erc4337$/i, '') as WalletAddressKey;
+    const label = baseLabels[normalizedChain] || baseLabels[chain];
     if (label) {
       if (kind === 'eoa') {
         return `${label} (EOA)`;
+      }
+      if (kind === 'erc4337') {
+        return `${label} (Smart)`;
       }
       return label;
     }

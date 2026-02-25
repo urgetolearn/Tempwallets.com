@@ -11,6 +11,7 @@ import { SeedManager } from './seed.manager.js';
 import { AccountFactory } from '../factories/account.factory.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from '../factories/erc4337-account.factory.js';
 import { AddressCacheRepository } from '../repositories/address-cache.repository.js';
 import { PimlicoConfigService } from '../config/pimlico.config.js';
 
@@ -48,6 +49,16 @@ export class AddressManager implements IAddressManager {
     'bifrostTestnet',
   ];
 
+  private readonly erc4337Chains: Array<{
+    name: WalletAddressKey;
+    chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche';
+  }> = [
+    { name: 'ethereumErc4337', chain: 'ethereum' },
+    { name: 'baseErc4337', chain: 'base' },
+    { name: 'arbitrumErc4337', chain: 'arbitrum' },
+    { name: 'polygonErc4337', chain: 'polygon' },
+    { name: 'avalancheErc4337', chain: 'avalanche' },
+  ];
  
 
   constructor(
@@ -55,6 +66,7 @@ export class AddressManager implements IAddressManager {
     private accountFactory: AccountFactory,
     private nativeEoaFactory: NativeEoaFactory,
     private eip7702AccountFactory: Eip7702AccountFactory,
+    private erc4337AccountFactory: Erc4337AccountFactory,
     private addressCacheRepository: AddressCacheRepository,
     private pimlicoConfig: PimlicoConfigService,
   ) {}
@@ -195,6 +207,30 @@ export class AddressManager implements IAddressManager {
           `Error getting EVM address for ${chain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         addresses[chain] = null as any;
+      }
+    }
+
+    // ERC-4337 smart account chains
+    for (const { name, chain } of this.erc4337Chains) {
+      if (addresses[name]) {
+        continue;
+      }
+
+      try {
+        const address = await this.erc4337AccountFactory.getSmartAccountAddress(
+          seedPhrase,
+          chain,
+          0,
+        );
+
+        addresses[name] = address as any;
+        addressesToSave[name] = address as string;
+        await this.addressCacheRepository.saveAddress(userId, name, address);
+      } catch (error) {
+        this.logger.error(
+          `Error getting ERC-4337 address for ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        addresses[name] = null as any;
       }
     }
 
@@ -370,6 +406,27 @@ export class AddressManager implements IAddressManager {
         yield { chain: name, address: null };
       }
     }
+
+    for (const { name, chain } of this.erc4337Chains) {
+      if (cachedAddresses[name]) {
+        continue;
+      }
+
+      try {
+        const address = await this.erc4337AccountFactory.getSmartAccountAddress(
+          seedPhrase,
+          chain,
+          0,
+        );
+        await this.addressCacheRepository.saveAddress(userId, name, address);
+        yield { chain: name, address };
+      } catch (error) {
+        this.logger.error(
+          `Error streaming ERC-4337 address for ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        yield { chain: name, address: null };
+      }
+    }
   }
 
   /**
@@ -422,6 +479,7 @@ export class AddressManager implements IAddressManager {
   };
 
   this.eoaChains.forEach((chain) => assign(chain, 'eoa', true));
+  this.erc4337Chains.forEach(({ name }) => assign(name, 'erc4337', true));
 
   return metadata;
 }
@@ -439,10 +497,14 @@ export class AddressManager implements IAddressManager {
       avalanche: 'Avalanche',
     };
 
-    const label = baseLabels[chain];
+    const normalizedChain = chain.replace(/Erc4337$/i, '') as WalletAddressKey;
+    const label = baseLabels[normalizedChain] || baseLabels[chain];
     if (label) {
       if (kind === 'eoa') {
         return `${label} (EOA)`;
+      }
+      if (kind === 'erc4337') {
+        return `${label} (Smart)`;
       }
       return label;
     }
@@ -460,6 +522,12 @@ export class AddressManager implements IAddressManager {
       'arbitrum',
       'polygon',
       'avalanche',
+      // ERC-4337 smart accounts
+      'ethereumErc4337',
+      'baseErc4337',
+      'arbitrumErc4337',
+      'polygonErc4337',
+      'avalancheErc4337',
     ];
   }
 
@@ -501,6 +569,11 @@ export class AddressManager implements IAddressManager {
       'arbitrum',
       'polygon',
       'avalanche',
+      'ethereumErc4337',
+      'baseErc4337',
+      'arbitrumErc4337',
+      'polygonErc4337',
+      'avalancheErc4337',
     ];
 
     for (const field of stringFields) {
