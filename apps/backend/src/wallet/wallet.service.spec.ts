@@ -59,11 +59,11 @@ describe('WalletService', () => {
   let eip7702DelegationRepository: jest.Mocked<Eip7702DelegationRepository>;
 
   const mockUserId = 'test-fingerprint-123';
-  const mockAddresses: WalletAddresses = {
-    ethereum: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-    base: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-    solana: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
-  } as WalletAddresses;
+const mockAddresses: WalletAddresses = {
+  ethereum: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
+  base: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
+  solana: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+} as unknown as WalletAddresses;
 
   beforeEach(async () => {
     const mockSeedRepository = {

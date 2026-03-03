@@ -40,10 +40,6 @@ const SUPPORTED_CHAINS = [
   'arbitrumErc4337',
   'polygonErc4337',
   'avalancheErc4337',
-  // Non-EVM
-  'tron',
-  'bitcoin',
-  'solana',
 ] as const;
 
 export class SendCryptoDto {
