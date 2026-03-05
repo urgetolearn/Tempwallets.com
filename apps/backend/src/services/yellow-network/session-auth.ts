@@ -32,6 +32,7 @@ import type {
   AuthPolicyTypedData,
   SessionKeyAllowance,
   RPCRequest,
+  RPCRequestArray,
 } from './types.js';
 
 /**
@@ -39,10 +40,12 @@ import type {
  */
 interface SessionKeyData {
   account: PrivateKeyAccount; // Session key account (address + signer)
+  privateKey: string; // Session key private key (for SDK signing)
   jwtToken: string; // JWT token from clearnode
   expiresAt: number; // Expiration timestamp (ms)
   allowances: SessionKeyAllowance[]; // Spending limits
   application: string; // Application identifier
+  authSignature?: string; // Main wallet signature from auth_verify
 }
 
 /**
@@ -93,12 +96,14 @@ export class SessionKeyAuth {
     if (this.sessionKey && this.isAuthenticated()) {
       const remainingTime = this.sessionKey.expiresAt - Date.now();
       const remainingHours = Math.floor(remainingTime / (60 * 60 * 1000));
-      const remainingMinutes = Math.floor((remainingTime % (60 * 60 * 1000)) / (60 * 1000));
-      
-      console.log(
-        `[SessionKeyAuth] ✅ Session already valid (expires in ${remainingHours}h ${remainingMinutes}m). Skipping re-authentication.`
+      const remainingMinutes = Math.floor(
+        (remainingTime % (60 * 60 * 1000)) / (60 * 1000),
       );
-      
+
+      console.log(
+        `[SessionKeyAuth] ✅ Session already valid (expires in ${remainingHours}h ${remainingMinutes}m). Skipping re-authentication.`,
+      );
+
       // Return cached authentication result
       return {
         success: true,
@@ -111,7 +116,8 @@ export class SessionKeyAuth {
     console.log('[SessionKeyAuth] Starting authentication flow...');
 
     // Step 1: Generate session key
-    const sessionKeyAccount = this.generateSessionKey();
+    const { account: sessionKeyAccount, privateKey: sessionKeyPrivateKey } =
+      this.generateSessionKey();
     // Yellow docs are inconsistent on expires_at units (seconds vs ms). The clearnode JWT exp
     // expects seconds, so keep ms locally for expiry checks but send seconds to the server.
     const expiresAtMs = Date.now() + expiryHours * 60 * 60 * 1000;
@@ -345,10 +351,12 @@ export class SessionKeyAuth {
       // Store session key data
       this.sessionKey = {
         account: sessionKeyAccount,
+        privateKey: sessionKeyPrivateKey,
         jwtToken: authResult.jwt_token,
         expiresAt: expiresAtMs,
         allowances,
         application,
+        authSignature: mainWalletSig,
       };
 
       console.log('[SessionKeyAuth] ✅ Authentication successful');
@@ -375,75 +383,81 @@ export class SessionKeyAuth {
   }
 
   /**
+   * Remove undefined values from objects (needed for consistent hashing)
+   */
+  private cleanParams(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map((item) => this.cleanParams(item));
+    }
+    if (typeof obj === 'object') {
+      const cleaned: any = {};
+      for (const key in obj) {
+        if (obj[key] !== undefined) {
+          cleaned[key] = this.cleanParams(obj[key]);
+        }
+      }
+      return cleaned;
+    }
+    return obj;
+  }
+
+  /**
+   * Validate that session key exists and has not expired.
+   * Throws if not authenticated or expired.
+   */
+  private ensureSession(): void {
+    if (!this.sessionKey) {
+      throw new Error('Not authenticated. Call authenticate() first.');
+    }
+    if (Date.now() >= this.sessionKey.expiresAt) {
+      throw new Error('Session expired. Please re-authenticate.');
+    }
+  }
+
+  /**
    * Sign an RPC request with session key
    *
    * @param request - RPC request to sign
    * @returns Signed request with session key signature
    */
   async signRequest(request: RPCRequest): Promise<RPCRequest> {
-    if (!this.sessionKey) {
-      throw new Error('Not authenticated. Call authenticate() first.');
-    }
+    this.ensureSession();
 
-    // Check expiration
-    if (Date.now() >= this.sessionKey.expiresAt) {
-      throw new Error('Session expired. Please re-authenticate.');
-    }
-
-    // Helper function to remove undefined values from objects
-    const cleanParams = (obj: any): any => {
-      if (obj === null || obj === undefined) {
-        return obj;
-      }
-      if (Array.isArray(obj)) {
-        return obj.map(cleanParams);
-      }
-      if (typeof obj === 'object') {
-        const cleaned: any = {};
-        for (const key in obj) {
-          if (obj[key] !== undefined) {
-            cleaned[key] = cleanParams(obj[key]);
-          }
-        }
-        return cleaned;
-      }
-      return obj;
-    };
-
-    // Clean the entire request array to remove undefined values
-    const cleanedReq = cleanParams(request.req);
-
-    // Build message hash from request
+    const cleanedReq = this.cleanParams(request.req);
     const messageHash = keccak256(toBytes(JSON.stringify(cleanedReq)));
 
-    // ============================================================================
-    // CRITICAL: Use raw signing to avoid EIP-191 prefix
-    // ============================================================================
-    // Yellow Network expects raw ECDSA signature over the hash, without any prefix.
-    // Using signMessage() adds "\x19Ethereum Signed Message:\n" prefix (EIP-191),
-    // which causes signature verification to fail on Yellow Network.
-    //
-    // Use account.sign() which signs the hash directly without prefix.
-    // ============================================================================
-
-    console.log('[SessionKeyAuth] Signing request:');
-    console.log('  Request data (original):', JSON.stringify(request.req));
-    console.log('  Request data (cleaned):', JSON.stringify(cleanedReq));
-    console.log('  Message hash:', messageHash);
-    console.log('  Session key address:', this.sessionKey.account.address);
-
-    // Sign with session key - RAW signature (no EIP-191 prefix)
-    const signature = await this.sessionKey.account.sign({
+    // CRITICAL: Use raw signing to avoid EIP-191 prefix.
+    // Yellow Network expects raw ECDSA over the hash, not EIP-191 prefixed.
+    const signature = await this.sessionKey!.account.sign({
       hash: messageHash,
     });
-
-    console.log('  Signature:', signature);
-    console.log('  Signature length:', signature.length, '(should be 132: 0x + 130 hex chars)');
 
     return {
       ...request,
       sig: [signature],
     };
+  }
+
+  /**
+   * Sign a raw request payload and return ONLY the signature string.
+   *
+   * Used for multi-party signing: the primary signer calls signRequest(),
+   * additional signers call signPayload() on the same req array, and
+   * all signatures are combined into the sig[] array before sending.
+   *
+   * @param reqArray - The req array (same format as RPCRequest.req)
+   * @returns Hex-encoded ECDSA signature
+   */
+  async signPayload(reqArray: RPCRequestArray): Promise<string> {
+    this.ensureSession();
+
+    const cleanedReq = this.cleanParams(reqArray);
+    const messageHash = keccak256(toBytes(JSON.stringify(cleanedReq)));
+
+    return await this.sessionKey!.account.sign({ hash: messageHash });
   }
 
   /**
@@ -465,6 +479,23 @@ export class SessionKeyAuth {
    */
   getSessionKeyAddress(): Address | null {
     return this.sessionKey?.account.address || null;
+  }
+
+  /**
+   * Get authentication signature
+   */
+  getAuthSignature(): string | null {
+    return this.sessionKey?.authSignature || null;
+  }
+
+  /**
+   * Get session key private key (for SDK signing)
+   */
+  getSessionKeyPrivateKey(): `0x${string}` {
+    if (!this.sessionKey) {
+      throw new Error('Session key not available');
+    }
+    return this.sessionKey.privateKey as `0x${string}`;
   }
 
   /**
@@ -498,9 +529,15 @@ export class SessionKeyAuth {
   /**
    * Generate a new session key pair
    */
-  private generateSessionKey(): PrivateKeyAccount {
+  private generateSessionKey(): {
+    account: PrivateKeyAccount;
+    privateKey: string;
+  } {
     const privateKey = generatePrivateKey();
-    return privateKeyToAccount(privateKey);
+    return {
+      account: privateKeyToAccount(privateKey),
+      privateKey,
+    };
   }
 
   /**
