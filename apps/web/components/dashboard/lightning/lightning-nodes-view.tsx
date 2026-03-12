@@ -405,7 +405,7 @@ function CustodyActionsCard({
               value={depositAmt}
               onChange={(e) => { setDepositAmt(e.target.value); setAmountError(null); }}
               onBlur={() => setAmountError(validateAmount(depositAmt))}
-              className="h-8 text-sm mt-1 bg-white border-gray-300"
+              className="h-8 text-sm mt-1 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
             />
             <FieldError msg={tab === 'deposit' ? amountError : null} />
           </div>
@@ -482,7 +482,7 @@ function CustodyActionsCard({
               value={withdrawAmt}
               onChange={(e) => { setWithdrawAmt(e.target.value); setAmountError(null); }}
               onBlur={() => setAmountError(validateAmount(withdrawAmt))}
-              className="h-8 text-sm mt-1 bg-white border-gray-300"
+              className="h-8 text-sm mt-1 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
             />
             <FieldError msg={tab === 'withdraw' ? amountError : null} />
           </div>
@@ -1177,15 +1177,50 @@ function SessionManageView({
     return true;
   };
 
+  const buildAllocationsPayload = (overrides: Record<string, string> = {}) =>
+    allocs.map((a) => {
+      const key = a.participant.toLowerCase();
+      return {
+        participant: a.participant,
+        amount: overrides[key] ?? a.amount ?? '0',
+        asset: session.token ?? DEFAULT_ASSET,
+      };
+    });
+
+  const getSessionAllocMap = () => {
+    const map = new Map<string, string>();
+    (session.allocations ?? []).forEach((a) => {
+      map.set(a.participant.toLowerCase(), a.amount);
+    });
+    return map;
+  };
+
+  const hasCompleteSessionAllocs =
+    (session.participants?.length ?? 0) > 0 &&
+    (session.allocations?.length ?? 0) === (session.participants?.length ?? 0);
+
+  const buildDepositWithdrawPayload = (participant: string, newAmount: string) => {
+    // If session allocations are complete, preserve everyone else exactly as returned by API.
+    if (hasCompleteSessionAllocs) {
+      const sessionAllocMap = getSessionAllocMap();
+      return (session.participants ?? []).map((p) => ({
+        participant: p,
+        amount:
+          p.toLowerCase() === participant.toLowerCase()
+            ? newAmount
+            : sessionAllocMap.get(p.toLowerCase()) ?? '0',
+        asset: session.token ?? DEFAULT_ASSET,
+      }));
+    }
+    // Otherwise, only send the participant update to avoid accidentally decreasing others.
+    return [{ participant, amount: newAmount, asset: session.token ?? DEFAULT_ASSET }];
+  };
+
   const handleOperate = async () => {
     if (!validateOperate()) return;
     await onPatch(
       'OPERATE',
-      allocs.map((a) => ({
-        participant: a.participant,
-        amount: a.amount,
-        asset: session.token ?? DEFAULT_ASSET,
-      })),
+      buildAllocationsPayload(),
     );
   };
 
@@ -1193,11 +1228,17 @@ function SessionManageView({
     const depositAmt = parseFloat(depositAmount);
     if (!depositAmount || depositAmt <= 0) return;
     const participant = walletAddress ?? allocs[userAllocIdxSafe]?.participant ?? '';
+    if (!participant) return;
+    const sessionAllocMap = getSessionAllocMap();
+    const currentAlloc = parseFloat(
+      sessionAllocMap.get(participant.toLowerCase()) ?? myCurrentAlloc.toFixed(6),
+    );
     // DEPOSIT: allocations = final desired state (current + delta)
-    const newAlloc = (myCurrentAlloc + depositAmt).toFixed(6);
-    const ok = await onPatch('DEPOSIT', [
-      { participant, amount: newAlloc, asset: session.token ?? DEFAULT_ASSET },
-    ]);
+    const newAlloc = (currentAlloc + depositAmt).toFixed(6);
+    const ok = await onPatch(
+      'DEPOSIT',
+      buildDepositWithdrawPayload(participant, newAlloc),
+    );
     if (ok) setDepositAmount('');
   };
 
@@ -1205,11 +1246,17 @@ function SessionManageView({
     const withdrawAmt = parseFloat(withdrawAmount);
     if (!withdrawAmount || withdrawAmt <= 0) return;
     const participant = walletAddress ?? allocs[userAllocIdxSafe]?.participant ?? '';
+    if (!participant) return;
+    const sessionAllocMap = getSessionAllocMap();
+    const currentAlloc = parseFloat(
+      sessionAllocMap.get(participant.toLowerCase()) ?? myCurrentAlloc.toFixed(6),
+    );
     // WITHDRAW: allocations = remaining amount after withdrawal (current - delta)
-    const remaining = Math.max(0, myCurrentAlloc - withdrawAmt).toFixed(6);
-    const ok = await onPatch('WITHDRAW', [
-      { participant, amount: remaining, asset: session.token ?? DEFAULT_ASSET },
-    ]);
+    const remaining = Math.max(0, currentAlloc - withdrawAmt).toFixed(6);
+    const ok = await onPatch(
+      'WITHDRAW',
+      buildDepositWithdrawPayload(participant, remaining),
+    );
     if (ok) setWithdrawAmount('');
   };
 
@@ -1277,6 +1324,7 @@ function SessionManageView({
                 const alloc = (session.allocations ?? []).find(
                   (a) => a.participant?.toLowerCase() === addr.toLowerCase(),
                 );
+                const hasJoined = alloc !== undefined;
                 const isMe = addr.toLowerCase() === walletAddress?.toLowerCase();
                 return (
                   <div
@@ -1290,6 +1338,13 @@ function SessionManageView({
                           You
                         </span>
                       )}
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                          hasJoined ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                        }`}
+                      >
+                        {hasJoined ? 'Joined' : 'Pending'}
+                      </span>
                       {alloc && (
                         <span className="text-[10px] font-medium text-gray-700">
                           {parseFloat(alloc.amount || '0').toFixed(4)} {alloc.asset?.toUpperCase()}

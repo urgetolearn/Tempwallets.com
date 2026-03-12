@@ -457,9 +457,7 @@ export function useAppSessions(
     try {
       const res = await yellowApi.discoverSessions(userId, chain);
       const raw = res.sessions ?? res.data ?? [];
-      // Normalize sessions: ensure chain/token are populated and
-      // participants are derived from allocations when missing.
-      const normalized = raw.map((s) => ({
+      const normalize = (s: AppSession): AppSession => ({
         ...s,
         chain: s.chain || chain,
         token: s.token || (s.allocations?.[0]?.asset ?? 'usdc'),
@@ -467,8 +465,56 @@ export function useAppSessions(
           s.participants?.length > 0
             ? s.participants
             : (s.allocations ?? []).map((a) => a.participant).filter(Boolean),
-      }));
+      });
+
+      // Normalize sessions: ensure chain/token are populated and
+      // participants are derived from allocations when missing.
+      const normalized = raw.map((s) => normalize(s as AppSession));
       setSessions(normalized as AppSession[]);
+
+      // If list responses omit participants/allocations, fetch details per session
+      // so the list can display joined/pending correctly.
+      const needsDetail = normalized.filter(
+        (s) =>
+          !s.participants?.length ||
+          !s.allocations ||
+          s.allocations.length === 0,
+      );
+
+      if (needsDetail.length > 0) {
+        const detailResults = await Promise.allSettled(
+          needsDetail.map((s) => yellowApi.getSession(s.appSessionId, userId, chain)),
+        );
+        const detailById = new Map<string, AppSession>();
+        detailResults.forEach((r, idx) => {
+          if (r.status !== 'fulfilled') return;
+          const session = r.value.data ?? r.value.session;
+          if (!session) return;
+          const def = (session as any).definition;
+          const enriched: AppSession = normalize({
+            ...session,
+            chain: session.chain || chain,
+            token:
+              session.token ||
+              session.allocations?.[0]?.asset ||
+              'usdc',
+            participants:
+              session.participants?.length > 0
+                ? session.participants
+                : def?.participants ??
+                  (session.allocations ?? [])
+                    .map((a) => a.participant)
+                    .filter(Boolean),
+          } as AppSession);
+          detailById.set(needsDetail[idx]!.appSessionId, enriched);
+        });
+
+        if (detailById.size > 0) {
+          setSessions((prev) =>
+            prev.map((s) => detailById.get(s.appSessionId) ?? s),
+          );
+        }
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to discover sessions';
       setSessionsError(msg);
