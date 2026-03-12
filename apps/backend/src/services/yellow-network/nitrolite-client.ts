@@ -553,6 +553,22 @@ export class NitroliteClient {
   }
 
   /**
+   * Wait for the next `bu` (balance update) push notification from ClearNode.
+   *
+   * Yellow Network sends `bu` after every operation that changes the unified
+   * balance (resize, transfer, session operations). Use this instead of polling
+   * get_ledger_balances after a resize/deposit.
+   *
+   * @param timeoutMs - Maximum wait time (default 30s). Rejects with Error on timeout.
+   * @returns The raw balance_updates array from the notification.
+   */
+  async waitForBalanceUpdate(timeoutMs = 30_000): Promise<Array<{ asset: string; amount: string }>> {
+    this.ensureInitialized();
+    const data = await this.ws.waitForNotification('bu', timeoutMs);
+    return (data?.balance_updates ?? []) as Array<{ asset: string; amount: string }>;
+  }
+
+  /**
    * Get balances within a specific app session
    * Uses get_ledger_balances with app_session_id as account_id
    */

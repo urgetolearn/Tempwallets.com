@@ -115,6 +115,18 @@ export class YellowNetworkAdapter
       }
     }
 
+    // Disconnect the old client BEFORE creating a new one.
+    // Without this, the old WebSocketManager keeps its reconnection timer running
+    // and spawns parallel connections alongside the new one — this triggers
+    // rate limiting (503) on ClearNode and causes the "multiple WS connects" flood.
+    if (this.currentClient) {
+      try {
+        this.currentClient.disconnect();
+      } catch { /* ignore — already disconnected */ }
+      this.currentClient = null;
+      this.currentWallet = null;
+    }
+
     // Get seed phrase for user
     const seedPhrase = await this.seedRepository.getSeedPhrase(userId);
 
@@ -448,6 +460,16 @@ export class YellowNetworkAdapter
   }
 
   /**
+   * Wait for the next `bu` push notification from ClearNode.
+   */
+  async waitForBalanceUpdate(timeoutMs = 30_000): Promise<Array<{ asset: string; amount: string }>> {
+    if (!this.currentClient) {
+      throw new BadRequestException('Not authenticated with Yellow Network');
+    }
+    return await this.currentClient.waitForBalanceUpdate(timeoutMs);
+  }
+
+  /**
    * Get balances within a specific app session
    * Uses get_ledger_balances with app_session_id as account_id
    */
@@ -555,12 +577,19 @@ export class YellowNetworkAdapter
       return channelOwner === normalizedUserAddress;
     });
 
+    // Only return active/open/resizing channels — closed channels are done and clutter the UI
+    const activeChannels = userChannels.filter((ch: any) => {
+      const status = (ch.status || '').toLowerCase();
+      return status !== 'closed' && status !== 'final';
+    });
+
     console.log(
       `[YellowNetworkAdapter] Found ${channels?.length || 0} total channels, ` +
-        `${userChannels.length} belong to user ${userAddress}`,
+        `${userChannels.length} belong to user ${userAddress}, ` +
+        `${activeChannels.length} are active`,
     );
 
-    return userChannels.map((ch: any) => ({
+    return activeChannels.map((ch: any) => ({
       channelId: ch.channelId,
       chainId: ch.chainId || 0,
       balance: ch.balance || '0',

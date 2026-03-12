@@ -31,6 +31,12 @@ import { ConnectionState } from './types.js';
 type ResponseHandler = (response: RPCResponse) => void;
 
 /**
+ * Notification Listener Callback Type
+ * Called once when the specified notification method arrives, then removed.
+ */
+type NotificationListener = (data: any) => void;
+
+/**
  * WebSocket Event Handlers
  */
 interface WSEventHandlers {
@@ -74,6 +80,9 @@ export class WebSocketManager {
 
   // Event handlers
   private eventHandlers: WSEventHandlers = {};
+
+  // One-shot notification listeners keyed by method ('bu', 'cu', 'tr', 'asu')
+  private notificationListeners: Map<string, NotificationListener[]> = new Map();
 
   constructor(config: WebSocketConfig) {
     this.url = config.url;
@@ -310,6 +319,39 @@ export class WebSocketManager {
   }
 
   /**
+   * Wait for the next unsolicited notification of a given method.
+   *
+   * Yellow Network pushes `bu` (balance update), `cu` (channel update),
+   * `tr` (transfer), and `asu` (app session update) notifications. This
+   * method returns a Promise that resolves with the notification data the
+   * first time the specified method arrives, or rejects after `timeoutMs`.
+   *
+   * Usage (instead of polling get_ledger_balances):
+   *   const update = await ws.waitForNotification('bu', 30_000);
+   *   // update.balance_updates[0].amount is the new balance
+   */
+  waitForNotification(method: string, timeoutMs = 30_000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        // Remove this listener on timeout
+        const listeners = this.notificationListeners.get(method) ?? [];
+        const idx = listeners.indexOf(listener);
+        if (idx !== -1) listeners.splice(idx, 1);
+        reject(new Error(`Timed out waiting for '${method}' notification after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      const listener: NotificationListener = (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      };
+
+      const existing = this.notificationListeners.get(method) ?? [];
+      existing.push(listener);
+      this.notificationListeners.set(method, existing);
+    });
+  }
+
+  /**
    * Register event handlers
    */
   on(
@@ -389,9 +431,16 @@ export class WebSocketManager {
     const method = response.res[1];
     const data = response.res[2];
 
+    // Fire and remove all one-shot listeners registered for this method
+    const listeners = this.notificationListeners.get(method);
+    if (listeners && listeners.length > 0) {
+      const toFire = listeners.splice(0); // consume all at once
+      for (const cb of toFire) cb(data);
+    }
+
     switch (method) {
       case 'bu': // Balance Update
-        this.logger.debug(`Notification: balance update`);
+        this.logger.debug(`Notification: balance update`, JSON.stringify(data));
         break;
       case 'cu': // Channel Update
         this.logger.debug(`Notification: channel update`);

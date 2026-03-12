@@ -63,17 +63,39 @@ export class CloseChannelUseCase {
       throw new BadRequestException(`Unsupported chain: ${dto.chain}`);
     }
 
-    // 4. Close the channel
+    // 4. Close the channel — treat "already closed" / "not found" as success.
+    //
+    // getChannels() filters out closed channels, so a pre-flight status check
+    // can never detect a closed channel. Instead we attempt the close and catch
+    // the specific ClearNode errors that mean "nothing left to close".
     console.log(`[CloseChannel] Closing channel ${dto.channelId} on chain ${chainId}...`);
-    await this.channelManager.closeChannel(dto.channelId, chainId, userAddress);
-    console.log(`[CloseChannel] Channel ${dto.channelId} closed successfully`);
+    try {
+      await this.channelManager.closeChannel(dto.channelId, chainId, userAddress);
+      console.log(`[CloseChannel] Channel ${dto.channelId} closed successfully`);
+    } catch (err: any) {
+      const msg = (err?.message ?? '').toLowerCase();
+      // ClearNode returns these when the channel is already closed or gone
+      const alreadyDone =
+        msg.includes('not found') ||
+        msg.includes('channel not open') ||
+        msg.includes('channel not active') ||
+        msg.includes('already closed') ||
+        msg.includes('invalid status');
+      if (alreadyDone) {
+        console.log(
+          `[CloseChannel] Channel ${dto.channelId} already closed or not found — treating as success.`,
+        );
+      } else {
+        throw err; // re-throw real errors
+      }
+    }
 
-    // 5. Return result
+    // 6. Return result
     return {
       success: true,
       channelId: dto.channelId,
       chainId,
-      message: `Successfully closed channel ${dto.channelId}. Funds returned to unified balance.`,
+      message: `Successfully closed channel ${dto.channelId}. Call POST /custody/withdraw to move custody funds to your wallet.`,
     };
   }
 }

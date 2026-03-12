@@ -132,13 +132,16 @@ export class DepositToCustodyUseCase {
         amount: amountInSmallestUnits,
       });
 
-    // 6. Step 3: Wait for Yellow Network to index deposit
-    console.log(`\n--- Step 3: Waiting for Yellow Network Indexing ---`);
-    // IMPORTANT:
-    // A custody deposit moves funds into the on-chain custody contract, but Yellow's
-    // OFF-CHAIN unified ledger may not reflect it until a channel operation occurs.
-    // Trigger the "bring funds into ledger" step via channel create/resize.
-    // This MUST NOT deposit from the wallet again.
+    // 6. Step 3: Register the `bu` listener BEFORE triggering resize so we
+    // cannot miss the notification that arrives during the RPC round-trip.
+    // Yellow Network sends `bu` automatically when the unified balance changes.
+    // We store the Promise here; await it AFTER the resize completes (step 7).
+    const targetSymbol = dto.asset.toLowerCase();
+    const targetToken = tokenAddress.toLowerCase();
+    const buPromise = this.yellowNetwork.waitForBalanceUpdate(30_000).catch(() => null);
+
+    console.log(`\n--- Step 3: Crediting Unified Balance via resize_channel ---`);
+    let creditedChannelId: string | undefined;
     try {
       const credit = await this.custodyContract.creditUnifiedBalanceFromCustody(
         {
@@ -149,8 +152,9 @@ export class DepositToCustodyUseCase {
           amount: amountInSmallestUnits,
         },
       );
+      creditedChannelId = credit.channelId;
       console.log(
-        `[DepositToCustodyUseCase] Triggered ledger credit via channel ${credit.channelId}`,
+        `[DepositToCustodyUseCase] resize_channel sent via channel ${credit.channelId}`,
       );
     } catch (err: any) {
       console.warn(
@@ -158,35 +162,38 @@ export class DepositToCustodyUseCase {
       );
     }
 
-    // We intentionally DO NOT poll here anymore.
-    // Polling was noisy and misleading because Yellow ledger balances can be
-    // returned in different unit formats (human decimals vs smallest units)
-    // and indexing timing varies.
-    // Instead, we trigger the ledger credit step (channel resize) above and
-    // then do a single read of unified balance below.
-
-    // 7. Step 4: Fetch full unified balances (same source as GET /custody/balance)
-    // and resolve the deposited asset robustly (symbol OR token address).
-    // NOTE: This is off-chain Yellow ledger balance, not on-chain custody contract balance.
+    // 7. Step 4: Await the `bu` notification (registered above).
+    // If it times out, fall back to a single get_ledger_balances query.
     let unifiedBalance = '0';
     try {
-      const balances = await this.yellowNetwork.getUnifiedBalance(userAddress);
-      const targetSymbol = dto.asset.toLowerCase();
-      const targetToken = tokenAddress.toLowerCase();
-
-      const entry = balances.find((b) => {
-        const asset = (b.asset || '').toLowerCase();
-        return asset === targetSymbol || asset === targetToken;
+      const balanceUpdates = await buPromise;
+      const entry = balanceUpdates?.find((b) => {
+        const a = (b.asset || '').toLowerCase();
+        return a === targetSymbol || a === targetToken;
       });
-
-      if (entry?.amount) {
+      if (entry) {
         unifiedBalance = entry.amount;
+        console.log(
+          `[DepositToCustodyUseCase] bu notification received — unified balance: ${unifiedBalance}`,
+        );
+      } else {
+        // `bu` arrived but didn't include our asset — fall through to query
+        throw new Error('asset not in bu payload');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn(
-        '[DepositToCustodyUseCase] Failed to fetch full unified balances for response:',
-        err,
+        `[DepositToCustodyUseCase] bu notification not usable (${err?.message}); falling back to get_ledger_balances`,
       );
+      try {
+        const balances = await this.yellowNetwork.getUnifiedBalance(userAddress);
+        const entry = balances.find((b) => {
+          const a = (b.asset || '').toLowerCase();
+          return a === targetSymbol || a === targetToken;
+        });
+        unifiedBalance = entry?.amount ?? '0';
+      } catch (queryErr: any) {
+        console.warn(`[DepositToCustodyUseCase] Fallback balance query failed: ${queryErr?.message}`);
+      }
     }
 
     console.log(`\n✅ DEPOSIT COMPLETE`);
@@ -198,6 +205,7 @@ export class DepositToCustodyUseCase {
       success: true,
       approveTxHash,
       depositTxHash,
+      channelId: creditedChannelId,
       chainId,
       amount: amountInSmallestUnits.toString(),
       asset: dto.asset,

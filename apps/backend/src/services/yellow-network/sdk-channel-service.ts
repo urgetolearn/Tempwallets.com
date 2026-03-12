@@ -659,7 +659,12 @@ export class SDKChannelService {
     );
 
     const resizeAmount = amount;
-    const allocateAmount = -amount; // Sign convention
+    // allocate_amount = 0 is the documented convention for a plain custody deposit:
+    //   resize_amount = +X  → lock X from custody free into channel adjudicator (on-chain)
+    //   allocate_amount = 0 → do not move anything between unified balance and channel
+    // ClearNode credits the unified balance by the resize_amount automatically.
+    // See: docs_protocol_off-chain_channel-methods.md — Scenario 1 (Depositing Additional Funds)
+    const allocateAmount = 0n;
 
     // Step 1: Request resize from ClearNode with aggressive retry for indexing delays
     const response = await this.sendRPCWithTimeoutAndRetry(
@@ -865,7 +870,30 @@ export class SDKChannelService {
       serverSignedAbsolute ? 'absolute' : 'zero',
     );
 
-    // Step 5: Sign resize state
+    // Safety guard: with allocate_amount = 0 (documented deposit pattern) ClearNode
+    // should always return non-zero allocations reflecting the deposited amount.
+    // If it still returns zero allocations for any reason, submitting custody.resize()
+    // with zero allocations but non-zero deltas in state.data would transfer user
+    // custody funds to clearnode — which is catastrophic. Skip the on-chain tx and
+    // surface a warning so the issue can be investigated.
+    const allZeroAllocations = finalAllocations.every((a) => a.amount === 0n);
+    if (allZeroAllocations) {
+      console.warn(
+        '[SDKChannelService] Unexpected zero allocations from ClearNode — skipping on-chain resize tx. ' +
+          'With allocate_amount=0 this should not happen. Check ClearNode state.',
+      );
+      return {
+        intent: resizeState.intent as StateIntent,
+        version: resizeState.version,
+        data: resizeState.data,
+        allocations: resizeData.state.allocations.map((a: any, idx: number) => [
+          BigInt(idx),
+          BigInt(a.amount || 0),
+        ]),
+      };
+    }
+
+    // Step 5: Sign resize state (only reached when ClearNode signed non-zero allocations)
     const userResizeSig = await walletAccount.sign({ hash: resizeStateHash });
     const signedResizeState = {
       intent: resizeState.intent,

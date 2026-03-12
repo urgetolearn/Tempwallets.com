@@ -153,6 +153,16 @@ export interface IYellowNetworkPort {
       available: string;
     }>
   >;
+
+  /**
+   * Wait for the next `bu` (balance update) push notification from ClearNode.
+   *
+   * Use this instead of polling get_ledger_balances after a resize or deposit.
+   * ClearNode pushes `bu` automatically when the unified balance changes.
+   *
+   * @param timeoutMs - Maximum wait in ms (default 30s). Rejects on timeout.
+   */
+  waitForBalanceUpdate(timeoutMs?: number): Promise<Array<{ asset: string; amount: string }>>;
 }
 
 /**
