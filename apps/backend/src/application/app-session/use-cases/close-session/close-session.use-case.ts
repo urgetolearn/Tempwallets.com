@@ -25,6 +25,34 @@ import type { IWalletProviderPort } from '../../ports/wallet-provider.port.js';
 import { WALLET_PROVIDER_PORT } from '../../ports/wallet-provider.port.js';
 import { CloseSessionDto, CloseSessionResultDto } from './close-session.dto.js';
 
+// Safe decimal math (Yellow uses string amounts, avoid floats)
+const DECIMAL_PRECISION = 18;
+
+function toFixedPoint(value: string): bigint {
+  const trimmed = value.trim();
+  const negative = trimmed.startsWith('-');
+  const abs = negative ? trimmed.slice(1) : trimmed;
+  const [intPart = '0', decPart = ''] = abs.split('.');
+  const padded = decPart.padEnd(DECIMAL_PRECISION, '0').slice(0, DECIMAL_PRECISION);
+  const result = BigInt(intPart + padded);
+  return negative ? -result : result;
+}
+
+function fromFixedPoint(value: bigint): string {
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  const str = abs.toString().padStart(DECIMAL_PRECISION + 1, '0');
+  const intPart = str.slice(0, str.length - DECIMAL_PRECISION) || '0';
+  const decPart = str.slice(str.length - DECIMAL_PRECISION);
+  const trimmed = decPart.replace(/0+$/, '');
+  const finalDec = trimmed.length < 2 ? decPart.slice(0, 2) : trimmed;
+  return `${negative ? '-' : ''}${intPart}.${finalDec}`;
+}
+
+function addDecimal(a: string, b: string): string {
+  return fromFixedPoint(toFixedPoint(a) + toFixedPoint(b));
+}
+
 @Injectable()
 export class CloseSessionUseCase {
   constructor(
@@ -69,41 +97,58 @@ export class CloseSessionUseCase {
     //    Yellow Network rejects close if any participant is missing
     //    ("asset X not fully redistributed").
     const allParticipants = session.definition.participants ?? [];
+    const sessionBalances = await this.yellowNetwork.getAppSessionBalances(
+      dto.appSessionId,
+    );
+
     const assets = [
       ...new Set(
-        (session.allocations ?? []).map((a: any) => a.asset).filter(Boolean),
+        (sessionBalances ?? [])
+          .map((b: any) => b.asset?.toLowerCase?.() ?? b.asset)
+          .filter(Boolean),
       ),
     ];
-    // Default to 'usdc' if session has no allocations at all
+    // Default to 'usdc' if session has no balances at all
     if (assets.length === 0) assets.push('usdc');
 
-    const completeAllocations: Array<{
+    // Calculate totals per asset from ledger balances, then redistribute all funds to caller
+    const totalsByAsset = new Map<string, string>();
+    for (const bal of sessionBalances ?? []) {
+      const asset = (bal.asset?.toLowerCase?.() ?? bal.asset ?? 'usdc') as string;
+      const current = totalsByAsset.get(asset) ?? '0';
+      totalsByAsset.set(asset, addDecimal(current, bal.amount ?? '0'));
+    }
+
+    const redistributeAllocations: Array<{
       participant: string;
       asset: string;
       amount: string;
     }> = [];
     for (const asset of assets) {
+      const total = totalsByAsset.get(asset) ?? '0';
       for (const p of allParticipants) {
-        const existing = (session.allocations ?? []).find(
-          (a: any) =>
-            a.participant?.toLowerCase() === p.toLowerCase() &&
-            (a.asset ?? 'usdc') === asset,
-        );
-        completeAllocations.push({
+        redistributeAllocations.push({
           participant: p,
           asset,
-          amount: existing?.amount ?? '0',
+          amount: p.toLowerCase() === walletAddress.toLowerCase() ? total : '0',
         });
       }
     }
 
-    // 7. Close session with Yellow Network
+    // 7. Force redistribute (OPERATE) so close will succeed
+    await this.yellowNetwork.updateSession({
+      sessionId: dto.appSessionId,
+      intent: 'OPERATE',
+      allocations: redistributeAllocations,
+    });
+
+    // 8. Close session with Yellow Network
     await this.yellowNetwork.closeSession(
       dto.appSessionId,
-      completeAllocations,
+      redistributeAllocations,
     );
 
-    // 7. Return result
+    // 9. Return result
     return {
       appSessionId: dto.appSessionId,
       closed: true,
