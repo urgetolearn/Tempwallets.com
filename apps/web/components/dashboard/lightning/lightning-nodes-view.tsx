@@ -691,21 +691,22 @@ function SessionCard({
         </span>
       </div>
 
-      {/* Participants with join status
-          Clearnode omits 'participants' in list responses, so derive from
-          allocations as a fallback (allocations always have participant addresses). */}
+      {/* Participants with join status (from backend join state) */}
       {(() => {
-        const fromParticipants = session.participants ?? [];
+        const participantEntries = session.participants ?? [];
         const fromAllocations = (session.allocations ?? []).map((a) => a.participant).filter(Boolean);
-        const addresses = fromParticipants.length > 0 ? fromParticipants : fromAllocations;
+        const joinedByAddress = new Map(
+          participantEntries.map((p) => [p.address.toLowerCase(), p.joined]),
+        );
+        const addresses =
+          participantEntries.length > 0
+            ? participantEntries.map((p) => p.address)
+            : fromAllocations;
         if (addresses.length === 0) return null;
         return (
           <div className="space-y-1">
             {addresses.map((addr) => {
-              const alloc = (session.allocations ?? []).find(
-                (a) => a.participant?.toLowerCase() === addr.toLowerCase(),
-              );
-              const hasJoined = alloc !== undefined;
+              const hasJoined = joinedByAddress.get(addr.toLowerCase()) ?? false;
               const isMe = addr.toLowerCase() === walletAddress?.toLowerCase();
               return (
                 <div key={addr} className="flex items-center justify-between text-xs">
@@ -1109,7 +1110,7 @@ function SessionManageView({
     });
     const parts =
       session.participants?.length > 0
-        ? session.participants
+        ? session.participants.map((p) => p.address)
         : (session.allocations ?? []).map((a) => a.participant).filter(Boolean);
     return parts.map((p) => ({
       participant: p,
@@ -1129,7 +1130,7 @@ function SessionManageView({
     });
     const parts =
       session.participants?.length > 0
-        ? session.participants
+        ? session.participants.map((p) => p.address)
         : (session.allocations ?? []).map((a) => a.participant).filter(Boolean);
     if (parts.length > 0) {
       setAllocs(
@@ -1204,11 +1205,11 @@ function SessionManageView({
     if (hasCompleteSessionAllocs) {
       const sessionAllocMap = getSessionAllocMap();
       return (session.participants ?? []).map((p) => ({
-        participant: p,
+        participant: p.address,
         amount:
-          p.toLowerCase() === participant.toLowerCase()
+          p.address.toLowerCase() === participant.toLowerCase()
             ? newAmount
-            : sessionAllocMap.get(p.toLowerCase()) ?? '0',
+            : sessionAllocMap.get(p.address.toLowerCase()) ?? '0',
         asset: session.token ?? DEFAULT_ASSET,
       }));
     }
@@ -1318,13 +1319,20 @@ function SessionManageView({
           <TabsContent value="info" className="space-y-2 mt-2">
             <p className="text-xs font-medium text-gray-700">Participants</p>
             {(() => {
-              const fromP = session.participants ?? [];
+              const participantEntries = session.participants ?? [];
               const fromA = (session.allocations ?? []).map((a) => a.participant).filter(Boolean);
-              return (fromP.length > 0 ? fromP : fromA).map((addr) => {
+              const joinedByAddress = new Map(
+                participantEntries.map((p) => [p.address.toLowerCase(), p.joined]),
+              );
+              const addresses =
+                participantEntries.length > 0
+                  ? participantEntries.map((p) => p.address)
+                  : fromA;
+              return addresses.map((addr) => {
                 const alloc = (session.allocations ?? []).find(
                   (a) => a.participant?.toLowerCase() === addr.toLowerCase(),
                 );
-                const hasJoined = alloc !== undefined;
+                const hasJoined = joinedByAddress.get(addr.toLowerCase()) ?? false;
                 const isMe = addr.toLowerCase() === walletAddress?.toLowerCase();
                 return (
                   <div
@@ -1831,6 +1839,12 @@ export function LightningNodesView() {
 
             {sessions.sessions
               .filter((s) => (s.status || '').toLowerCase() !== 'closed')
+              .filter((s) => {
+                const me = auth.walletAddress?.toLowerCase();
+                if (!me) return false;
+                const self = s.participants?.find((p) => p.address.toLowerCase() === me);
+                return self?.joined === true;
+              })
               .map((s) => (
               <SessionCard
                 key={s.appSessionId}
@@ -1897,6 +1911,29 @@ export function LightningNodesView() {
                 onFound={(session) => {
                   // Normalize session data (query endpoint may return definition.participants)
                   const def = (session as any).definition;
+                  const normalizeParticipants = (
+                    participants: AppSession['participants'] | string[] | undefined,
+                    allocations: SessionAllocation[] | undefined,
+                    defParticipants?: string[],
+                  ): AppSession['participants'] => {
+                    if (participants && participants.length > 0) {
+                      const first = participants[0] as any;
+                      if (typeof first === 'string') {
+                        return (participants as string[]).map((address) => ({
+                          address,
+                          joined: false,
+                        }));
+                      }
+                      return participants as AppSession['participants'];
+                    }
+                    const fallbackList =
+                      defParticipants && defParticipants.length > 0
+                        ? defParticipants
+                        : (allocations ?? [])
+                            .map((a) => a.participant)
+                            .filter(Boolean);
+                    return fallbackList.map((address) => ({ address, joined: false }));
+                  };
                   const normalized: AppSession = {
                     ...session,
                     chain: session.chain || chain,
@@ -1904,13 +1941,11 @@ export function LightningNodesView() {
                       session.token ||
                       session.allocations?.[0]?.asset ||
                       'usdc',
-                    participants:
-                      session.participants?.length > 0
-                        ? session.participants
-                        : def?.participants ??
-                          (session.allocations ?? [])
-                            .map((a) => a.participant)
-                            .filter(Boolean),
+                    participants: normalizeParticipants(
+                      session.participants as any,
+                      session.allocations,
+                      def?.participants,
+                    ),
                   };
                   // Add to sessions list if not present
                   sessions.discoverSessions();

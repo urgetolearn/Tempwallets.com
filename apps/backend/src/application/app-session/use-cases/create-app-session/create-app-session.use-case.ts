@@ -28,6 +28,7 @@ import { WALLET_PROVIDER_PORT } from '../../ports/wallet-provider.port.js';
 import { AppSession } from '../../../../domain/app-session/entities/app-session.entity.js';
 import { SessionDefinition } from '../../../../domain/app-session/value-objects/session-definition.vo.js';
 import { Allocation } from '../../../../domain/app-session/value-objects/allocation.vo.js';
+import { PrismaService } from '../../../../database/prisma.service.js';
 import {
   CreateAppSessionDto,
   CreateAppSessionResultDto,
@@ -40,6 +41,7 @@ export class CreateAppSessionUseCase {
     private readonly yellowNetwork: IYellowNetworkPort,
     @Inject(WALLET_PROVIDER_PORT)
     private readonly walletProvider: IWalletProviderPort,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(dto: CreateAppSessionDto): Promise<CreateAppSessionResultDto> {
@@ -95,12 +97,71 @@ export class CreateAppSessionUseCase {
       allocations: allocations.map((a) => a.toYellowFormat()),
     });
 
-    // 10. Return result (NO database storage)
+    // 10. Persist deterministic participant join state
+    const appSessionId = yellowResponse.app_session_id;
+    const existing = await this.prisma.lightningNode.findUnique({
+      where: { appSessionId },
+      include: { participants: true },
+    });
+
+    if (!existing) {
+      const creatorLower = creatorAddress.toLowerCase();
+      const allocMap = new Map(
+        allocations.map((a) => [a.participant.toLowerCase(), a.amount]),
+      );
+      await this.prisma.lightningNode.create({
+        data: {
+          userId: dto.userId,
+          appSessionId,
+          uri: `lightning://${appSessionId}`,
+          chain: dto.chain,
+          token: dto.token.toLowerCase(),
+          status: yellowResponse.status,
+          maxParticipants: participants.length,
+          quorum,
+          protocol: definition.protocol,
+          challenge: definition.challenge,
+          sessionData: dto.sessionData,
+          participants: {
+            create: participants.map((address, idx) => {
+              const isCreator = address.toLowerCase() === creatorLower;
+              return {
+                address,
+                weight: weights[idx] ?? 0,
+                balance: allocMap.get(address.toLowerCase()) ?? '0',
+                asset: dto.token.toLowerCase(),
+                status: isCreator ? 'joined' : 'invited',
+                joinedAt: isCreator ? new Date() : undefined,
+                lastSeenAt: isCreator ? new Date() : undefined,
+              };
+            }),
+          },
+        },
+      });
+    } else {
+      // Ensure creator is marked joined (idempotent)
+      await this.prisma.lightningNodeParticipant.updateMany({
+        where: {
+          lightningNodeId: existing.id,
+          address: creatorAddress,
+        },
+        data: {
+          status: 'joined',
+          joinedAt: new Date(),
+          lastSeenAt: new Date(),
+        } as any,
+      });
+    }
+
+    // 11. Return result
     return {
-      appSessionId: yellowResponse.app_session_id,
+      appSessionId,
       status: yellowResponse.status,
       version: yellowResponse.version,
-      participants: yellowResponse.definition.participants,
+      participants: yellowResponse.definition.participants.map((address) => ({
+        address,
+        joined: address.toLowerCase() === creatorAddress.toLowerCase(),
+      })),
       allocations: yellowResponse.allocations,
     };
   }

@@ -450,6 +450,28 @@ export function useAppSessions(
     loading: false,
   });
 
+  const normalizeParticipants = (
+    participants: AppSession['participants'] | string[] | undefined,
+    allocations: SessionAllocation[] | undefined,
+    defParticipants?: string[],
+  ): AppSession['participants'] => {
+    if (participants && participants.length > 0) {
+      const first = participants[0] as any;
+      if (typeof first === 'string') {
+        return (participants as string[]).map((address) => ({
+          address,
+          joined: false,
+        }));
+      }
+      return participants as AppSession['participants'];
+    }
+    const fallbackList =
+      defParticipants && defParticipants.length > 0
+        ? defParticipants
+        : (allocations ?? []).map((a) => a.participant).filter(Boolean);
+    return fallbackList.map((address) => ({ address, joined: false }));
+  };
+
   const discoverSessions = useCallback(async () => {
     if (!userId) return;
     setSessionsLoading(true);
@@ -461,10 +483,7 @@ export function useAppSessions(
         ...s,
         chain: s.chain || chain,
         token: s.token || (s.allocations?.[0]?.asset ?? 'usdc'),
-        participants:
-          s.participants?.length > 0
-            ? s.participants
-            : (s.allocations ?? []).map((a) => a.participant).filter(Boolean),
+        participants: normalizeParticipants(s.participants as any, s.allocations),
       });
 
       // Normalize sessions: ensure chain/token are populated and
@@ -498,13 +517,11 @@ export function useAppSessions(
               session.token ||
               session.allocations?.[0]?.asset ||
               'usdc',
-            participants:
-              session.participants?.length > 0
-                ? session.participants
-                : def?.participants ??
-                  (session.allocations ?? [])
-                    .map((a) => a.participant)
-                    .filter(Boolean),
+            participants: normalizeParticipants(
+              session.participants as any,
+              session.allocations,
+              def?.participants,
+            ),
           } as AppSession);
           detailById.set(needsDetail[idx]!.appSessionId, enriched);
         });
@@ -574,13 +591,11 @@ export function useAppSessions(
               session.token ||
               session.allocations?.[0]?.asset ||
               'usdc',
-            participants:
-              session.participants?.length > 0
-                ? session.participants
-                : def?.participants ??
-                  (session.allocations ?? [])
-                    .map((a) => a.participant)
-                    .filter(Boolean),
+            participants: normalizeParticipants(
+              session.participants as any,
+              session.allocations,
+              def?.participants,
+            ),
           };
         }
 

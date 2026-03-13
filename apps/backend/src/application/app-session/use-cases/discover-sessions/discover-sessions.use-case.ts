@@ -26,6 +26,7 @@ import {
   DiscoverSessionsDto,
   DiscoverSessionsResultDto,
 } from './discover-sessions.dto.js';
+import { PrismaService } from '../../../../database/prisma.service.js';
 
 @Injectable()
 export class DiscoverSessionsUseCase {
@@ -34,6 +35,7 @@ export class DiscoverSessionsUseCase {
     private readonly yellowNetwork: IYellowNetworkPort,
     @Inject(WALLET_PROVIDER_PORT)
     private readonly walletProvider: IWalletProviderPort,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(dto: DiscoverSessionsDto): Promise<DiscoverSessionsResultDto> {
@@ -55,22 +57,53 @@ export class DiscoverSessionsUseCase {
 
     // 4. Return enriched result — include chain from the request and
     //    derive token from allocations so the frontend can display them.
+    const appSessionIds = sessions.map((s) => s.app_session_id);
+    const localNodes = await this.prisma.lightningNode.findMany({
+      where: { appSessionId: { in: appSessionIds } },
+      include: { participants: true },
+    });
+    const statusBySession = new Map(
+      localNodes.map((n) => [
+        n.appSessionId,
+        new Map(
+          (n.participants || []).map((p) => [
+            p.address.toLowerCase(),
+            p.status,
+          ]),
+        ),
+      ]),
+    );
+
+    const joinedSessions = sessions.filter((s) => {
+      const statuses = statusBySession.get(s.app_session_id);
+      return statuses?.get(walletAddress.toLowerCase()) === 'joined';
+    });
+
     return {
-      sessions: sessions.map((s) => {
+      sessions: joinedSessions.map((s) => {
         const allocations = s.allocations ?? [];
         // Token is the first non-empty asset from allocations
         const token = allocations.find((a) => a.asset)?.asset ?? '';
+        const participantStatuses = statusBySession.get(s.app_session_id);
+        const participantList =
+          s.definition?.participants?.length
+            ? s.definition.participants
+            : Array.from(participantStatuses?.keys() ?? []);
+
         return {
           appSessionId: s.app_session_id,
           status: s.status,
           version: s.version,
           chain: dto.chain,
           token,
-          participants: s.definition?.participants ?? [],
+          participants: (participantList ?? []).map((address) => ({
+            address,
+            joined: participantStatuses?.get(address.toLowerCase()) === 'joined',
+          })),
           allocations,
         };
       }),
-      count: sessions.length,
+      count: joinedSessions.length,
     };
   }
 }
