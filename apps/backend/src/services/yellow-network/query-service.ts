@@ -560,38 +560,10 @@ export class QueryService {
       nonce,
     };
 
-    // Step 2: Get actual allocations via get_ledger_balances with app_session_id as account_id
-    // The get_app_sessions API does NOT return per-participant allocations.
-    // Per Yellow docs: "To query balance within a specific app session,
-    // provide the app_session_id as the account_id."
+    // Step 2: Do NOT synthesize per-participant allocations from ledger balances.
+    // Ledger balances are per-asset totals for the session, not per-participant.
+    // We only trust allocations from session list responses.
     const allocations: import('./types.js').AppSessionAllocation[] = [];
-    try {
-      const sessionBalances = await this.getAppSessionBalances(appSessionId);
-      // Convert LedgerBalance[] to AppSessionAllocation[]
-      // Note: get_ledger_balances returns per-asset totals for the session,
-      // not per-participant. We distribute across participants based on
-      // what we know. For single-asset sessions, we can build from this.
-      if (sessionBalances.length > 0) {
-        console.log(
-          `[QueryService] Session balances: ${JSON.stringify(sessionBalances)}`,
-        );
-        // Build allocations from session balances
-        // Each balance entry represents an asset in the session
-        for (const balance of sessionBalances) {
-          if (parseFloat(balance.amount) > 0) {
-            // We know the session has this asset with this total amount
-            // For per-participant breakdown, we'll rely on the session list data below
-            allocations.push({
-              participant: participants[0] || ('0x' as `0x${string}`),
-              asset: balance.asset,
-              amount: balance.amount,
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.warn(`[QueryService] Failed to get session balances:`, error);
-    }
 
     // Step 3: Try to find session metadata from get_app_sessions with higher limit
     // The default limit is 10 which may miss newly created sessions.
