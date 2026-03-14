@@ -19,7 +19,7 @@
  * - Yellow Network handles all validation
  */
 
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import type { IYellowNetworkPort } from '../../ports/yellow-network.port.js';
 import { YELLOW_NETWORK_PORT } from '../../ports/yellow-network.port.js';
 import type { IWalletProviderPort } from '../../ports/wallet-provider.port.js';
@@ -54,6 +54,25 @@ export class UpdateAllocationUseCase {
     const currentSession = await this.yellowNetwork.querySession(
       dto.appSessionId,
     );
+
+    // Guard: require two participants before transfers (OPERATE)
+    if (dto.intent === 'OPERATE') {
+      const participantCount =
+        currentSession.definition?.participants?.length ?? 0;
+      if (participantCount < 2) {
+        throw new BadRequestException('Counterparty has not joined yet');
+      }
+
+      const node = await this.prisma.lightningNode.findUnique({
+        where: { appSessionId: dto.appSessionId },
+        include: { participants: true },
+      });
+      const joinedCount =
+        node?.participants.filter((p) => p.status === 'joined').length ?? 0;
+      if (joinedCount < 2) {
+        throw new BadRequestException('Counterparty has not joined yet');
+      }
+    }
 
     // 4. Update allocations with Yellow Network
     const updated = await this.yellowNetwork.updateSession({
