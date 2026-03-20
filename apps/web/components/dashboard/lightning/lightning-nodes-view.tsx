@@ -1099,13 +1099,8 @@ function SessionManageView({
   const [tab, setTab] = useState<ManageTab>('info');
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [allocErrors, setAllocErrors] = useState<string | null>(null);
-  const [allocs, setAllocs] = useState<SessionAllocation[]>(session.allocations ?? []);
+  const [transferAmount, setTransferAmount] = useState('');
   const [closing, setClosing] = useState(false);
-  useEffect(() => {
-    setAllocs(session.allocations ?? []);
-    setAllocErrors(null);
-  }, [session.appSessionId, session.allocations]);
 
   // Source of truth: allocations (balances are per-account and differ per user).
   const sessionTotalNum = (session.allocations ?? []).reduce(
@@ -1114,30 +1109,30 @@ function SessionManageView({
   );
   const sessionTotal = sessionTotalNum.toFixed(6);
 
-  const allocTotal = allocs
-    .reduce((s, a) => s + parseFloat(a.amount || '0'), 0)
-    .toFixed(6);
-
   const participantAddresses = (
     session.participants?.map((p) => p.address).filter(Boolean) ??
-    allocs.map((a) => a.participant).filter(Boolean)
+    session.allocations?.map((a) => a.participant).filter(Boolean)
   ) as string[];
 
-  // Derived: find current user's allocation index
-  const userAllocIdx = walletAddress
-    ? allocs.findIndex((a) => a.participant.toLowerCase() === walletAddress.toLowerCase())
-    : 0;
-  const userAllocIdxSafe = userAllocIdx >= 0 ? userAllocIdx : 0;
-  const otherAllocIdx = allocs.length === 2 ? (userAllocIdxSafe === 0 ? 1 : 0) : -1;
-  const myCurrentAlloc = parseFloat(allocs[userAllocIdxSafe]?.amount ?? '0');
+  const participant = walletAddress ?? participantAddresses[0] ?? '';
+  const meLower = participant.toLowerCase();
+  const counterpartyAddress =
+    participantAddresses.find((addr) => addr.toLowerCase() !== meLower) ?? '';
+  const myAllocEntry = (session.allocations ?? []).find(
+    (a) => a.participant?.toLowerCase() === meLower,
+  );
+  const counterpartyAllocEntry = (session.allocations ?? []).find(
+    (a) => a.participant?.toLowerCase() === counterpartyAddress.toLowerCase(),
+  );
+  const myCurrentAlloc = parseFloat(myAllocEntry?.amount ?? '0');
+  const counterpartyBalance = parseFloat(counterpartyAllocEntry?.amount ?? '0');
+  const participants = participantAddresses;
+  const yourBalance = myCurrentAlloc;
   // Both participants are registered in the session definition from creation —
   // Yellow Network doesn't require allocation entries to enable transfers.
   const canTransfer =
     (session.status ?? '').toLowerCase() === 'open' &&
     (session.participants?.length ?? 0) >= 2;
-  // Slider value derived from allocs (0 = all to counterparty, 100 = all to user)
-  const sliderValue = sessionTotalNum > 0 ? (myCurrentAlloc / sessionTotalNum) * 100 : 50;
-
   function getSessionAllocMap(): Map<string, string> {
     const map = new Map<string, string>();
     for (const alloc of session.allocations ?? []) {
@@ -1160,28 +1155,51 @@ function SessionManageView({
     ];
   }
 
-  function validateOperate(): boolean {
-    const diff = Math.abs(parseFloat(allocTotal) - parseFloat(sessionTotal));
-    if (diff > 0.000001) {
-      setAllocErrors(
-        `Allocations must sum to exactly ${sessionTotal} (current total). Got ${allocTotal}.`,
-      );
-      return false;
+  async function transfer({
+    to,
+    amount,
+  }: {
+    to: string;
+    amount: number;
+  }) {
+    if (!participant || !to) return false;
+    const newMyAlloc = Math.max(0, myCurrentAlloc - amount).toFixed(6);
+    const newCounterAlloc = (counterpartyBalance + amount).toFixed(6);
+    const payload: SessionAllocation[] = [
+      {
+        participant,
+        amount: newMyAlloc,
+        asset: session.token ?? DEFAULT_ASSET,
+      },
+      {
+        participant: to,
+        amount: newCounterAlloc,
+        asset: session.token ?? DEFAULT_ASSET,
+      },
+    ];
+    return onPatch('OPERATE', payload);
+  }
+
+  const handleTransfer = async () => {
+    const amount = parseFloat(transferAmount);
+    if (!amount || amount <= 0) return;
+
+    if (amount > yourBalance) {
+      alert('Insufficient balance');
+      return;
     }
-    setAllocErrors(null);
-    return true;
-  }
 
-  async function handleOperate() {
-    if (!validateOperate()) return;
+    if (participants.length < 2) {
+      alert('Counterparty not joined');
+      return;
+    }
 
-    const payload = allocs.map((a) => ({
-      participant: a.participant,
-      amount: a.amount,
-      asset: session.token ?? DEFAULT_ASSET,
-    }));
-    await onPatch('OPERATE', payload);
-  }
+    const ok = await transfer({
+      to: counterpartyAddress,
+      amount,
+    });
+    if (ok) setTransferAmount('');
+  };
 
   const handleDeposit = async () => {
     const depositAmt = parseFloat(depositAmount);
@@ -1339,110 +1357,52 @@ function SessionManageView({
           </TabsContent>
 
           {/* Transfer (OPERATE) tab */}
-          <TabsContent value="transfer" className="space-y-4 mt-3">
+          <TabsContent value="transfer" className="space-y-3 mt-2">
             {!canTransfer && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-[10px] text-amber-800">
                 Counterparty has not joined yet. Transfers are disabled until both participants are present.
               </div>
             )}
-            {allocs.length === 2 && sessionTotalNum > 0 ? (
-              /* ── 2-party slider UI ── */
-              <div className="space-y-4">
-                {/* Participant balance cards */}
-                <div className="grid grid-cols-2 gap-2">
-                  {/* Counterparty */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-1">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Counterparty</p>
-                    <p className="font-mono text-[10px] text-gray-500 truncate">
-                      {truncate(allocs[otherAllocIdx]?.participant ?? '', 6)}
-                    </p>
-                    <p className="text-lg font-rubik-medium text-gray-900 leading-none mt-1">
-                      {parseFloat(allocs[otherAllocIdx]?.amount ?? '0').toFixed(4)}
-                    </p>
-                    <p className="text-[10px] text-gray-400">{session.token?.toUpperCase()}</p>
-                  </div>
 
-                  {/* You */}
-                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 space-y-1">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">You</p>
-                    <p className="font-mono text-[10px] text-gray-500 truncate">
-                      {truncate(allocs[userAllocIdxSafe]?.participant ?? '', 6)}
-                    </p>
-                    <p className="text-lg font-rubik-medium text-white leading-none mt-1">
-                      {parseFloat(allocs[userAllocIdxSafe]?.amount ?? '0').toFixed(4)}
-                    </p>
-                    <p className="text-[10px] text-gray-400">{session.token?.toUpperCase()}</p>
-                  </div>
-                </div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2 flex justify-between text-xs">
+              <span className="text-gray-500">Your Balance</span>
+              <span className="font-medium text-gray-900">
+                {myCurrentAlloc.toFixed(4)} {session.token?.toUpperCase()}
+              </span>
+            </div>
 
-                {/* Slider */}
-                <div className="space-y-2">
-                  {/* Visual split bar */}
-                  <div className="relative h-2 rounded-full bg-gray-200 overflow-hidden">
-                    <div
-                      className="absolute inset-y-0 right-0 bg-gray-900 rounded-full transition-all"
-                      style={{ width: `${sliderValue}%` }}
-                    />
-                  </div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2 flex justify-between text-xs">
+              <span className="text-gray-500">Counterparty Balance</span>
+              <span className="font-medium text-gray-900">
+                {counterpartyBalance.toFixed(4)} {session.token?.toUpperCase()}
+              </span>
+            </div>
 
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={0.01}
-                    value={sliderValue}
-                    onChange={(e) => {
-                      const pct = parseFloat(e.target.value);
-                      const userNew = (pct / 100) * sessionTotalNum;
-                      const otherNew = sessionTotalNum - userNew;
-                      setAllocs((prev) => {
-                        const next = [...prev];
-                        next[userAllocIdxSafe] = {
-                          participant: next[userAllocIdxSafe]?.participant ?? '',
-                          amount: userNew.toFixed(6),
-                          asset: next[userAllocIdxSafe]?.asset ?? (session.token ?? DEFAULT_ASSET),
-                        };
-                        next[otherAllocIdx] = {
-                          participant: next[otherAllocIdx]?.participant ?? '',
-                          amount: otherNew.toFixed(6),
-                          asset: next[otherAllocIdx]?.asset ?? (session.token ?? DEFAULT_ASSET),
-                        };
-                        return next;
-                      });
-                      setAllocErrors(null);
-                    }}
-                    className="w-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gray-900 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-runnable-track]:h-0 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-gray-900 [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:border-none"
-                  />
+            <div>
+              <Label className="text-xs text-gray-700">Amount to send</Label>
+              <Input
+                type="number"
+                min="0"
+                step="any"
+                placeholder="0.00"
+                value={transferAmount}
+                onChange={(e) => setTransferAmount(e.target.value)}
+                className="h-8 text-sm mt-1 bg-white border-gray-300"
+              />
+            </div>
 
-                  <div className="flex justify-between text-[10px] text-gray-400">
-                    <span>All to counterparty</span>
-                    <span>All to you</span>
-                  </div>
-                </div>
-
-                {/* Total row */}
-                <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-xs">
-                  <span className="text-gray-500">Session total</span>
-                  <span className="font-rubik-medium text-gray-900">
-                    {sessionTotalNum.toFixed(4)} {session.token?.toUpperCase()}
-                  </span>
-                </div>
-
-                <FieldError msg={allocErrors} />
-
-                <Button
-                  onClick={handleOperate}
-                  disabled={operating || !canTransfer}
-                  className="w-full h-9 text-sm bg-gray-900 hover:bg-gray-700 text-white"
-                >
-                  {operating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    'Confirm Transfer'
-                  )}
-                </Button>
-              </div>
-            ) : null}
+            <Button
+              onClick={handleTransfer}
+              disabled={
+                operating ||
+                !transferAmount ||
+                Number(transferAmount) <= 0 ||
+                !canTransfer
+              }
+              className="w-full h-8 text-xs bg-black hover:bg-gray-800 text-white"
+            >
+              {operating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Send to Counterparty'}
+            </Button>
           </TabsContent>
 
           {/* Deposit to session tab */}
@@ -1911,3 +1871,4 @@ export function LightningNodesView() {
     </div>
   );
 }
+
