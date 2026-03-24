@@ -96,7 +96,7 @@ export class CreateAppSessionUseCase {
     // Handle the common error where funds are locked in payment channels
     try {
       const yellowResponse = await this.yellowNetwork.createSession({
-        sessionId: session.id.value, 
+        sessionId: session.id.value,
         definition: definition.toYellowFormat(),
         allocations: allocations.map((a) => a.toYellowFormat()),
       });
@@ -113,16 +113,21 @@ export class CreateAppSessionUseCase {
         ]),
       );
 
-      const participantSnapshots = definitionParticipants.map((address, idx) => {
-        const status = address.toLowerCase() === creatorAddress.toLowerCase() ? 'joined' : 'invited';
-        return {
-          address,
-          status,
-          balance: allocationByAddress.get(address.toLowerCase()) ?? '0',
-          asset: token,
-          weight: weights[idx] ?? 0,
-        };
-      });
+      const participantSnapshots = definitionParticipants.map(
+        (address, idx) => {
+          const status =
+            address.toLowerCase() === creatorAddress.toLowerCase()
+              ? 'joined'
+              : 'invited';
+          return {
+            address,
+            status,
+            balance: allocationByAddress.get(address.toLowerCase()) ?? '0',
+            asset: token,
+            weight: weights[idx] ?? 0,
+          };
+        },
+      );
 
       await this.prisma.$transaction(async (tx) => {
         const node = await tx.lightningNode.upsert({
@@ -216,22 +221,26 @@ export class CreateAppSessionUseCase {
     } catch (error) {
       // Check if this is the "funds locked in channel" error
       const errorMsg = error instanceof Error ? error.message : String(error);
-      if (errorMsg.includes('non-zero allocation') && errorMsg.includes('channel')) {
+      if (
+        errorMsg.includes('non-zero allocation') &&
+        errorMsg.includes('channel')
+      ) {
         throw new BadRequestException(
           'Cannot create app session: Your funds are currently locked in an active payment channel. ' +
-          '\n\n📍 Yellow Network Architecture:' +
-          '\n  • Payment Channels pull from: Custody Contract (on-chain)' +
-          '\n  • App Sessions pull from: Unified Balance (off-chain)' +
-          '\n\n✅ Solution:' +
-          '\n  1. Close your active payment channel(s) first' +
-          '\n  2. Funds will return to custody "available balance"' +
-          '\n  3. This makes them available in your "unified balance"' +
-          '\n  4. Then create the app session' +
-          '\n\n💡 Fund Flow: Payment Channel → Custody (available) → Unified Balance → App Session' +
-          '\n\nOriginal error: ' + errorMsg
+            '\n\n📍 Yellow Network Architecture:' +
+            '\n  • Payment Channels pull from: Custody Contract (on-chain)' +
+            '\n  • App Sessions pull from: Unified Balance (off-chain)' +
+            '\n\n✅ Solution:' +
+            '\n  1. Close your active payment channel(s) first' +
+            '\n  2. Funds will return to custody "available balance"' +
+            '\n  3. This makes them available in your "unified balance"' +
+            '\n  4. Then create the app session' +
+            '\n\n💡 Fund Flow: Payment Channel → Custody (available) → Unified Balance → App Session' +
+            '\n\nOriginal error: ' +
+            errorMsg,
         );
       }
-      
+
       // Re-throw other errors
       throw error;
     }
