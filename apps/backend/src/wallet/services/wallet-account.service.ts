@@ -102,14 +102,7 @@ export class WalletAccountService {
     if (evmChains.includes(baseChain)) {
       return this.nativeEoaFactory.createAccount(
         seedPhrase,
-        baseChain as
-          | 'ethereum'
-          | 'base'
-          | 'arbitrum'
-          | 'polygon'
-          | 'avalanche'
-          | 'optimism'
-          | 'bnb',
+        chain as 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche',
         0,
       );
     }

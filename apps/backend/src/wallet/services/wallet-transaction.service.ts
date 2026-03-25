@@ -49,14 +49,7 @@ export class WalletTransactionService {
     }
 
     const addresses = await this.getAddresses(userId);
-    const targetAddresses = [
-      addresses.ethereum,
-      addresses.ethereumErc4337,
-      addresses.baseErc4337,
-      addresses.arbitrumErc4337,
-      addresses.polygonErc4337,
-      addresses.avalancheErc4337,
-    ].filter(Boolean);
+    const targetAddresses = [addresses.ethereum].filter(Boolean);
 
     // Polkadot EVM chains use the same EOA address as ethereum
     // const polkadotEvmAddress = addresses.ethereum;

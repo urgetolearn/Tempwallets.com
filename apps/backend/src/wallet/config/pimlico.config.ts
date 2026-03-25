@@ -44,8 +44,88 @@ export class PimlicoConfigService {
         | 'bnb',
     );
 
-    const chainId = evmConfig.chainId;
-    const bundlerBase = `https://api.pimlico.io/v2/${chainId}/rpc`;
+    const configs: Record<string, Erc4337Config> = {
+      ethereum: {
+        chainId: 1,
+        rpcUrl: this.resolveRpcUrl(
+          'ETH_RPC_URL',
+          'https://eth.llamarpc.com',
+          'ethereum',
+        ),
+        bundlerUrl: apiKey
+          ? `https://api.pimlico.io/v2/1/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/1/rpc',
+        paymasterUrl: apiKey
+          ? `https://api.pimlico.io/v2/1/rpc?apikey=${apiKey}`
+          : undefined,
+        entryPointAddress: entryPoint08Address, // v0.8 for EIP-7702
+        factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497', // Pimlico Safe factory
+      },
+      base: {
+        chainId: 8453,
+        rpcUrl: this.resolveRpcUrl(
+          'BASE_RPC_URL',
+          'https://mainnet.base.org',
+          'base',
+        ),
+        bundlerUrl: apiKey
+          ? `https://api.pimlico.io/v2/8453/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/8453/rpc',
+        paymasterUrl: apiKey
+          ? `https://api.pimlico.io/v2/8453/rpc?apikey=${apiKey}`
+          : undefined,
+        entryPointAddress: entryPoint08Address,
+        factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
+      },
+      arbitrum: {
+        chainId: 42161,
+        rpcUrl: this.resolveRpcUrl(
+          'ARB_RPC_URL',
+          'https://arb1.arbitrum.io/rpc',
+          'arbitrum',
+        ),
+        bundlerUrl: apiKey
+          ? `https://api.pimlico.io/v2/42161/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/42161/rpc',
+        paymasterUrl: apiKey
+          ? `https://api.pimlico.io/v2/42161/rpc?apikey=${apiKey}`
+          : undefined,
+        entryPointAddress: entryPoint08Address,
+        factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
+      },
+      polygon: {
+        chainId: 137,
+        rpcUrl: this.resolveRpcUrl(
+          'POLYGON_RPC_URL',
+          'https://polygon-rpc.com',
+          'polygon',
+        ),
+        bundlerUrl: apiKey
+          ? `https://api.pimlico.io/v2/137/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/137/rpc',
+        paymasterUrl: apiKey
+          ? `https://api.pimlico.io/v2/137/rpc?apikey=${apiKey}`
+          : undefined,
+        entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+        factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
+      },
+      avalanche: {
+        chainId: 43114,
+        rpcUrl: this.resolveRpcUrl(
+          'AVAX_RPC_URL',
+          'https://api.avax.network/ext/bc/C/rpc',
+          'avalanche',
+        ),
+        bundlerUrl: apiKey
+          ? `https://api.pimlico.io/v2/43114/rpc?apikey=${apiKey}`
+          : 'https://api.pimlico.io/v2/43114/rpc',
+        paymasterUrl: apiKey
+          ? `https://api.pimlico.io/v2/43114/rpc?apikey=${apiKey}`
+          : undefined,
+        entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+        factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
+      },
+    };
 
     const bundlerUrl = apiKey ? `${bundlerBase}?apikey=${apiKey}` : bundlerBase;
     const paymasterUrl = apiKey ? `${bundlerBase}?apikey=${apiKey}` : undefined;

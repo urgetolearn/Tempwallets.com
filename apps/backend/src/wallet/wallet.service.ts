@@ -27,7 +27,6 @@ export class WalletService {
     private readonly walletIdentityService: WalletIdentityService,
   ) {}
 
-
   /**
    * Get all wallet addresses for all chains
    * Auto-creates wallet if it doesn't exist
@@ -37,8 +36,6 @@ export class WalletService {
   async getAddresses(userId: string): Promise<WalletAddresses> {
     return this.walletAddressService.getAddresses(userId);
   }
-
-  
 
   async getWalletAddressContext(userId: string): Promise<WalletAddressContext> {
     return this.walletAddressService.getWalletAddressContext(userId);
@@ -125,10 +122,7 @@ export class WalletService {
       valueUsd?: number;
     }>
   > {
-    return this.walletBalanceService.getTokenBalancesAny(
-      userId,
-      forceRefresh,
-    );
+    return this.walletBalanceService.getTokenBalancesAny(userId, forceRefresh);
   }
 
   /**
@@ -228,7 +222,6 @@ export class WalletService {
   ): Promise<Array<{ chain: string; balance: string }>> {
     return this.walletBalanceService.getErc4337PaymasterBalances(userId);
   }
-
 
   /**
    * Send crypto to a recipient address
@@ -372,7 +365,6 @@ export class WalletService {
       forceRefresh,
     );
   }
-
 
   /**
    * Get transaction history for a user on a specific chain using Zerion API
