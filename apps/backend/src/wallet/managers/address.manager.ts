@@ -50,6 +50,17 @@ export class AddressManager implements IAddressManager {
     'bifrostTestnet',
   ];
 
+  private readonly erc4337Chains: Array<{
+    name: WalletAddressKey;
+    chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche';
+  }> = [
+    { name: 'ethereumErc4337', chain: 'ethereum' },
+    { name: 'baseErc4337', chain: 'base' },
+    { name: 'arbitrumErc4337', chain: 'arbitrum' },
+    { name: 'polygonErc4337', chain: 'polygon' },
+    { name: 'avalancheErc4337', chain: 'avalanche' },
+  ];
+
   constructor(
     private seedManager: SeedManager,
     private accountFactory: AccountFactory,

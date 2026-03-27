@@ -18,6 +18,17 @@ export class PimlicoConfigService {
     private chainConfig: ChainConfigService,
   ) {}
 
+  private resolveRpcUrl(
+    envKey: string,
+    fallback: string,
+    // Kept for readability when wiring per-chain configs.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _chain: string,
+  ): string {
+    // Allow explicit override via env var, otherwise use the hardcoded fallback.
+    return this.configService.get<string>(envKey) || fallback;
+  }
+
   /**
    * Get Pimlico API key from environment
    */
@@ -33,16 +44,6 @@ export class PimlicoConfigService {
   ): Erc4337Config {
     const apiKey = this.getPimlicoApiKey();
     const normalizedChain = chain.replace(/Erc4337$/i, '').toLowerCase();
-    const evmConfig = this.chainConfig.getEvmChainConfig(
-      normalizedChain as
-        | 'ethereum'
-        | 'base'
-        | 'arbitrum'
-        | 'polygon'
-        | 'avalanche'
-        | 'optimism'
-        | 'bnb',
-    );
 
     const configs: Record<string, Erc4337Config> = {
       ethereum: {
@@ -59,6 +60,7 @@ export class PimlicoConfigService {
           ? `https://api.pimlico.io/v2/1/rpc?apikey=${apiKey}`
           : undefined,
         entryPointAddress: entryPoint08Address, // v0.8 for EIP-7702
+        entryPointVersion: '0.8',
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497', // Pimlico Safe factory
       },
       base: {
@@ -75,6 +77,7 @@ export class PimlicoConfigService {
           ? `https://api.pimlico.io/v2/8453/rpc?apikey=${apiKey}`
           : undefined,
         entryPointAddress: entryPoint08Address,
+        entryPointVersion: '0.8',
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       arbitrum: {
@@ -91,6 +94,7 @@ export class PimlicoConfigService {
           ? `https://api.pimlico.io/v2/42161/rpc?apikey=${apiKey}`
           : undefined,
         entryPointAddress: entryPoint08Address,
+        entryPointVersion: '0.8',
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       polygon: {
@@ -107,6 +111,7 @@ export class PimlicoConfigService {
           ? `https://api.pimlico.io/v2/137/rpc?apikey=${apiKey}`
           : undefined,
         entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+        entryPointVersion: '0.8',
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       avalanche: {
@@ -123,28 +128,27 @@ export class PimlicoConfigService {
           ? `https://api.pimlico.io/v2/43114/rpc?apikey=${apiKey}`
           : undefined,
         entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+        entryPointVersion: '0.8',
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
     };
 
-    const bundlerUrl = apiKey ? `${bundlerBase}?apikey=${apiKey}` : bundlerBase;
-    const paymasterUrl = apiKey ? `${bundlerBase}?apikey=${apiKey}` : undefined;
+    const config = configs[normalizedChain];
+    if (!config) {
+      throw new Error(`Unsupported ERC-4337 chain: ${normalizedChain}`);
+    }
 
+    // Allow partial overrides via env vars without changing the default config map.
     const entryPointAddress =
       this.configService.get<string>('ERC4337_ENTRYPOINT_ADDRESS') ||
-      entryPoint07Address;
-
+      config.entryPointAddress;
     const factoryAddress =
       this.configService.get<string>('ERC4337_FACTORY_ADDRESS') ||
-      '0x9406Cc6185a346906296840746125a0E44976454';
+      config.factoryAddress;
 
     return {
-      chainId,
-      rpcUrl: evmConfig.rpcUrl,
-      bundlerUrl,
-      paymasterUrl,
+      ...config,
       entryPointAddress,
-      entryPointVersion: '0.7',
       factoryAddress,
     };
   }

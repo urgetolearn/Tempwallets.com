@@ -730,7 +730,6 @@ export class SDKChannelService {
     }>;
 
     const walletAccount = (this.walletClient as any).account;
-    const userAddress = walletAccount?.address?.toLowerCase() ?? '';
 
     // Calculate absolute amounts (ClearNode may return deltas)
     const absoluteAllocations = rawAllocsFromYN.map((a, idx) => {
@@ -741,8 +740,15 @@ export class SDKChannelService {
       if (ynAmount > BigInt(0)) {
         finalAmount = ynAmount; // Trust non-zero from ClearNode
       } else {
-        const isUser = a.destination.toLowerCase() === userAddress;
-        finalAmount = proofAmount + (isUser ? amount : BigInt(0));
+        // ClearNode may return signed deltas for reverse resizes while the
+        // custody contract expects absolute uint256 allocations.
+        // Derive absolute amount from proof + delta and clamp at 0 to avoid
+        // propagating negative values into ABI encoding/hashing.
+        finalAmount = proofAmount + ynAmount;
+      }
+
+      if (finalAmount < 0n) {
+        finalAmount = 0n;
       }
 
       return {

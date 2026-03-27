@@ -103,7 +103,7 @@ export class CloseChannelUseCase {
       success: true,
       channelId: dto.channelId,
       chainId,
-      message: `Successfully closed channel ${dto.channelId}. Call POST /custody/withdraw to move custody funds to your wallet.`,
+      message: `Successfully closed channel ${dto.channelId}. Funds are in unified balance; use move-unified-to-custody then POST /custody/withdraw to reach your wallet.`,
     };
   }
 }

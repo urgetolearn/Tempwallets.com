@@ -378,6 +378,23 @@ export const yellowApi = {
   },
 
   /**
+   * Move unified (Yellow ledger) balance to on-chain custody available balance.
+   * POST /custody/move-unified-to-custody
+   */
+  async moveUnifiedToCustody(data: {
+    userId: string;
+    chain: string;
+    asset: string;
+    amount: string;
+  }): Promise<CustodyTxResponse> {
+    return yellowFetch<CustodyTxResponse>('/custody/move-unified-to-custody', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      timeoutMs: 120_000,
+    });
+  },
+
+  /**
    * Fund a 2-party payment channel with Yellow Network clearnode.
    * POST /channel/fund
    *
@@ -411,8 +428,8 @@ export const yellowApi = {
    * Close a payment channel cooperatively.
    * POST /channel/close
    *
-   * Moves funds: Unified Balance → Available Balance (custody contract).
-   * After closing, use withdrawFromCustody to send to wallet.
+   * Moves funds from the payment channel back to unified balance (off-chain).
+   * To reach on-chain custody, call moveUnifiedToCustody next, then withdrawFromCustody.
    */
   async closeChannel(data: {
     userId: string;

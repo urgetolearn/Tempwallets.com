@@ -228,6 +228,7 @@ export function LightningNodesView({
             <CustodyActionsCard
               depositing={custody.depositing}
               withdrawing={custody.withdrawing}
+              movingUnified={custody.movingUnified}
               custodyAvailable={balances.custodyAvailable}
               unified={balances.unified}
               channels={channels.channels}
@@ -236,6 +237,7 @@ export function LightningNodesView({
               storedChannelId={channels.storedChannelId}
               onDeposit={custody.depositToCustody}
               onWithdraw={custody.withdrawFromCustody}
+              onMoveUnifiedToCustody={custody.moveUnifiedToCustody}
               onCloseChannel={channels.closeChannel}
               onDismissStoredChannel={channels.dismissStoredChannel}
               onFetchChannels={channels.fetchChannels}
