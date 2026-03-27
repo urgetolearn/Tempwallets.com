@@ -189,10 +189,8 @@ export function useYellowBalances(
 export interface CustodyActionsState {
   depositing: boolean;
   withdrawing: boolean;
-  movingUnified: boolean;
   depositToCustody: (chain: string, asset: string, amount: string) => Promise<boolean>;
   withdrawFromCustody: (chain: string, asset: string, amount: string) => Promise<boolean>;
-  moveUnifiedToCustody: (chain: string, asset: string, amount: string) => Promise<boolean>;
 }
 
 export function useCustodyActions(
@@ -202,7 +200,6 @@ export function useCustodyActions(
 ): CustodyActionsState {
   const [depositing, setDepositing] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
-  const [movingUnified, setMovingUnified] = useState(false);
 
   const depositToCustody = useCallback(
     async (chain: string, asset: string, amount: string): Promise<boolean> => {
@@ -255,40 +252,7 @@ export function useCustodyActions(
     [userId, onSuccess],
   );
 
-  const moveUnifiedToCustody = useCallback(
-    async (chain: string, asset: string, amount: string): Promise<boolean> => {
-      if (!userId) return false;
-      setMovingUnified(true);
-      try {
-        const res = await yellowApi.moveUnifiedToCustody({ userId, chain, asset, amount });
-        if (res.ok) {
-          toast.success(
-            res.data?.message ??
-              'Unified balance moved to on-chain custody. Refresh may take a few seconds.',
-          );
-          onSuccess?.();
-          return true;
-        }
-        toast.error(res.message || 'Move to custody failed');
-        return false;
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : 'Move to custody failed');
-        return false;
-      } finally {
-        setMovingUnified(false);
-      }
-    },
-    [userId, onSuccess],
-  );
-
-  return {
-    depositing,
-    withdrawing,
-    movingUnified,
-    depositToCustody,
-    withdrawFromCustody,
-    moveUnifiedToCustody,
-  };
+  return { depositing, withdrawing, depositToCustody, withdrawFromCustody };
 }
 
 // ── useChannelActions ─────────────────────────────────────────────────────
@@ -388,7 +352,7 @@ export function useChannelActions(
             }
           }
           toast.success(
-            'Channel closed. Funds returned to unified balance — use Move Funds → Move to custody if you need on-chain custody, then Withdraw.',
+            'Channel closed. Custody balance updating — may take 10–15 s for ClearNode to index the on-chain settlement.',
           );
           setChannels((prev) => prev.filter((c) => c.channelId !== channelId));
           // First refresh after 4 s: on-chain custody contract updates immediately

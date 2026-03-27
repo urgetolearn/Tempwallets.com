@@ -33,7 +33,6 @@ import {
 } from '@nestjs/common';
 import { DepositToCustodyUseCase } from '../../../application/custody/use-cases/deposit-to-custody/deposit-to-custody.use-case.js';
 import { WithdrawFromCustodyUseCase } from '../../../application/custody/use-cases/withdraw-from-custody/withdraw-from-custody.use-case.js';
-import { MoveUnifiedToCustodyUseCase } from '../../../application/custody/use-cases/move-unified-to-custody/move-unified-to-custody.use-case.js';
 import { Inject } from '@nestjs/common';
 import type { IYellowNetworkPort } from '../../../application/app-session/ports/yellow-network.port.js';
 import { YELLOW_NETWORK_PORT } from '../../../application/app-session/ports/yellow-network.port.js';
@@ -47,7 +46,6 @@ export class CustodyController {
   constructor(
     private readonly depositToCustodyUseCase: DepositToCustodyUseCase,
     private readonly withdrawFromCustodyUseCase: WithdrawFromCustodyUseCase,
-    private readonly moveUnifiedToCustodyUseCase: MoveUnifiedToCustodyUseCase,
     @Inject(YELLOW_NETWORK_PORT)
     private readonly yellowNetwork: IYellowNetworkPort,
     @Inject(WALLET_PROVIDER_PORT)
@@ -104,37 +102,6 @@ export class CustodyController {
    * 1. Channel must be closed (funds returned to unified balance)
    * 2. Sufficient unified balance available
    */
-  /**
-   * POST /custody/move-unified-to-custody
-   *
-   * Move funds from Yellow unified (off-chain) balance to on-chain custody
-   * available balance (reverse resize). Use before withdrawing to wallet if
-   * funds are sitting in unified rather than custody free.
-   */
-  @Post('move-unified-to-custody')
-  @HttpCode(HttpStatus.OK)
-  async moveUnifiedToCustody(
-    @Body(ValidationPipe)
-    request: {
-      userId: string;
-      chain: string;
-      asset: string;
-      amount: string;
-    },
-  ) {
-    const result = await this.moveUnifiedToCustodyUseCase.execute({
-      userId: request.userId,
-      chain: request.chain,
-      asset: request.asset,
-      amount: request.amount,
-    });
-
-    return {
-      ok: true,
-      data: result,
-    };
-  }
-
   @Post('withdraw')
   @HttpCode(HttpStatus.OK)
   async withdrawFromCustody(

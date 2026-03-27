@@ -11,7 +11,6 @@ import { Module } from '@nestjs/common';
 import { CustodyController } from './custody.controller.js';
 import { DepositToCustodyUseCase } from '../../../application/custody/use-cases/deposit-to-custody/deposit-to-custody.use-case.js';
 import { WithdrawFromCustodyUseCase } from '../../../application/custody/use-cases/withdraw-from-custody/withdraw-from-custody.use-case.js';
-import { MoveUnifiedToCustodyUseCase } from '../../../application/custody/use-cases/move-unified-to-custody/move-unified-to-custody.use-case.js';
 import { CustodyContractAdapter } from '../../../infrastructure/custody/custody-contract.adapter.js';
 import { CUSTODY_CONTRACT_PORT } from '../../../application/custody/ports/custody-contract.port.js';
 import { WalletProviderModule } from '../../../infrastructure/wallet/wallet-provider.module.js';
@@ -28,7 +27,6 @@ import { ChannelModule } from '../channel/channel.module.js';
   providers: [
     DepositToCustodyUseCase,
     WithdrawFromCustodyUseCase,
-    MoveUnifiedToCustodyUseCase,
     CustodyContractAdapter,
     {
       provide: CUSTODY_CONTRACT_PORT,

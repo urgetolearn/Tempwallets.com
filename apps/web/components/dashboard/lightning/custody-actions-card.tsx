@@ -21,7 +21,6 @@ type CustodyTab = 'deposit' | 'withdraw' | 'move';
 interface CustodyActionsCardProps {
   depositing: boolean;
   withdrawing: boolean;
-  movingUnified: boolean;
   custodyAvailable: string | null;
   unified: { asset: string; amount: string; locked: string; available: string }[];
   channels: { channelId: string; status: string; asset?: string; balance?: string; amount?: string }[];
@@ -30,7 +29,6 @@ interface CustodyActionsCardProps {
   storedChannelId: string | null;
   onDeposit: (chain: string, asset: string, amount: string) => Promise<boolean>;
   onWithdraw: (chain: string, asset: string, amount: string) => Promise<boolean>;
-  onMoveUnifiedToCustody: (chain: string, asset: string, amount: string) => Promise<boolean>;
   onCloseChannel: (channelId: string) => Promise<boolean>;
   onDismissStoredChannel: () => void;
   onFetchChannels: () => void;
@@ -39,7 +37,6 @@ interface CustodyActionsCardProps {
 export function CustodyActionsCard({
   depositing,
   withdrawing,
-  movingUnified,
   custodyAvailable,
   unified,
   channels,
@@ -48,7 +45,6 @@ export function CustodyActionsCard({
   storedChannelId,
   onDeposit,
   onWithdraw,
-  onMoveUnifiedToCustody,
   onCloseChannel,
   onDismissStoredChannel,
   onFetchChannels,
@@ -56,19 +52,15 @@ export function CustodyActionsCard({
   const [tab, setTab] = useState<CustodyTab>('deposit');
   const [depositAmt, setDepositAmt] = useState('');
   const [withdrawAmt, setWithdrawAmt] = useState('');
-  const [moveAmt, setMoveAmt] = useState('');
   const [asset, setAsset] = useState(DEFAULT_ASSET);
   const [chain, setChain] = useState(DEFAULT_CHAIN);
   const [amountError, setAmountError] = useState<string | null>(null);
-  const [moveAmountError, setMoveAmountError] = useState<string | null>(null);
 
   const amount = tab === 'deposit' ? depositAmt : withdrawAmt;
   const setAmount = tab === 'deposit' ? setDepositAmt : setWithdrawAmt;
 
-  const unifiedForSelectedAsset =
-    unified.find((b) => b.asset.toLowerCase() === asset.toLowerCase()) ??
-    unified.find((b) => b.asset === DEFAULT_ASSET);
-  const unifiedAvail = parseFloat(unifiedForSelectedAsset?.available ?? '0');
+  const mainUnified = unified.find((b) => b.asset === DEFAULT_ASSET);
+  const unifiedAvail = parseFloat(mainUnified?.available ?? '0');
 
   const validateAmount = (v: string): string | null => {
     if (!v) return 'Amount is required';
@@ -78,16 +70,6 @@ export function CustodyActionsCard({
       if (Number(v) > avail) {
         return `Cannot exceed available custody balance (${avail.toFixed(4)})`;
       }
-    }
-    return null;
-  };
-
-  const validateMoveAmount = (v: string): string | null => {
-    if (!v) return 'Amount is required';
-    if (isNaN(Number(v)) || Number(v) <= 0) return 'Amount must be a positive number';
-    const n = Number(v);
-    if (n > unifiedAvail) {
-      return `Cannot exceed unified available (${unifiedAvail.toFixed(4)} ${asset.toUpperCase()})`;
     }
     return null;
   };
@@ -108,18 +90,7 @@ export function CustodyActionsCard({
     }
   };
 
-  const handleMoveSubmit = async () => {
-    const err = validateMoveAmount(moveAmt);
-    setMoveAmountError(err);
-    if (err) return;
-    const success = await onMoveUnifiedToCustody(chain, asset, moveAmt);
-    if (success) {
-      setMoveAmt('');
-      setMoveAmountError(null);
-    }
-  };
-
-  const busy = depositing || withdrawing || movingUnified;
+  const busy = depositing || withdrawing;
 
   return (
     <div className="h-full bg-[#161616] border border-white/10 rounded-xl p-4">
@@ -129,7 +100,6 @@ export function CustodyActionsCard({
         value={tab}
         onValueChange={(v) => {
           setTab(v as CustodyTab);
-          setMoveAmountError(null);
           if (v === 'move') onFetchChannels();
         }}
       >
@@ -280,101 +250,23 @@ export function CustodyActionsCard({
 
         <TabsContent value="move" className="space-y-2 mt-0">
           <p className="text-[10px] text-gray-400">
-            Move funds from your <strong>unified</strong> (Yellow ledger) balance into{' '}
-            <strong>on-chain custody available</strong>. Then use <strong>Withdraw</strong> to send
-            to your wallet. Uses a reverse channel resize on the backend.
+            Close your payment channel to release locked funds back to custody.
+            Then use the <strong>Withdraw</strong> tab to send funds to your wallet.
           </p>
 
           {/* Balances summary */}
           <div className="grid grid-cols-2 gap-1.5">
             <div className="bg-gray-950/30 border border-gray-800 rounded-lg px-2.5 py-1.5">
-              <p className="text-[10px] text-gray-400">Unified (selected asset)</p>
-              <p className="text-xs font-medium text-white">
-                {unifiedAvail.toFixed(4)} {asset.toUpperCase()}
-              </p>
+              <p className="text-[10px] text-gray-400">Unified</p>
+              <p className="text-xs font-medium text-white">{unifiedAvail.toFixed(4)} USDC</p>
             </div>
             <div className="bg-gray-950/30 border border-gray-800 rounded-lg px-2.5 py-1.5">
               <p className="text-[10px] text-gray-400">Custody available</p>
               <p className="text-xs font-medium text-white">
-                {custodyAvailable != null
-                  ? `${parseFloat(custodyAvailable).toFixed(4)} ${DEFAULT_ASSET.toUpperCase()}`
-                  : '—'}
+                {custodyAvailable != null ? `${parseFloat(custodyAvailable).toFixed(4)} USDC` : '—'}
               </p>
             </div>
           </div>
-
-          <div>
-            <Label className="text-xs text-gray-300">Amount</Label>
-            <Input
-              type="number"
-              min="0"
-              step="any"
-              placeholder="0.00"
-              value={moveAmt}
-              onChange={(e) => {
-                setMoveAmt(e.target.value);
-                setMoveAmountError(null);
-              }}
-              onBlur={() => setMoveAmountError(validateMoveAmount(moveAmt))}
-              className="h-8 text-sm mt-1 bg-[#161616] border-white/10 text-white placeholder:text-gray-500"
-            />
-            <FieldError msg={tab === 'move' ? moveAmountError : null} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label className="text-xs text-gray-300">Asset</Label>
-              <Select
-                value={asset}
-                onValueChange={(a) => {
-                  setAsset(a);
-                  setMoveAmountError(null);
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs mt-1 bg-[#161616] border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#161616] text-white border-white/10">
-                  {ASSETS.map((a) => (
-                    <SelectItem key={a.id} value={a.id} className="text-xs">
-                      {a.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs text-gray-300">Chain</Label>
-              <Select value={chain} onValueChange={setChain}>
-                <SelectTrigger className="h-8 text-xs mt-1 bg-[#161616] border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#161616] text-white border-white/10">
-                  {CHAINS.map((c) => (
-                    <SelectItem key={c.id} value={c.id} className="text-xs">
-                      {c.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <Button
-            onClick={handleMoveSubmit}
-            disabled={busy || unifiedAvail <= 0}
-            className="w-full h-8 text-xs bg-yellow-400 hover:bg-yellow-500 text-black"
-          >
-            {movingUnified ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              'Move to custody'
-            )}
-          </Button>
-
-          <p className="text-[10px] text-gray-500 border-t border-white/5 pt-2">
-            Payment channels (optional)
-          </p>
 
           {/* Active Channel from localStorage */}
           {storedChannelId && (
@@ -424,8 +316,7 @@ export function CustodyActionsCard({
             </div>
           ) : channels.length === 0 && !storedChannelId ? (
             <div className="bg-gray-950/30 border border-gray-800 rounded-lg p-2 text-[10px] text-gray-400 text-center">
-              No open payment channels. If unified is zero but funds were in a channel, fund or
-              deposit first; otherwise use <strong>Move to custody</strong> above.
+              No open payment channels. Deposit to custody to get started.
             </div>
           ) : channels.length > 0 ? (
             <div className="space-y-1.5">
@@ -464,9 +355,8 @@ export function CustodyActionsCard({
           <div className="flex items-start gap-1.5 pt-1">
             <Info className="h-3 w-3 text-gray-300 mt-0.5 shrink-0" />
             <p className="text-[9px] text-gray-400 leading-tight">
-              <strong>Close channel</strong> returns funds from the channel to your <strong>unified</strong>{' '}
-              balance only. To reach on-chain custody, use <strong>Move to custody</strong> above, then{' '}
-              <strong>Withdraw</strong>.
+              Closing the channel releases locked funds to your custody balance.
+              Then use the <strong>Withdraw</strong> tab to move funds to your wallet.
             </p>
           </div>
         </TabsContent>

@@ -84,11 +84,8 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     AccountFactory,
     NativeEoaFactory,
     Eip7702AccountFactory,
-    Erc4337AccountFactory,
     // Delegation repository for EIP-7702
     Eip7702DelegationRepository,
-    // ERC-4337 smart account repository
-    Erc4337AccountRepository,
     // Pimlico bundler/paymaster service
     PimlicoService,
     GaslessRateLimitService,
@@ -131,8 +128,6 @@ import { WalletMapper } from './mappers/wallet.mapper.js';
     NativeEoaFactory,
     Eip7702AccountFactory,
     Eip7702DelegationRepository,
-    Erc4337AccountFactory,
-    Erc4337AccountRepository,
     // Export Pimlico service
     PimlicoService,
     GaslessRateLimitService,
