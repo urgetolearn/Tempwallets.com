@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { entryPoint07Address, entryPoint08Address } from 'viem/account-abstraction';
+import { entryPoint08Address } from 'viem/account-abstraction';
 import { Erc4337Config } from '../types/chain.types.js';
-import { ChainConfigService } from './chain.config.js';
 
 /**
  * Pimlico configuration service
@@ -13,10 +12,7 @@ import { ChainConfigService } from './chain.config.js';
 export class PimlicoConfigService {
   private readonly logger = new Logger(PimlicoConfigService.name);
 
-  constructor(
-    private configService: ConfigService,
-    private chainConfig: ChainConfigService,
-  ) {}
+  constructor(private configService: ConfigService) {}
 
   /**
    * Get Pimlico API key from environment
@@ -29,20 +25,9 @@ export class PimlicoConfigService {
    * Get ERC-4337 configuration for a specific chain
    */
   getErc4337Config(
-    chain: string,
+    chain: 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche',
   ): Erc4337Config {
     const apiKey = this.getPimlicoApiKey();
-    const normalizedChain = chain.replace(/Erc4337$/i, '').toLowerCase();
-    const evmConfig = this.chainConfig.getEvmChainConfig(
-      normalizedChain as
-        | 'ethereum'
-        | 'base'
-        | 'arbitrum'
-        | 'polygon'
-        | 'avalanche'
-        | 'optimism'
-        | 'bnb',
-    );
 
     const configs: Record<string, Erc4337Config> = {
       ethereum: {
@@ -127,46 +112,24 @@ export class PimlicoConfigService {
       },
     };
 
-    const bundlerUrl = apiKey ? `${bundlerBase}?apikey=${apiKey}` : bundlerBase;
-    const paymasterUrl = apiKey ? `${bundlerBase}?apikey=${apiKey}` : undefined;
-
-    const entryPointAddress =
-      this.configService.get<string>('ERC4337_ENTRYPOINT_ADDRESS') ||
-      entryPoint07Address;
-
-    const factoryAddress =
-      this.configService.get<string>('ERC4337_FACTORY_ADDRESS') ||
-      '0x9406Cc6185a346906296840746125a0E44976454';
-
-    return {
-      chainId,
-      rpcUrl: evmConfig.rpcUrl,
-      bundlerUrl,
-      paymasterUrl,
-      entryPointAddress,
-      entryPointVersion: '0.7',
-      factoryAddress,
-    };
+    const config = configs[chain];
+    if (!config) {
+      throw new Error(`Unsupported ERC-4337 chain: ${chain}`);
+    }
+    return config;
   }
 
   /**
    * Get all ERC-4337 configurations
    */
   getAllErc4337Configs(): Record<string, Erc4337Config> {
-    const configured =
-      this.configService
-        .get<string>('ERC4337_CHAINS')
-        ?.split(',')
-        .map((chain) => chain.trim())
-        .filter(Boolean) || [];
-    const chains =
-      configured.length > 0
-        ? configured
-        : ['ethereum', 'base', 'arbitrum', 'polygon', 'avalanche'];
-
-    return Object.fromEntries(
-      chains.map((chain) => [chain, this.getErc4337Config(chain)]),
-    );
+    return {
+      ethereum: this.getErc4337Config('ethereum'),
+      base: this.getErc4337Config('base'),
+      arbitrum: this.getErc4337Config('arbitrum'),
+      polygon: this.getErc4337Config('polygon'),
+      avalanche: this.getErc4337Config('avalanche'),
+    };
   }
 
   /**
@@ -184,58 +147,8 @@ export class PimlicoConfigService {
     const enabled = this.configService.get<string>('ENABLE_EIP7702') === 'true';
     if (!enabled) return false;
     const supportedChains =
-      this.configService
-        .get<string>('EIP7702_CHAINS')
-        ?.split(',')
-        .map((chain) => chain.trim())
-        .filter(Boolean) || [];
-    return supportedChains.includes(chain.toLowerCase());
-  }
-
-  /**
-   * ERC-4337 enablement guard per chain name
-   */
-  isErc4337Enabled(chain: string): boolean {
-    const enabled = this.configService.get<string>('ENABLE_ERC4337') === 'true';
-    if (!enabled) return false;
-    const supportedChains =
-      this.configService
-        .get<string>('ERC4337_CHAINS')
-        ?.split(',')
-        .map((chain) => chain.trim())
-        .filter(Boolean) || [];
-    const normalizedChain = chain.replace(/Erc4337$/i, '').toLowerCase();
-    return supportedChains.includes(normalizedChain);
-  }
-
-  getGaslessRateLimit(): { windowMs: number; maxRequests: number } {
-    const windowMs = Number(
-      this.configService.get<string>('GASLESS_RATE_LIMIT_WINDOW_MS') || 60000,
-    );
-    const maxRequests = Number(
-      this.configService.get<string>('GASLESS_RATE_LIMIT_MAX') || 10,
-    );
-
-    return {
-      windowMs: Number.isFinite(windowMs) ? windowMs : 60000,
-      maxRequests: Number.isFinite(maxRequests) ? maxRequests : 10,
-    };
-  }
-
-  getGaslessMaxGasLimit(): bigint | null {
-    const raw = this.configService.get<string>('GASLESS_MAX_GAS_LIMIT');
-    if (!raw) return null;
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) return null;
-    return BigInt(Math.floor(parsed));
-  }
-
-  getGaslessMaxCallDataBytes(): number | null {
-    const raw = this.configService.get<string>('GASLESS_MAX_CALLDATA_BYTES');
-    if (!raw) return null;
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) return null;
-    return Math.floor(parsed);
+      this.configService.get<string>('EIP7702_CHAINS')?.split(',') || [];
+    return supportedChains.includes(chain);
   }
 
   getEip7702DelegationAddress(): string {
@@ -348,4 +261,27 @@ export class PimlicoConfigService {
     }
   }
 
+  /**
+   * Ensure RPC URL points to a standard node (not Pimlico bundler)
+   */
+  private resolveRpcUrl(
+    envKey: string,
+    fallback: string,
+    chainLabel: string,
+  ): string {
+    const raw = (this.configService.get<string>(envKey) || '').trim();
+    if (!raw) {
+      return fallback;
+    }
+
+    if (raw.toLowerCase().includes('api.pimlico.io')) {
+      this.logger.warn(
+        `Detected ${envKey} pointing to Pimlico bundler for ${chainLabel}. Falling back to ${fallback}. ` +
+          `Please set ${envKey} to a standard RPC (Infura, Alchemy, Ankr, etc.).`,
+      );
+      return fallback;
+    }
+
+    return raw;
+  }
 }
