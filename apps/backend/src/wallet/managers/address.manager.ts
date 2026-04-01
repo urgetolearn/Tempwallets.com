@@ -11,6 +11,7 @@ import { SeedManager } from './seed.manager.js';
 import { AccountFactory } from '../factories/account.factory.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from '../factories/erc4337-account.factory.js';
 import { AddressCacheRepository } from '../repositories/address-cache.repository.js';
 import { mnemonicToAccount } from 'viem/accounts';
 import { PimlicoConfigService } from '../config/pimlico.config.js';
@@ -54,6 +55,7 @@ export class AddressManager implements IAddressManager {
     private accountFactory: AccountFactory,
     private nativeEoaFactory: NativeEoaFactory,
     private eip7702AccountFactory: Eip7702AccountFactory,
+    private erc4337AccountFactory: Erc4337AccountFactory,
     private addressCacheRepository: AddressCacheRepository,
     private pimlicoConfig: PimlicoConfigService,
   ) {}
@@ -170,7 +172,9 @@ export class AddressManager implements IAddressManager {
       }
 
       try {
-        // Use EIP-7702 factory for enabled chains (same address as EOA), else native EOA
+        // Use EIP-7702 factory for enabled chains (same address as EOA),
+        // else ERC-4337 smart account if enabled,
+        // else native EOA.
         // Only enable EIP-7702 for supported chains: ethereum, base, arbitrum, optimism
         const supportedEip7702Chains = [
           'ethereum',
@@ -181,6 +185,7 @@ export class AddressManager implements IAddressManager {
         const useEip7702 =
           this.pimlicoConfig.isEip7702Enabled(chain) &&
           supportedEip7702Chains.includes(chain);
+        const useErc4337 = !useEip7702 && this.pimlicoConfig.isErc4337Enabled(chain);
 
         let account;
         try {
@@ -189,6 +194,13 @@ export class AddressManager implements IAddressManager {
               seedPhrase,
               chain as 'ethereum' | 'base' | 'arbitrum' | 'optimism',
               0,
+            );
+          } else if (useErc4337) {
+            account = await this.erc4337AccountFactory.createAccount(
+              seedPhrase,
+              chain as any,
+              0,
+              userId,
             );
           } else {
             account = await this.nativeEoaFactory.createAccount(
@@ -208,6 +220,11 @@ export class AddressManager implements IAddressManager {
               chain,
               0,
             );
+          } else if (useErc4337) {
+            this.logger.warn(
+              `ERC-4337 creation failed for ${chain}, falling back to Native EOA: ${innerError instanceof Error ? innerError.message : 'Unknown error'}`,
+            );
+            account = await this.nativeEoaFactory.createAccount(seedPhrase, chain, 0);
           } else {
             throw innerError;
           }
@@ -452,7 +469,23 @@ export class AddressManager implements IAddressManager {
       };
     };
 
-    this.eoaChains.forEach((chain) => assign(chain, 'eoa', true));
+    // Mark EVM chains as ERC-4337 when enabled and not using EIP-7702.
+    this.eoaChains.forEach((chain) => {
+      const isEvm =
+        chain === 'ethereum' ||
+        chain === 'base' ||
+        chain === 'arbitrum' ||
+        chain === 'polygon' ||
+        chain === 'avalanche';
+      if (!isEvm) {
+        assign(chain, 'eoa', true);
+        return;
+      }
+
+      const isEip7702 = this.pimlicoConfig.isEip7702Enabled(chain);
+      const is4337 = !isEip7702 && this.pimlicoConfig.isErc4337Enabled(chain);
+      assign(chain, is4337 ? 'erc4337' : 'eoa', true);
+    });
 
     return metadata;
   }
@@ -471,9 +504,8 @@ export class AddressManager implements IAddressManager {
 
     const label = baseLabels[chain];
     if (label) {
-      if (kind === 'eoa') {
-        return `${label} (EOA)`;
-      }
+      if (kind === 'eoa') return `${label} (EOA)`;
+      if (kind === 'erc4337') return `${label} (Smart Account)`;
       return label;
     }
     return chain;

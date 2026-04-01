@@ -3,6 +3,7 @@ import { PimlicoConfigService } from '../config/pimlico.config.js';
 import { AccountFactory } from '../factories/account.factory.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from '../factories/erc4337-account.factory.js';
 import { AllChainTypes } from '../types/chain.types.js';
 import { IAccount } from '../types/account.types.js';
 
@@ -15,6 +16,7 @@ export class WalletAccountService {
     private readonly accountFactory: AccountFactory,
     private readonly nativeEoaFactory: NativeEoaFactory,
     private readonly eip7702AccountFactory: Eip7702AccountFactory,
+    private readonly erc4337AccountFactory: Erc4337AccountFactory,
   ) {}
 
   /**
@@ -59,11 +61,17 @@ export class WalletAccountService {
     ];
 
     if (evmChains.includes(chain)) {
-      return this.nativeEoaFactory.createAccount(
-        seedPhrase,
-        chain as 'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche',
-        0,
-      );
+      // ERC-4337 fallback for networks where EIP-7702 is disabled/unavailable
+      if (this.pimlicoConfig.isErc4337Enabled(chain)) {
+        return this.erc4337AccountFactory.createAccount(
+          seedPhrase,
+          chain as any,
+          0,
+          userId,
+        );
+      }
+
+      return this.nativeEoaFactory.createAccount(seedPhrase, chain as any, 0);
     }
 
     return this.accountFactory.createAccount(seedPhrase, chain, 0);

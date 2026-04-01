@@ -54,15 +54,19 @@ export interface SmartAccountSummary {
   key: 'evmSmartAccount';
   label: string;
   canonicalChain:
-    | 'ethereum'
-    | 'base'
-    | 'arbitrum'
-    | 'polygon'
-    | 'avalanche'
+    | 'ethereumErc4337'
+    | 'baseErc4337'
+    | 'arbitrumErc4337'
+    | 'polygonErc4337'
+    | 'avalancheErc4337'
     | null;
   address: string | null;
   chains: Record<
-    'ethereum' | 'base' | 'arbitrum' | 'polygon' | 'avalanche',
+    | 'ethereumErc4337'
+    | 'baseErc4337'
+    | 'arbitrumErc4337'
+    | 'polygonErc4337'
+    | 'avalancheErc4337',
     string | null
   >;
 }

@@ -7,8 +7,10 @@ import { AddressCacheRepository } from '../repositories/address-cache.repository
 import { WalletAddresses } from '../interfaces/wallet.interfaces.js';
 import { NativeEoaFactory } from '../factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from '../factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from '../factories/erc4337-account.factory.js';
 import { WalletHistoryRepository } from '../repositories/wallet-history.repository.js';
 import { PimlicoConfigService } from '../config/pimlico.config.js';
+import { mnemonicToAccount } from 'viem/accounts';
 
 describe('AddressManager', () => {
   let addressManager: AddressManager;
@@ -20,12 +22,13 @@ describe('AddressManager', () => {
 
   const mockUserId = 'test-fingerprint-123';
   const mockSeedPhrase =
-    'word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12';
+    'test test test test test test test test test test test junk';
 
   beforeEach(async () => {
     // Create mocks
     const mockPimlicoConfigService = {
       isEip7702Enabled: jest.fn().mockReturnValue(false),
+      isErc4337Enabled: jest.fn().mockReturnValue(false),
       getEip7702Config: jest.fn().mockReturnValue(undefined),
     };
 
@@ -48,6 +51,10 @@ describe('AddressManager', () => {
     // };
 
     const mockEip7702AccountFactory = {
+      createAccount: jest.fn(),
+    };
+
+    const mockErc4337AccountFactory = {
       createAccount: jest.fn(),
     };
 
@@ -87,6 +94,10 @@ describe('AddressManager', () => {
         {
           provide: Eip7702AccountFactory,
           useValue: mockEip7702AccountFactory,
+        },
+        {
+          provide: Erc4337AccountFactory,
+          useValue: mockErc4337AccountFactory,
         },
         {
           provide: WalletHistoryRepository,
@@ -363,13 +374,21 @@ describe('AddressManager', () => {
       // Reset mocks for second call
       jest.clearAllMocks();
 
+      // Second request: cached addresses should be trusted when seed matches
+      seedManager.hasSeed.mockResolvedValue(true);
+      seedManager.getSeed.mockResolvedValue(mockSeedPhrase);
+      const derived = mnemonicToAccount(mockSeedPhrase, {
+        accountIndex: 0,
+        addressIndex: 0,
+      }).address;
+
       // Second request: Should use cached (all chains)
       const allCachedAddresses = {
-        ethereum: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        base: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        arbitrum: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        polygon: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        avalanche: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
+        ethereum: derived,
+        base: derived,
+        arbitrum: derived,
+        polygon: derived,
+        avalanche: derived,
         moonbeamTestnet: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         astarShibuya: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
         paseoPassetHub: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',

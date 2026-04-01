@@ -28,6 +28,7 @@ import { WalletAddresses } from './interfaces/wallet.interfaces.js';
 import { Eip7702DelegationRepository } from './repositories/eip7702-delegation.repository.js';
 import { NativeEoaFactory } from './factories/native-eoa.factory.js';
 import { Eip7702AccountFactory } from './factories/eip7702-account.factory.js';
+import { Erc4337AccountFactory } from './factories/erc4337-account.factory.js';
 import { WalletHistoryRepository } from './repositories/wallet-history.repository.js';
 import { PimlicoConfigService } from './config/pimlico.config.js';
 import { WalletMapper } from './mappers/wallet.mapper.js';
@@ -125,6 +126,10 @@ describe('WalletService', () => {
     const mockEip7702AccountFactory = {
       createAccount: jest.fn(),
       createFromSeed: jest.fn(),
+    };
+
+    const mockErc4337AccountFactory = {
+      createAccount: jest.fn(),
     };
     const mockWalletHistoryRepository = {
       save: jest.fn(),
@@ -226,6 +231,10 @@ describe('WalletService', () => {
         {
           provide: Eip7702AccountFactory,
           useValue: mockEip7702AccountFactory,
+        },
+        {
+          provide: Erc4337AccountFactory,
+          useValue: mockErc4337AccountFactory,
         },
         {
           provide: WalletHistoryRepository,

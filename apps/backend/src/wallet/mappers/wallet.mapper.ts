@@ -18,22 +18,30 @@ export class WalletMapper {
   public buildUiWalletPayload(
     metadata: WalletAddressMetadataMap,
   ): UiWalletPayload {
+    // The frontend expects smart-account chain keys like `baseErc4337`.
+    // Values come from the canonical EVM keys (ethereum/base/...) which may
+    // represent either EOA or smart-account addresses depending on enablement.
     const chainsRecord = {
-      ethereum: metadata.ethereum?.address ?? null,
-      base: metadata.base?.address ?? null,
-      arbitrum: metadata.arbitrum?.address ?? null,
-      polygon: metadata.polygon?.address ?? null,
-      avalanche: metadata.avalanche?.address ?? null,
+      ethereumErc4337: metadata.ethereum?.address ?? null,
+      baseErc4337: metadata.base?.address ?? null,
+      arbitrumErc4337: metadata.arbitrum?.address ?? null,
+      polygonErc4337: metadata.polygon?.address ?? null,
+      avalancheErc4337: metadata.avalanche?.address ?? null,
     };
 
-    const canonicalChainKey = SMART_ACCOUNT_CHAIN_KEYS.find(
-      (key) => metadata[key]?.address,
-    );
+    const canonicalChainKey = SMART_ACCOUNT_CHAIN_KEYS.find((key) => {
+      const address = metadata[key]?.address;
+      if (!address) return false;
+      // Only treat as "smart account" when the backend marked it as such.
+      return metadata[key]?.kind === 'erc4337';
+    });
 
     const canonicalAddress = canonicalChainKey
       ? (metadata[canonicalChainKey]?.address ?? null)
       : null;
-    const canonicalChain = canonicalChainKey ? canonicalChainKey : null;
+    const canonicalChain = canonicalChainKey
+      ? (`${canonicalChainKey}Erc4337` as const)
+      : null;
 
     const smartAccount: SmartAccountSummary | null = canonicalAddress
       ? {

@@ -13,12 +13,16 @@ import { WalletIdentityService } from './wallet-identity.service.js';
 import { WalletBalanceService } from './wallet-balance.service.js';
 import { WalletAccountService } from './wallet-account.service.js';
 import { AllChainTypes } from '../types/chain.types.js';
-import { getExplorerUrl } from '../utils/validation.utils.js';
+import {
+  getExplorerUrl,
+  validateEthereumAddress,
+} from '../utils/validation.utils.js';
 import { convertToSmallestUnits } from '../utils/conversion.utils.js';
 
 @Injectable()
 export class WalletSendService {
   private readonly logger = new Logger(WalletSendService.name);
+  private readonly ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
   constructor(
     private readonly seedRepository: SeedRepository,
@@ -64,6 +68,31 @@ export class WalletSendService {
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       throw new BadRequestException('Amount must be a positive number');
+    }
+
+    // Validate & sanitize recipient/token addresses for EVM chains.
+    // (Non-EVM chains have their own address formats and are handled elsewhere.)
+    if (
+      [
+        'ethereum',
+        'base',
+        'arbitrum',
+        'optimism',
+        'polygon',
+        'avalanche',
+        'bnb',
+      ].includes(chain)
+    ) {
+      validateEthereumAddress(recipientAddress);
+      if (recipientAddress.toLowerCase() === this.ZERO_ADDRESS) {
+        throw new BadRequestException('Recipient address cannot be zero address');
+      }
+      if (tokenAddress) {
+        validateEthereumAddress(tokenAddress);
+        if (tokenAddress.toLowerCase() === this.ZERO_ADDRESS) {
+          throw new BadRequestException('Token address cannot be zero address');
+        }
+      }
     }
 
     const forceEip7702 = options?.forceEip7702 === true;
@@ -406,6 +435,22 @@ export class WalletSendService {
           );
         }
 
+        // If this is an ERC-4337 UserOp hash, best-effort resolve to tx hash by polling receipt briefly.
+        // This keeps the API stable (still returns {txHash}) while improving UX when possible.
+        const maybe4337 = account as any;
+        if (
+          typeof maybe4337.getUserOperationTransactionHash === 'function' &&
+          /^0x[a-fA-F0-9]{64}$/.test(txHash)
+        ) {
+          const resolved = await this.pollForUserOpTxHash(maybe4337, txHash, 15000);
+          if (resolved) {
+            this.logger.log(
+              `[ERC-4337] Resolved userOpHash -> txHash: ${txHash} -> ${resolved}`,
+            );
+            txHash = resolved;
+          }
+        }
+
         // Structured logging for successful transaction
         this.logger.log(
           `Transaction successful: chain=${chain}, accountType=${accountType}, ` +
@@ -517,6 +562,22 @@ export class WalletSendService {
         `Failed to send crypto: ${errorMessage}`,
       );
     }
+  }
+
+  private async pollForUserOpTxHash(
+    account: { getUserOperationTransactionHash(userOpHash: string): Promise<string | null> },
+    userOpHash: string,
+    timeoutMs: number,
+  ): Promise<string | null> {
+    const started = Date.now();
+    let delay = 750;
+    while (Date.now() - started < timeoutMs) {
+      const txHash = await account.getUserOperationTransactionHash(userOpHash);
+      if (txHash) return txHash;
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(2000, Math.floor(delay * 1.25));
+    }
+    return null;
   }
 
   async sendEip7702Gasless(

@@ -96,9 +96,8 @@ export function ChainSelector({
   // Group chains by type for better organization
   const groupedChains = useMemo(() => {
     const groups: Record<string, typeof allChains> = {
-      'GASLESS CHAINS / EIP-7702': [],
+      'EVM SMART WALLETS (GASLESS)': [],
       'EVM EOA WALLETS': [],
-      'COMPATIBLE LIGHTNING NODE WALLETS': [],
       'Substrate': [],
       'Aptos': [],
       'Other': [],
@@ -106,12 +105,7 @@ export function ChainSelector({
 
     allChains.forEach((chain) => {
       if (chain.isSmartAccount) {
-        groups['GASLESS CHAINS / EIP-7702']!.push(chain);
-
-        // Add specific chains to LN Compatible section
-        if (['ethereumErc4337', 'baseErc4337', 'arbitrumErc4337'].includes(chain.id)) {
-          groups['COMPATIBLE LIGHTNING NODE WALLETS']!.push(chain);
-        }
+        groups['EVM SMART WALLETS (GASLESS)']!.push(chain);
       } else if (chain.type === 'evm') {
         // Include EOA wallets in EVM Chains group
         groups['EVM EOA WALLETS']!.push(chain);

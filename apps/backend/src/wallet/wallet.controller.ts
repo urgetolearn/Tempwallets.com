@@ -45,6 +45,7 @@ export class WalletController {
   ) {}
 
   @Post('eip7702/send')
+  @UseGuards(RateLimitGuard)
   @HttpCode(HttpStatus.OK)
   async sendEip7702Gasless(
     @Body() dto: SendEip7702Dto,
@@ -411,6 +412,7 @@ export class WalletController {
   }
 
   @Post('send')
+  @UseGuards(RateLimitGuard)
   @HttpCode(HttpStatus.OK)
   async sendCrypto(@Body() dto: SendCryptoDto, @UserId() userId?: string) {
     const finalUserId = userId || dto.userId;

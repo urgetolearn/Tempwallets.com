@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { entryPoint08Address } from 'viem/account-abstraction';
+import {
+  entryPoint07Address,
+  entryPoint08Address,
+} from 'viem/account-abstraction';
 import { Erc4337Config } from '../types/chain.types.js';
 
 /**
@@ -43,7 +46,8 @@ export class PimlicoConfigService {
         paymasterUrl: apiKey
           ? `https://api.pimlico.io/v2/1/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: entryPoint08Address, // v0.8 for EIP-7702
+        // ERC-4337 uses EntryPoint v0.7 (do not use v0.8 which is for 7702 flow)
+        entryPointAddress: entryPoint07Address,
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497', // Pimlico Safe factory
       },
       base: {
@@ -59,7 +63,7 @@ export class PimlicoConfigService {
         paymasterUrl: apiKey
           ? `https://api.pimlico.io/v2/8453/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: entryPoint08Address,
+        entryPointAddress: entryPoint07Address,
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       arbitrum: {
@@ -75,7 +79,7 @@ export class PimlicoConfigService {
         paymasterUrl: apiKey
           ? `https://api.pimlico.io/v2/42161/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: entryPoint08Address,
+        entryPointAddress: entryPoint07Address,
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       polygon: {
@@ -91,7 +95,7 @@ export class PimlicoConfigService {
         paymasterUrl: apiKey
           ? `https://api.pimlico.io/v2/137/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+        entryPointAddress: entryPoint07Address,
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
       avalanche: {
@@ -107,7 +111,7 @@ export class PimlicoConfigService {
         paymasterUrl: apiKey
           ? `https://api.pimlico.io/v2/43114/rpc?apikey=${apiKey}`
           : undefined,
-        entryPointAddress: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+        entryPointAddress: entryPoint07Address,
         factoryAddress: '0x0000000000FFe8B47B3e2130213B802212439497',
       },
     };
@@ -138,6 +142,19 @@ export class PimlicoConfigService {
   hasPimlicoApiKey(): boolean {
     const apiKey = this.getPimlicoApiKey();
     return apiKey.length > 0;
+  }
+
+  /**
+   * ERC-4337 enablement guard per chain name (AllChainTypes string)
+   */
+  isErc4337Enabled(chain: string): boolean {
+    const enabled = this.configService.get<string>('ENABLE_ERC4337') === 'true';
+    if (!enabled) return false;
+    const supportedChains =
+      this.configService.get<string>('ERC4337_CHAINS')?.split(',') || [];
+    // If list is empty, treat as "enabled for all chains we have config for".
+    if (supportedChains.length === 0) return true;
+    return supportedChains.includes(chain);
   }
 
   /**

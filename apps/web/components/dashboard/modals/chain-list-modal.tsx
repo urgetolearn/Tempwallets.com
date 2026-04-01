@@ -54,9 +54,8 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
 
     const groupedChains = useMemo(() => {
         const groups: Record<string, typeof allChains> = {
-            'GASLESS CHAINS / EIP-7702': [],
+            'EVM SMART WALLETS (GASLESS)': [],
             'EVM EOA WALLETS': [],
-            'COMPATIBLE LIGHTNING NODE WALLETS': [],
             'Substrate': [],
             'Aptos': [],
             'Other': [],
@@ -65,10 +64,7 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
         allChains.forEach((chain) => {
             // Logic from ChainSelector
             if (chain.isSmartAccount) {
-                groups['GASLESS CHAINS / EIP-7702']!.push(chain);
-                if (['ethereumErc4337', 'baseErc4337', 'arbitrumErc4337'].includes(chain.id)) {
-                    groups['COMPATIBLE LIGHTNING NODE WALLETS']!.push(chain);
-                }
+                groups['EVM SMART WALLETS (GASLESS)']!.push(chain);
             } else if (chain.type === 'evm') {
                 groups['EVM EOA WALLETS']!.push(chain);
             } else if (chain.type === 'substrate') {
@@ -110,7 +106,7 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
                                 <h3 className="text-white/50 text-[10px] font-rubik-medium uppercase tracking-wider">
                                     {groupName}
                                 </h3>
-                                {['GASLESS CHAINS / EIP-7702', 'EVM EOA WALLETS', 'COMPATIBLE LIGHTNING NODE WALLETS'].includes(groupName) && (
+                                {['EVM SMART WALLETS (GASLESS)', 'EVM EOA WALLETS'].includes(groupName) && (
                                     <a
                                         href="https://medium.com/@tempwallets/what-are-these-different-wallets-i-see-in-my-account-explained-60b01cbd60c5"
                                         target="_blank"
