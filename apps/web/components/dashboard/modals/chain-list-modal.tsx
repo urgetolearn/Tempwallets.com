@@ -3,6 +3,7 @@
 import { useMemo, useEffect } from 'react';
 import { X, CircleHelp } from 'lucide-react';
 import { useWalletConfig } from '@/hooks/useWalletConfig';
+import { EVM_SMART_WALLET_CHAIN_IDS } from '@/lib/wallet-config';
 import { cn } from '@repo/ui/lib/utils';
 import {
     Dialog,
@@ -54,8 +55,9 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
 
     const groupedChains = useMemo(() => {
         const groups: Record<string, typeof allChains> = {
-            'EVM SMART WALLETS (GASLESS)': [],
+            'EVM EOA WALLETS (GASLESS)': [],
             'EVM EOA WALLETS': [],
+            'EVM SMART WALLETS': [],
             'Substrate': [],
             'Aptos': [],
             'Other': [],
@@ -63,8 +65,13 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
 
         allChains.forEach((chain) => {
             // Logic from ChainSelector
-            if (chain.isSmartAccount) {
-                groups['EVM SMART WALLETS (GASLESS)']!.push(chain);
+            const isGasless = !!chain.isSmartAccount;
+            const isSmartWallet = !isGasless && EVM_SMART_WALLET_CHAIN_IDS.has(chain.id);
+
+            if (isGasless) {
+                groups['EVM EOA WALLETS (GASLESS)']!.push(chain);
+            } else if (isSmartWallet) {
+                groups['EVM SMART WALLETS']!.push(chain);
             } else if (chain.type === 'evm') {
                 groups['EVM EOA WALLETS']!.push(chain);
             } else if (chain.type === 'substrate') {
@@ -106,7 +113,7 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
                                 <h3 className="text-white/50 text-[10px] font-rubik-medium uppercase tracking-wider">
                                     {groupName}
                                 </h3>
-                                {['EVM SMART WALLETS (GASLESS)', 'EVM EOA WALLETS'].includes(groupName) && (
+                                {['EVM EOA WALLETS (GASLESS)', 'EVM SMART WALLETS', 'EVM EOA WALLETS'].includes(groupName) && (
                                     <a
                                         href="https://medium.com/@tempwallets/what-are-these-different-wallets-i-see-in-my-account-explained-60b01cbd60c5"
                                         target="_blank"
@@ -167,23 +174,48 @@ export function ChainListModal({ isOpen, onClose, onSelect, selectedChainId, mod
 
                                             {/* Wallet Type Badge */}
                                             <div className="mt-auto scale-90 origin-bottom">
-                                                {chain.isSmartAccount ? (
+                                                {(() => {
+                                                    const isGasless = !!chain.isSmartAccount;
+                                                    const isSmartWallet = !isGasless && EVM_SMART_WALLET_CHAIN_IDS.has(chain.id);
+
+                                                    if (isGasless) {
+                                                        return (
                                                     <span className="px-1.5 py-0.5 text-[9px] bg-blue-500/20 text-blue-300 rounded-full font-rubik-medium border border-blue-500/20">
                                                         7702
                                                     </span>
-                                                ) : chain.type === 'evm' ? (
+                                                        );
+                                                    }
+
+                                                    if (isSmartWallet) {
+                                                        return (
+                                                            <span className="px-1.5 py-0.5 text-[9px] bg-emerald-500/20 text-emerald-300 rounded-full font-rubik-medium border border-emerald-500/20">
+                                                                Smart
+                                                            </span>
+                                                        );
+                                                    }
+
+                                                    if (chain.type === 'evm') {
+                                                        return (
                                                     <span className="px-1.5 py-0.5 text-[9px] bg-purple-500/20 text-purple-300 rounded-full font-rubik-medium border border-purple-500/20">
                                                         EOA
                                                     </span>
-                                                ) : chain.type === 'aptos' ? (
+                                                        );
+                                                    }
+
+                                                    if (chain.type === 'aptos') {
+                                                        return (
                                                     <span className="px-1.5 py-0.5 text-[9px] bg-teal-500/20 text-teal-300 rounded-full font-rubik-medium border border-teal-500/20">
                                                         Aptos
                                                     </span>
-                                                ) : (
+                                                        );
+                                                    }
+
+                                                    return (
                                                     <span className="px-1.5 py-0.5 text-[9px] bg-gray-500/20 text-gray-400 rounded-full font-rubik-medium border border-gray-500/20">
                                                         {chain.type}
                                                     </span>
-                                                )}
+                                                    );
+                                                })()}
                                             </div>
 
                                             {/* Selection Checkmark (Absolute Top Right) */}

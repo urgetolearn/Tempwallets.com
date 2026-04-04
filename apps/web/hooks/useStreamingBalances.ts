@@ -21,7 +21,7 @@ import type {
   NativeBalance,
   TokenBalance,
 } from '@/types/wallet.types';
-import { getWalletConfig, getWalletConfigs } from '@/lib/wallet-config';
+import { getWalletConfig, getWalletConfigs, EVM_SMART_WALLET_CHAIN_IDS } from '@/lib/wallet-config';
 import { isBalanceCacheValid, calculateTotalUSD } from '@/lib/balance-utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5005';
@@ -223,6 +223,7 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
       try {
         // Get all wallet configurations that support balance fetching
         const configs = getWalletConfigs({ capabilities: { balanceFetch: true } });
+        const configById = new Map(configs.map((config) => [config.id, config]));
 
         // Mark all as loading
         configs.forEach((config) => {
@@ -239,9 +240,17 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
             evmBalances.forEach((balance) => {
               // Map chain name to config ID
               const configId = mapChainNameToConfigId(balance.chain);
-              const config = evmConfigs.find((c) => c.id === configId);
-              
-              if (config) {
+              const targetIds = new Set<string>([configId]);
+
+              // Also mirror balances for smart-wallet configs using canonical chain keys
+              if (EVM_SMART_WALLET_CHAIN_IDS.has(balance.chain)) {
+                targetIds.add(balance.chain);
+              }
+
+              targetIds.forEach((targetId) => {
+                const config = configById.get(targetId);
+                if (!config) return;
+
                 const balanceData: BalanceData = {
                   configId: config.id,
                   native: {
@@ -264,7 +273,7 @@ export function useStreamingBalances(): UseStreamingBalancesReturn {
                   lastUpdated: new Date(),
                   cacheTTL: DEFAULT_CACHE_TTL,
                 });
-              }
+              });
             });
           } catch (err) {
             console.error('Error fetching EVM balances:', err);

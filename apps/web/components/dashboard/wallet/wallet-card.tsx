@@ -3,6 +3,7 @@
 import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { Chain } from '@/lib/chains';
+import { EVM_SMART_WALLET_CHAIN_IDS } from '@/lib/wallet-config';
 import { WalletData } from '@/hooks/useWalletV2';
 
 interface WalletCardProps {
@@ -65,7 +66,13 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
                 {chain.name} Wallet
               </p>
               {/* Wallet Type Badges */}
-            {(chain as any).isSmartAccount ? (
+            {(() => {
+              const isSmartAccount = Boolean((chain as any).isSmartAccount);
+              const isGasless = isSmartAccount;
+              const isSmartWallet = !isGasless && EVM_SMART_WALLET_CHAIN_IDS.has(chain.id);
+
+              if (isGasless) {
+                return (
                 <div className="flex items-center gap-1">
                   <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
                     <span className="px-1 py-0 text-[10px] bg-blue-500/20 text-blue-500 rounded-full font-rubik-medium leading-tight">
@@ -95,7 +102,45 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
                     </svg>
                   </a>
                 </div>
-              ) : chain.type === 'evm' ? (
+                );
+              }
+
+              if (isSmartWallet) {
+                return (
+                  <div className="flex items-center gap-1">
+                    <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
+                      <span className="px-1 py-0 text-[10px] bg-emerald-500/20 text-emerald-500 rounded-full font-rubik-medium leading-tight">
+                        Smart
+                      </span>
+                    </div>
+                    <a
+                      href="https://medium.com/@tempwallets/what-are-these-different-wallets-i-see-in-my-account-explained-60b01cbd60c5"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                        <path d="M12 17h.01" />
+                      </svg>
+                    </a>
+                  </div>
+                );
+              }
+
+              if (chain.type === 'evm') {
+                return (
                 <div className="flex items-center gap-1">
                   <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
                     <span className="px-1 py-0 text-[10px] bg-purple-500/20 text-purple-500 rounded-full font-rubik-medium leading-tight">
@@ -125,7 +170,11 @@ export function WalletCard({ wallet, chain, loading, error }: WalletCardProps) {
                     </svg>
                   </a>
                 </div>
-              ) : null}
+                );
+              }
+
+              return null;
+            })()}
             </div>
             <div className="flex items-center justify-center ">
               <div className="rounded-lg px-4 flex items-center gap-2">

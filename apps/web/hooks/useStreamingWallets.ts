@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { subscribeToSSE, UiWalletPayload, ApiError } from '@/lib/api';
 import { WalletData } from '@/types/wallet.types';
-import { getWalletConfig } from '@/lib/wallet-config';
+import { getWalletConfig, EVM_SMART_WALLET_CHAIN_IDS } from '@/lib/wallet-config';
 import { mapWalletCategoryToChainType, ChainType } from '@/lib/chains';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5005';
@@ -142,6 +142,26 @@ function processWalletPayload(
       }
     });
   }
+
+  // Mirror EOA addresses into smart-wallet configs when available
+  EVM_SMART_WALLET_CHAIN_IDS.forEach((chainKey) => {
+    const smartConfig = getWalletConfig(chainKey);
+    if (!smartConfig) return;
+    if (newStates[chainKey]?.address) return;
+
+    const eoaConfigId = mapBackendKeyToConfigId(chainKey);
+    const eoaState = newStates[eoaConfigId];
+
+    if (eoaState?.address) {
+      newStates[chainKey] = {
+        configId: chainKey,
+        loading: false,
+        address: eoaState.address,
+        label: smartConfig.name,
+        lastUpdated: new Date(),
+      };
+    }
+  });
   
   return newStates;
 }

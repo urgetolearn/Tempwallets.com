@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { X, Plus, CircleHelp } from 'lucide-react';
 import { useWalletConfig } from '@/hooks/useWalletConfig';
+import { EVM_SMART_WALLET_CHAIN_IDS } from '@/lib/wallet-config';
 import { cn } from '@repo/ui/lib/utils';
 import { ChainListModal } from '@/components/dashboard/modals/chain-list-modal';
 
@@ -96,16 +97,22 @@ export function ChainSelector({
   // Group chains by type for better organization
   const groupedChains = useMemo(() => {
     const groups: Record<string, typeof allChains> = {
-      'EVM SMART WALLETS (GASLESS)': [],
+      'EVM EOA WALLETS (GASLESS)': [],
       'EVM EOA WALLETS': [],
+      'EVM SMART WALLETS': [],
       'Substrate': [],
       'Aptos': [],
       'Other': [],
     };
 
     allChains.forEach((chain) => {
-      if (chain.isSmartAccount) {
-        groups['EVM SMART WALLETS (GASLESS)']!.push(chain);
+      const isGasless = !!chain.isSmartAccount;
+      const isSmartWallet = !isGasless && EVM_SMART_WALLET_CHAIN_IDS.has(chain.id);
+
+      if (isGasless) {
+        groups['EVM EOA WALLETS (GASLESS)']!.push(chain);
+      } else if (isSmartWallet) {
+        groups['EVM SMART WALLETS']!.push(chain);
       } else if (chain.type === 'evm') {
         // Include EOA wallets in EVM Chains group
         groups['EVM EOA WALLETS']!.push(chain);
@@ -195,23 +202,43 @@ export function ChainSelector({
                       {chain.name}
                     </span>
                     {/* Tags: Gasless and Coming Soon */}
-                    <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
-                      {chain.isSmartAccount && (
-                        <>
-                          <span className="px-1 py-0 text-[9px] bg-blue-500/20 text-blue-400 rounded-full font-rubik-medium leading-tight">
-                            Gasless
-                          </span>
-                          <span className="text-[8px] text-white/30 font-rubik-medium leading-tight">
-                            EIP-7702
-                          </span>
-                        </>
-                      )}
-                      {/* EOA Label for EVM standard wallets */}
-                      {!chain.isSmartAccount && chain.type === 'evm' && (
+                  <div className="flex flex-col items-center gap-0.5 min-h-[14px]">
+                      {(() => {
+                        const isGasless = !!chain.isSmartAccount;
+                        const isSmartWallet = !isGasless && EVM_SMART_WALLET_CHAIN_IDS.has(chain.id);
+                        const isEoaWallet = !isGasless && !isSmartWallet && chain.type === 'evm';
+
+                        if (isGasless) {
+                          return (
+                            <>
+                              <span className="px-1 py-0 text-[9px] bg-blue-500/20 text-blue-400 rounded-full font-rubik-medium leading-tight">
+                                Gasless
+                              </span>
+                              <span className="text-[8px] text-white/30 font-rubik-medium leading-tight">
+                                EIP-7702
+                              </span>
+                            </>
+                          );
+                        }
+
+                        if (isSmartWallet) {
+                          return (
+                            <span className="px-1 py-0 text-[9px] bg-emerald-500/20 text-emerald-400 rounded-full font-rubik-medium leading-tight">
+                              Smart
+                            </span>
+                          );
+                        }
+
+                        if (isEoaWallet) {
+                          return (
                         <span className="px-1 py-0 text-[9px] bg-purple-500/20 text-purple-400 rounded-full font-rubik-medium leading-tight">
                           EOA
                         </span>
-                      )}
+                          );
+                        }
+
+                        return null;
+                      })()}
                       {(!chain.capabilities?.walletConnect && chain.type === 'evm') && (
                         <span className="px-1 py-0 text-[8px] bg-orange-500/20 text-orange-400 rounded-full font-rubik-medium leading-tight border border-orange-500/30">
                           Coming Soon
@@ -219,6 +246,7 @@ export function ChainSelector({
                       )}
                       {/* Spacer for alignment - only show if NO other tags are shown */}
                       {!chain.isSmartAccount &&
+                        !EVM_SMART_WALLET_CHAIN_IDS.has(chain.id) &&
                         chain.capabilities?.walletConnect &&
                         chain.type !== 'evm' && (
                           <span className="h-[14px]" />
